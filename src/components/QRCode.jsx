@@ -1,23 +1,19 @@
 import { useEffect, useRef } from 'react';
 import QRCodeStyling from 'qr-code-styling';
 
-interface QRCodeProps {
-  value: string;
-  size?: number;
-}
 
-export function QRCode({ value, size = 200 }: QRCodeProps) {
-  const ref = useRef<HTMLDivElement>(null);
+export function QRCode({ value, size = 200 }) {
+  const ref = useRef(null);
 
   useEffect(() => {
     if (!ref.current) return;
 
     const qrCode = new QRCodeStyling({
-      width: size,
-      height: size,
-      data: value,
+      width,
+      height,
+      data,
       dotsOptions: {
-        color: getComputedStyle(document.documentElement)
+        color(document.documentElement)
           .getPropertyValue('--primary')
           .trim(),
         type: 'rounded'

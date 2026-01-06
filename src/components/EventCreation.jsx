@@ -12,15 +12,6 @@ import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import confetti from 'canvas-confetti';
 
-interface Participant {
-  id: number;
-  name: string;
-  email: string;
-  hasConfirmed: boolean;
-  hasValidatedAmount: boolean;
-  hasValidatedDeadline: boolean;
-}
-
 export function EventCreation() {
   const { toast } = useToast();
   const addEvent = useEventStore((state) => state.addEvent);
@@ -29,7 +20,7 @@ export function EventCreation() {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [deadline, setDeadline] = useState(30);
-  const [participants, setParticipants] = useState<Participant[]>([
+  const [participants, setParticipants] = useState([
     { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false }
   ]);
 
@@ -45,13 +36,13 @@ export function EventCreation() {
     }]);
   };
 
-  const removeParticipant = (id: number) => {
+  const removeParticipant = (id) => {
     if (participants.length > 1) {
       setParticipants(participants.filter(p => p.id !== id));
     }
   };
 
-  const updateParticipant = (id: number, updates: Partial<Participant>) => {
+  const updateParticipant = (id, updates) => {
     setParticipants(participants.map(p =>
       p.id === id ? { ...p, ...updates } : p
     ));
@@ -82,7 +73,7 @@ export function EventCreation() {
         hasPaid: false,
         paidAmount: 0
       })),
-      status: 'active' as const,
+      status: 'active',
       totalPaid: 0
     };
 

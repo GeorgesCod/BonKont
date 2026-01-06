@@ -8,13 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Mail, Lock, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-interface AuthDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess: () => void;
-}
 
-export function AuthDialog({ isOpen, onClose, onSuccess }: AuthDialogProps) {
+export function AuthDialog({ isOpen, onClose, onSuccess }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('login');
   const [email, setEmail] = useState('');
@@ -22,7 +17,7 @@ export function AuthDialog({ isOpen, onClose, onSuccess }: AuthDialogProps) {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
 
@@ -72,7 +67,7 @@ export function AuthDialog({ isOpen, onClose, onSuccess }: AuthDialogProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[400px] glass-morphism">
+      <DialogContent className="sm-w-[400px] glass-morphism">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold gradient-text text-center">
             {activeTab === 'login' ? 'Connexion' : 'Inscription'}

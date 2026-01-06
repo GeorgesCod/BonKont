@@ -21,26 +21,15 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-interface PaymentValidationProps {
-  eventId: string;
-  participantId: number;
-  onComplete?: () => void;
-}
 
-interface ValidationLog {
-  timestamp: Date;
-  participantId: number;
-  participantName: string;
-  action: 'validate' | 'unvalidate';
-}
 
-export function PaymentValidation({ eventId, participantId, onComplete }: PaymentValidationProps) {
+export function PaymentValidation({ eventId, participantId, onComplete }) {
   const { toast } = useToast();
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const updateParticipant = useEventStore((state) => state.updateParticipant);
-  const [validations, setValidations] = useState<Set<number>>(new Set());
-  const [validationLogs, setValidationLogs] = useState<ValidationLog[]>([]);
-  const [autoValidationTimer, setAutoValidationTimer] = useState<number | null>(null);
+  const [validations, setValidations] = useState>(new Set());
+  const [validationLogs, setValidationLogs] = useState([]);
+  const [autoValidationTimer, setAutoValidationTimer] = useState(null);
 
   useEffect(() => {
     // Nettoyage du timer à la destruction du composant
@@ -60,7 +49,7 @@ export function PaymentValidation({ eventId, participantId, onComplete }: Paymen
   const validationProgress = (validations.size / otherParticipants.length) * 100;
   const isFullyValidated = validations.size === otherParticipants.length;
 
-  const handleValidation = (validatorId: number, validatorName: string) => {
+  const handleValidation = (validatorId, validatorName) => {
     const newValidations = new Set(validations);
     const action = newValidations.has(validatorId) ? 'unvalidate' : 'validate';
 
@@ -75,9 +64,9 @@ export function PaymentValidation({ eventId, participantId, onComplete }: Paymen
     // Ajout du log de validation
     setValidationLogs(prev => [
       {
-        timestamp: new Date(),
-        participantId: validatorId,
-        participantName: validatorName,
+        timestamp Date(),
+        participantId,
+        participantName,
         action
       },
       ...prev
@@ -102,15 +91,15 @@ export function PaymentValidation({ eventId, participantId, onComplete }: Paymen
   const handleFullValidation = () => {
     // Mise à jour du statut du participant
     updateParticipant(eventId, participantId, {
-      hasValidatedAmount: true,
-      validationDate: new Date(),
-      validatedBy: Array.from(validations)
+      hasValidatedAmount,
+      validationDate Date(),
+      validatedBy.from(validations)
     });
 
     toast({
       title: "Paiement validé !",
       description: "Toutes les validations ont été reçues.",
-      duration: 5000
+      duration
     });
 
     // Notification de validation complète

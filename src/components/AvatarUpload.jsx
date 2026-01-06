@@ -27,17 +27,13 @@ import { Camera, Trash2, Upload, UserCircle } from 'lucide-react';
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png'];
 
-interface AvatarUploadProps {
-  currentAvatar?: string;
-  onAvatarChange: (avatar: string | null) => void;
-}
 
-export function AvatarUpload({ currentAvatar, onAvatarChange }: AvatarUploadProps) {
+export function AvatarUpload({ currentAvatar, onAvatarChange }) {
   const { toast } = useToast();
-  const [previewUrl, setPreviewUrl] = useState<string | null>(currentAvatar || null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState(currentAvatar || null);
+  const fileInputRef = useRef(null);
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -63,8 +59,8 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }: AvatarUploadProp
     // Prévisualisation
     const reader = new FileReader();
     reader.onloadend = () => {
-      setPreviewUrl(reader.result as string);
-      onAvatarChange(reader.result as string);
+      setPreviewUrl(reader.result);
+      onAvatarChange(reader.result);
     };
     reader.readAsDataURL(file);
   };
@@ -87,13 +83,13 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }: AvatarUploadProp
               <UserCircle className="w-12 h-12" />
             </AvatarFallback>
           </Avatar>
-          <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover-100 transition-opacity flex items-center justify-center">
             <Camera className="w-6 h-6 text-white" />
           </div>
         </div>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-md glass-morphism">
+      <DialogContent className="sm-w-md glass-morphism">
         <DialogHeader>
           <DialogTitle>Modifier votre avatar</DialogTitle>
         </DialogHeader>
@@ -146,7 +142,7 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }: AvatarUploadProp
                   <AlertDialogCancel>Annuler</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={handleRemoveAvatar}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    className="bg-destructive text-destructive-foreground hover-destructive/90"
                   >
                     Supprimer
                   </AlertDialogAction>

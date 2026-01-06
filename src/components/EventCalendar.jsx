@@ -4,17 +4,13 @@ import { Button } from '@/components/ui/button';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, isToday } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-interface EventCalendarProps {
-  selectedDate: Date;
-  onDateSelect: (date: Date) => void;
-}
 
-export function EventCalendar({ selectedDate, onDateSelect }: EventCalendarProps) {
+export function EventCalendar({ selectedDate, onDateSelect }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const firstDayOfMonth = startOfMonth(currentMonth);
   const lastDayOfMonth = endOfMonth(currentMonth);
   
-  const days = eachDayOfInterval({ start: firstDayOfMonth, end: lastDayOfMonth });
+  const days = eachDayOfInterval({ start, end });
   const weekDays = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
   const goToPreviousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
@@ -32,7 +28,7 @@ export function EventCalendar({ selectedDate, onDateSelect }: EventCalendarProps
           <ChevronLeft className="h-5 w-5" />
         </Button>
         <h3 className="text-lg font-semibold capitalize">
-          {format(currentMonth, 'MMMM yyyy', { locale: fr })}
+          {format(currentMonth, 'MMMM yyyy', { locale })}
         </h3>
         <Button
           variant="ghost"
@@ -53,7 +49,7 @@ export function EventCalendar({ selectedDate, onDateSelect }: EventCalendarProps
       </div>
 
       <div className="grid grid-cols-7 gap-1">
-        {Array.from({ length: firstDayOfMonth.getDay() - 1 }).map((_, index) => (
+        {Array.from({ length.getDay() - 1 }).map((_, index) => (
           <div key={`empty-${index}`} className="calendar-day calendar-day-disabled" />
         ))}
         
@@ -69,7 +65,7 @@ export function EventCalendar({ selectedDate, onDateSelect }: EventCalendarProps
               className={`calendar-day ${
                 isSelected
                   ? 'calendar-day-selected'
-                  : isTodayDate
+                  
                   ? 'border border-primary text-primary'
                   : ''
               } ${!isCurrentMonth ? 'calendar-day-disabled' : ''}`}

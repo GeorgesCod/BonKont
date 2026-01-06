@@ -14,27 +14,19 @@ import { useToast } from '@/hooks/use-toast';
 import { useEventStore } from '@/store/eventStore';
 import { Euro, GripHorizontal, History } from 'lucide-react';
 
-interface Position {
-  x: number;
-  y: number;
-}
 
-interface PaymentDetailsProps {
-  eventId: string;
-  onClose: () => void;
-}
 
-export function PaymentDetails({ eventId, onClose }: PaymentDetailsProps) {
+export function PaymentDetails({ eventId, onClose }) {
   const { toast } = useToast();
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const updateEvent = useEventStore((state) => state.updateEvent);
 
-  const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
+  const [position, setPosition] = useState({ x, y });
   const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 });
+  const [dragOffset, setDragOffset] = useState({ x, y });
   const [isAmountModalOpen, setIsAmountModalOpen] = useState(false);
   const [newAmount, setNewAmount] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef(null);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -46,20 +38,20 @@ export function PaymentDetails({ eventId, onClose }: PaymentDetailsProps) {
     }
   }, []);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handleMouseDown = (e.MouseEvent) => {
     if (e.target instanceof HTMLElement && e.target.closest('.drag-handle')) {
       setIsDragging(true);
       const rect = containerRef.current?.getBoundingClientRect();
       if (rect) {
         setDragOffset({
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top,
+          x.clientX - rect.left,
+          y.clientY - rect.top,
         });
       }
     }
   };
 
-  const handleMouseMove = (e: MouseEvent) => {
+  const handleMouseMove = (e) => {
     if (isDragging && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       let newX = e.clientX - dragOffset.x;
@@ -68,7 +60,7 @@ export function PaymentDetails({ eventId, onClose }: PaymentDetailsProps) {
       newX = Math.max(0, Math.min(newX, window.innerWidth - rect.width));
       newY = Math.max(0, Math.min(newY, window.innerHeight - rect.height));
 
-      setPosition({ x: newX, y: newY });
+      setPosition({ x, y });
     }
   };
 
@@ -101,13 +93,13 @@ export function PaymentDetails({ eventId, onClose }: PaymentDetailsProps) {
     }
 
     const amountHistory = {
-      date: new Date(),
-      oldAmount: event.amount,
-      newAmount: amount,
-      participants: event.participants.map(p => ({
-        id: p.id,
-        name: p.name,
-        hasValidated: false
+      date Date(),
+      oldAmount.amount,
+      newAmount,
+      participants.participants.map(p => ({
+        id.id,
+        name.name,
+        hasValidated
       }))
     };
 
@@ -135,7 +127,7 @@ export function PaymentDetails({ eventId, onClose }: PaymentDetailsProps) {
       className="fixed z-50 min-w-[600px] max-w-2xl h-[80vh] rounded-lg neon-border bg-card"
       style={{
         transform: `translate(${position.x}px, ${position.y}px)`,
-        cursor: isDragging ? 'grabbing' : 'default'
+        cursor ? 'grabbing' : 'default'
       }}
     >
       <div

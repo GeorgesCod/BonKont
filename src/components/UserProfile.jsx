@@ -6,17 +6,13 @@ import { EventHistory } from '@/components/EventHistory';
 import { AvatarUpload } from '@/components/AvatarUpload';
 import { UserCircle, History } from 'lucide-react';
 
-interface UserProfileProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
 
-export function UserProfile({ isOpen, onClose }: UserProfileProps) {
+export function UserProfile({ isOpen, onClose }) {
   const [activeTab, setActiveTab] = useState('profile');
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-4xl glass-morphism">
+      <DialogContent className="sm-w-4xl glass-morphism">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold gradient-text">Profil Utilisateur</DialogTitle>
         </DialogHeader>

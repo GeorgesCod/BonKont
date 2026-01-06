@@ -28,69 +28,82 @@ import { Calendar as CalendarIcon, Clock, Download, FileText, Star, TrendingUp, 
 const COLORS = ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#6b7280'];
 
 export function EventStatistics() {
-  const events = useEventStore((state) => state.events);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const events = useEventStore((state) => state.events) || [];
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [activeTab, setActiveTab] = useState('overview');
 
   // Calcul des statistiques générales
-  const totalEvents = events.length;
-  const totalParticipants = events.reduce((acc, event) => acc + event.participants.length, 0);
-  const totalAmount = events.reduce((acc, event) => acc + event.amount, 0);
-  const averageAmount = totalAmount / totalEvents || 0;
+  const totalEvents = events.length || 0;
+  const totalParticipants = events.reduce((acc, event) => {
+    const participants = Array.isArray(event?.participants) ? event.participants : [];
+    return acc + participants.length;
+  }, 0);
+  const totalAmount = events.reduce((acc, event) => acc + (event?.amount || 0), 0);
+  const averageAmount = totalEvents > 0 ? totalAmount / totalEvents : 0;
 
   // Calcul des délais moyens
   const averageDelay = events.reduce((acc, event) => {
-    const participantsWithDelay = event.participants.filter(p => p.hasPaid);
+    const participants = Array.isArray(event?.participants) ? event.participants : [];
+    const participantsWithDelay = participants.filter(p => p?.hasPaid);
     if (participantsWithDelay.length === 0) return acc;
     const avgEventDelay = participantsWithDelay.reduce((sum, p) => {
-      const paidDate = p.paidDate ? new Date(p.paidDate) : new Date();
-      const startDate = new Date(event.startDate);
+      const paidDate = p?.paidDate ? new Date(p.paidDate) : new Date();
+      const startDate = event?.startDate ? new Date(event.startDate) : new Date();
       return sum + differenceInDays(paidDate, startDate);
     }, 0) / participantsWithDelay.length;
     return acc + avgEventDelay;
-  }, 0) / events.length || 0;
+  }, 0) / (totalEvents || 1);
 
   // Données pour les graphiques
-  const participationData = events.map(event => ({
-    name: event.title,
-    participants: event.participants.length,
-    confirmed: event.participants.filter(p => p.hasConfirmed).length,
-    paid: event.participants.filter(p => p.hasPaid).length
-  }));
+  const participationData = events.map(event => {
+    const participants = Array.isArray(event?.participants) ? event.participants : [];
+    return {
+      name: event?.title || 'Sans titre',
+      participants: participants.length,
+      confirmed: participants.filter(p => p?.hasConfirmed).length,
+      paid: participants.filter(p => p?.hasPaid).length
+    };
+  });
 
   const paymentStatusData = [
     {
       name: 'À temps',
-      value: events.reduce((acc, event) => 
-        acc + event.participants.filter(p => 
-          p.hasPaid && p.paidDate && 
+      value: events.reduce((acc, event) => {
+        const participants = Array.isArray(event?.participants) ? event.participants : [];
+        return acc + participants.filter(p => 
+          p?.hasPaid && p?.paidDate && event?.startDate &&
           !isBefore(new Date(p.paidDate), new Date(event.startDate))
-        ).length
-      , 0)
+        ).length;
+      }, 0)
     },
     {
       name: 'En retard',
-      value: events.reduce((acc, event) => 
-        acc + event.participants.filter(p => 
-          p.hasPaid && p.paidDate && 
+      value: events.reduce((acc, event) => {
+        const participants = Array.isArray(event?.participants) ? event.participants : [];
+        return acc + participants.filter(p => 
+          p?.hasPaid && p?.paidDate && event?.startDate &&
           isBefore(new Date(p.paidDate), new Date(event.startDate))
-        ).length
-      , 0)
+        ).length;
+      }, 0)
     },
     {
       name: 'En attente',
-      value: events.reduce((acc, event) => 
-        acc + event.participants.filter(p => !p.hasPaid).length
-      , 0)
+      value: events.reduce((acc, event) => {
+        const participants = Array.isArray(event?.participants) ? event.participants : [];
+        return acc + participants.filter(p => !p?.hasPaid).length;
+      }, 0)
     }
   ];
 
-  const contributionTrends = events.map(event => ({
-    date: format(new Date(event.startDate), 'dd/MM/yyyy'),
-    montant: event.amount,
-    collecté: event.totalPaid,
-    participants: event.participants.length
-  }));
+  const contributionTrends = events.map(event => {
+    const participants = Array.isArray(event?.participants) ? event.participants : [];
+    return {
+      date: event?.startDate ? format(new Date(event.startDate), 'dd/MM/yyyy') : 'N/A',
+      montant: event?.amount || 0,
+      collecté: event?.totalPaid || 0,
+      participants: participants.length
+    };
+  });
 
   const generatePDF = () => {
     // Simulation de génération de PDF
@@ -303,33 +316,36 @@ export function EventStatistics() {
             <Card className="p-6 neon-border">
               <h3 className="text-lg font-semibold mb-4">Scores des participants</h3>
               <div className="space-y-4">
-                {events.flatMap(event => event.participants).slice(0, 5).map((participant, index) => (
-                  <div key={index} className="flex items-center justify-between p-4 rounded-lg neon-border">
-                    <div>
-                      <p className="font-medium">{participant.name}</p>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Timer className="w-4 h-4" />
-                        <span>Délai moyen: {Math.round(Math.random() * 5)} jours</span>
+                {events.flatMap(event => Array.isArray(event?.participants) ? event.participants : []).slice(0, 5).map((participant, index) => {
+                  if (!participant || !participant.name) return null;
+                  return (
+                    <div key={index} className="flex items-center justify-between p-4 rounded-lg neon-border">
+                      <div>
+                        <p className="font-medium">{participant.name || 'Participant sans nom'}</p>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Timer className="w-4 h-4" />
+                          <span>Délai moyen: {Math.round(Math.random() * 5)} jours</span>
+                        </div>
                       </div>
+                      <Badge
+                        variant={participant.hasPaid ? 'outline' : 'destructive'}
+                        className="gap-2"
+                      >
+                        {participant.hasPaid ? (
+                          <>
+                            <Check className="w-4 h-4" />
+                            Fiable
+                          </>
+                        ) : (
+                          <>
+                            <AlertTriangle className="w-4 h-4" />
+                            À risque
+                          </>
+                        )}
+                      </Badge>
                     </div>
-                    <Badge
-                      variant={participant.hasPaid ? 'outline' : 'destructive'}
-                      className="gap-2"
-                    >
-                      {participant.hasPaid ? (
-                        <>
-                          <Check className="w-4 h-4" />
-                          Fiable
-                        </>
-                      ) : (
-                        <>
-                          <AlertTriangle className="w-4 h-4" />
-                          À risque
-                        </>
-                      )}
-                    </Badge>
-                  </div>
-                ))}
+                  );
+                }).filter(Boolean)}
               </div>
             </Card>
           </div>

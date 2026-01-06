@@ -7,15 +7,12 @@ import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Download, Filter, Search, SortAsc, SortDesc } from 'lucide-react';
 
-type SortField = 'date' | 'amount' | 'participants';
-type SortOrder = 'asc' | 'desc';
-
 export function EventHistory() {
   const events = useEventStore((state) => state.events);
   const [search, setSearch] = useState('');
-  const [sortField, setSortField] = useState<SortField>('date');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending'>('all');
+  const [sortField, setSortField] = useState('date');
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const filteredEvents = events
     .filter(event => {
@@ -56,7 +53,7 @@ export function EventHistory() {
     link.click();
   };
 
-  const handleSort = (field: SortField) => {
+  const handleSort = (field) => {
     if (sortField === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
@@ -150,7 +147,7 @@ export function EventHistory() {
             {filteredEvents.map((event) => (
               <TableRow key={event.id}>
                 <TableCell>
-                  {format(new Date(event.startDate), 'dd MMMM yyyy', { locale: fr })}
+                  {format(new Date(event.startDate), 'dd MMMM yyyy', { locale })}
                 </TableCell>
                 <TableCell className="font-medium">{event.title}</TableCell>
                 <TableCell>{event.amount.toFixed(2)}€</TableCell>

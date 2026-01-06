@@ -16,7 +16,7 @@ export function ScrollToTop() {
 
   const scrollToTop = () => {
     window.scrollTo({
-      top: 0,
+      top,
       behavior: 'smooth'
     });
   };
@@ -27,7 +27,7 @@ export function ScrollToTop() {
     <Button
       variant="outline"
       size="icon"
-      className="fixed bottom-4 right-4 z-50 rounded-full neon-border md:bottom-8 md:right-8"
+      className="fixed bottom-4 right-4 z-50 rounded-full neon-border md-8 md-8"
       onClick={scrollToTop}
     >
       <ArrowUp className="w-5 h-5" />

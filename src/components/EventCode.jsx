@@ -20,11 +20,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
-interface EventCodeProps {
-  eventId: string;
-}
 
-export function EventCode({ eventId }: EventCodeProps) {
+export function EventCode({ eventId }) {
   const { toast } = useToast();
   const event = useEventStore((state) => 
     state.events.find(e => e.id === eventId)
@@ -75,8 +72,8 @@ export function EventCode({ eventId }: EventCodeProps) {
     if (navigator.share) {
       navigator.share({
         title: `Invitation à ${event.title}`,
-        text: decodeURIComponent(message),
-        url: shareUrl
+        text(message),
+        url
       });
     } else {
       window.location.href = `sms:?body=${message}`;
@@ -97,7 +94,7 @@ export function EventCode({ eventId }: EventCodeProps) {
           </Badge>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md-cols-4 gap-4 mb-6">
           <div className="p-4 rounded-lg neon-border text-center">
             <Calendar className="w-5 h-5 mx-auto mb-2 text-primary" />
             <div className="text-sm font-medium">
@@ -183,7 +180,7 @@ export function EventCode({ eventId }: EventCodeProps) {
                   navigator.share({
                     title: `Invitation à ${event.title}`,
                     text: `Rejoignez l'événement "${event.title}" sur BONKONT`,
-                    url: shareUrl
+                    url
                   });
                 }
               }}
@@ -224,7 +221,7 @@ export function EventCode({ eventId }: EventCodeProps) {
       </Card>
 
       <Dialog open={isQRDialogOpen} onOpenChange={setIsQRDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm-w-md">
           <DialogHeader>
             <DialogTitle>Code QR de l'événement</DialogTitle>
           </DialogHeader>

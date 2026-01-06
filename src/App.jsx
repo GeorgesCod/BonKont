@@ -7,6 +7,7 @@ import { AuthDialog } from '@/components/AuthDialog';
 import { UserProfile } from '@/components/UserProfile';
 import { InviteFriends } from '@/components/InviteFriends';
 import { ScrollToTop } from '@/components/ScrollToTop';
+import { TesseractTest } from '@/components/TesseractTest';
 import { Wallet2, LogIn, UserCircle, BarChart as ChartBar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -97,18 +98,21 @@ export default function App() {
               </>
             )
           ) : (
-            <div className="text-center py-20">
-              <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
-              <p className="text-muted-foreground mb-8">
-                Connectez-vous pour gérer vos événements partagés
-              </p>
-              <Button
-                className="gap-2 button-glow"
-                onClick={() => setIsAuthOpen(true)}
-              >
-                <LogIn className="w-4 h-4" />
-                Commencer
-              </Button>
+            <div className="space-y-8">
+              <div className="text-center py-20">
+                <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
+                <p className="text-muted-foreground mb-8">
+                  Connectez-vous pour gérer vos événements partagés
+                </p>
+                <Button
+                  className="gap-2 button-glow"
+                  onClick={() => setIsAuthOpen(true)}
+                >
+                  <LogIn className="w-4 h-4" />
+                  Commencer
+                </Button>
+              </div>
+              <TesseractTest />
             </div>
           )}
         </div>

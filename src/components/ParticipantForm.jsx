@@ -3,35 +3,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-interface Participant {
-  id: number;
-  name: string;
-  email: string;
-  hasConfirmed: boolean;
-  hasValidatedAmount: boolean;
-  hasValidatedDeadline: boolean;
-}
 
-interface ParticipantFormProps {
-  participant: Participant;
-  onUpdate: (updates: Partial<Participant>) => void;
-  onRemove: () => void;
-  canRemove: boolean;
-}
 
 export function ParticipantForm({
   participant,
   onUpdate,
   onRemove,
   canRemove
-}: ParticipantFormProps) {
+}) {
   return (
     <div className="p-4 rounded-lg neon-border relative group">
       {canRemove && (
         <Button
           variant="destructive"
           size="icon"
-          className="absolute -top-3 -right-3 rounded-full w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute -top-3 -right-3 rounded-full w-8 h-8 opacity-0 group-hover-100 transition-opacity"
           onClick={onRemove}
         >
           <Trash2 className="w-4 h-4" />

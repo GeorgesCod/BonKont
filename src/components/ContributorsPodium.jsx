@@ -11,23 +11,9 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import confetti from 'canvas-confetti';
 
-interface Contributor {
-  id: string;
-  name: string;
-  avatar?: string;
-  score: number;
-  paymentDelay: number;
-  amount: number;
-  streak: number;
-  rank: 1 | 2 | 3 | null;
-  status: 'gold' | 'silver' | 'bronze' | 'warning' | null;
-}
 
-interface AvatarDialogProps {
-  onAvatarChange: (type: 'upload' | 'default', value: string) => void;
-}
 
-function AvatarDialog({ onAvatarChange }: AvatarDialogProps) {
+function AvatarDialog({ onAvatarChange }) {
   const defaultAvatars = [
     'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&q=80',
     'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&q=80',
@@ -36,19 +22,19 @@ function AvatarDialog({ onAvatarChange }: AvatarDialogProps) {
     'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&q=80',
   ];
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (event) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        onAvatarChange('upload', reader.result as string);
+        onAvatarChange('upload', reader.result);
       };
       reader.readAsDataURL(file);
     }
   };
 
   return (
-    <DialogContent className="sm:max-w-md">
+    <DialogContent className="sm-w-md">
       <DialogHeader>
         <DialogTitle>Changer votre avatar</DialogTitle>
       </DialogHeader>
@@ -88,66 +74,66 @@ function AvatarDialog({ onAvatarChange }: AvatarDialogProps) {
 }
 
 export function ContributorsPodium() {
-  const [contributors, setContributors] = useState<Contributor[]>([
+  const [contributors, setContributors] = useState([
     {
       id: '1',
       name: 'Emma Laurent',
       avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&q=80',
-      score: 98,
-      paymentDelay: 1,
-      amount: 150,
-      streak: 5,
-      rank: 1,
+      score,
+      paymentDelay,
+      amount,
+      streak,
+      rank,
       status: 'gold'
     },
     {
       id: '2',
       name: 'Thomas Martin',
       avatar: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=100&q=80',
-      score: 92,
-      paymentDelay: 2,
-      amount: 120,
-      streak: 3,
-      rank: 2,
+      score,
+      paymentDelay,
+      amount,
+      streak,
+      rank,
       status: 'silver'
     },
     {
       id: '3',
       name: 'Sophie Dubois',
       avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&q=80',
-      score: 85,
-      paymentDelay: 3,
-      amount: 90,
-      streak: 2,
-      rank: 3,
+      score,
+      paymentDelay,
+      amount,
+      streak,
+      rank,
       status: 'bronze'
     },
     {
       id: '4',
       name: 'Marc Petit',
       avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&q=80',
-      score: 45,
-      paymentDelay: 8,
-      amount: 60,
-      streak: 0,
-      rank: null,
+      score,
+      paymentDelay,
+      amount,
+      streak,
+      rank,
       status: 'warning'
     }
   ]);
 
   const triggerConfetti = () => {
     confetti({
-      particleCount: 100,
-      spread: 70,
-      origin: { y: 0.6 },
+      particleCount,
+      spread,
+      origin: { y.6 },
       colors: ['#FFD700', '#FFA500', '#FF8C00'],
-      zIndex: 9999,
+      zIndex,
     });
   };
 
-  const handleAvatarChange = (contributorId: string, type: 'upload' | 'default', value: string) => {
+  const handleAvatarChange = (contributorId, type: 'upload' | 'default', value) => {
     setContributors(contributors.map(c => 
-      c.id === contributorId ? { ...c, avatar: value } : c
+      c.id === contributorId ? { ...c, avatar } 
     ));
   };
 
@@ -163,9 +149,9 @@ export function ContributorsPodium() {
         </Badge>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md-cols-3 gap-6">
         {/* Position 2 - Argent */}
-        <div className="order-2 md:order-1">
+        <div className="order-2 md-1">
           <div className="flex flex-col items-center">
             <Dialog>
               <DialogTrigger asChild>
@@ -175,7 +161,7 @@ export function ContributorsPodium() {
                     <AvatarImage src={contributors[1].avatar} />
                     <AvatarFallback>{contributors[1].name.charAt(0)}</AvatarFallback>
                   </Avatar>
-                  <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover-100 transition-opacity flex items-center justify-center">
                     <Camera className="w-6 h-6 text-white" />
                   </div>
                   <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-20">
@@ -203,7 +189,7 @@ export function ContributorsPodium() {
         </div>
 
         {/* Position 1 - Or */}
-        <div className="order-1 md:order-2">
+        <div className="order-1 md-2">
           <div className="flex flex-col items-center">
             <Dialog>
               <DialogTrigger asChild>
@@ -216,7 +202,7 @@ export function ContributorsPodium() {
                     <AvatarImage src={contributors[0].avatar} />
                     <AvatarFallback>{contributors[0].name.charAt(0)}</AvatarFallback>
                   </Avatar>
-                  <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover-100 transition-opacity flex items-center justify-center">
                     <Camera className="w-8 h-8 text-white" />
                   </div>
                   <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-20">
@@ -226,7 +212,7 @@ export function ContributorsPodium() {
               </DialogTrigger>
               <AvatarDialog onAvatarChange={(type, value) => handleAvatarChange(contributors[0].id, type, value)} />
             </Dialog>
-            <Card className="w-full p-4 neon-border relative overflow-hidden transform hover:scale-105 transition-transform">
+            <Card className="w-full p-4 neon-border relative overflow-hidden transform hover-105 transition-transform">
               <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/20 to-transparent" />
               <div className="relative z-10 space-y-2">
                 <div className="flex items-center justify-between">
@@ -258,7 +244,7 @@ export function ContributorsPodium() {
                     <AvatarImage src={contributors[2].avatar} />
                     <AvatarFallback>{contributors[2].name.charAt(0)}</AvatarFallback>
                   </Avatar>
-                  <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover-100 transition-opacity flex items-center justify-center">
                     <Camera className="w-6 h-6 text-white" />
                   </div>
                   <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-20">
@@ -293,7 +279,7 @@ export function ContributorsPodium() {
         <ScrollArea className="h-[400px] rounded-lg border border-border pr-4">
           <div className="space-y-4 p-4">
             {contributors.slice(3).map((contributor) => (
-              <Card key={contributor.id} className="p-4 neon-border transition-all hover:scale-[1.01]">
+              <Card key={contributor.id} className="p-4 neon-border transition-all hover-[1.01]">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <Dialog>
@@ -303,7 +289,7 @@ export function ContributorsPodium() {
                             <AvatarImage src={contributor.avatar} />
                             <AvatarFallback>{contributor.name.charAt(0)}</AvatarFallback>
                           </Avatar>
-                          <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover-100 transition-opacity flex items-center justify-center">
                             <Camera className="w-4 h-4 text-white" />
                           </div>
                         </div>

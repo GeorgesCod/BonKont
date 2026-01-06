@@ -60,7 +60,7 @@ export function InviteFriends() {
           Inviter des amis
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md glass-morphism">
+      <DialogContent className="sm-w-md glass-morphism">
         <DialogHeader>
           <DialogTitle className="gradient-text">Inviter des amis</DialogTitle>
         </DialogHeader>

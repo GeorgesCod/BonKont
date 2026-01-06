@@ -1,15 +1,15 @@
 import { DragHandleDots2Icon } from '@radix-ui/react-icons';
-import * as ResizablePrimitive from 'react-resizable-panels';
+import * from 'react-resizable-panels';
 
 import { cn } from '@/lib/utils';
 
 const ResizablePanelGroup = ({
   className,
   ...props
-}: React.ComponentProps<typeof ResizablePrimitive.PanelGroup>) => (
+}) => (
   <ResizablePrimitive.PanelGroup
     className={cn(
-      'flex h-full w-full data-[panel-group-direction=vertical]:flex-col',
+      'flex h-full w-full data-[panel-group-direction=vertical]-col',
       className
     )}
     {...props}
@@ -22,12 +22,12 @@ const ResizableHandle = ({
   withHandle,
   className,
   ...props
-}: React.ComponentProps<typeof ResizablePrimitive.PanelResizeHandle> & {
-  withHandle?: boolean;
+} & {
+  withHandle?;
 }) => (
   <ResizablePrimitive.PanelResizeHandle
     className={cn(
-      'relative flex w-px items-center justify-center bg-border after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 data-[panel-group-direction=vertical]:h-px data-[panel-group-direction=vertical]:w-full data-[panel-group-direction=vertical]:after:left-0 data-[panel-group-direction=vertical]:after:h-1 data-[panel-group-direction=vertical]:after:w-full data-[panel-group-direction=vertical]:after:-translate-y-1/2 data-[panel-group-direction=vertical]:after:translate-x-0 [&[data-panel-group-direction=vertical]>div]:rotate-90',
+      'relative flex w-px items-center justify-center bg-border after after-y-0 after-1/2 after-1 after:-translate-x-1/2 focus-visible-none focus-visible-1 focus-visible-ring focus-visible-offset-1 data-[panel-group-direction=vertical]-px data-[panel-group-direction=vertical]-full data-[panel-group-direction=vertical]-0 data-[panel-group-direction=vertical]-1 data-[panel-group-direction=vertical]-full data-[panel-group-direction=vertical]:-translate-y-1/2 data-[panel-group-direction=vertical]-x-0 [&[data-panel-group-direction=vertical]>div]-90',
       className
     )}
     {...props}

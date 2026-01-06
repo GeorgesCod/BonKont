@@ -2,73 +2,14 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
 
-export interface AmountHistoryEntry {
-  date: Date;
-  oldAmount: number;
-  newAmount: number;
-  participants: {
-    id: number;
-    name: string;
-    hasValidated: boolean;
-  }[];
-}
-
-export interface Event {
-  id: string;
-  title: string;
-  description: string;
-  amount: number;
-  amountHistory?: AmountHistoryEntry[];
-  deadline: number;
-  startDate: Date;
-  participants: Participant[];
-  status: 'pending' | 'active' | 'completed';
-  totalPaid: number;
-  createdAt: Date;
-  updatedAt: Date;
-  code: string;
-  ratings: Rating[];
-}
-
-export interface Participant {
-  id: number;
-  name: string;
-  email: string;
-  hasConfirmed: boolean;
-  hasValidatedAmount: boolean;
-  hasValidatedDeadline: boolean;
-  hasPaid: boolean;
-  paidAmount: number;
-  paidDate?: Date;
-  paymentRank?: number;
-  score: number;
-  avatar?: string;
-}
-
-export interface Rating {
-  participantId: number;
-  score: number;
-  comment: string;
-  date: Date;
-}
-
-interface EventStore {
-  events: Event[];
-  addEvent: (event: Omit<Event, 'id' | 'createdAt' | 'updatedAt' | 'code' | 'ratings'>) => void;
-  updateEvent: (id: string, updates: Partial<Event>) => void;
-  deleteEvent: (id: string) => void;
-  updateParticipant: (eventId: string, participantId: number, updates: Partial<Participant>) => void;
-  addRating: (eventId: string, rating: Rating) => void;
-}
-
-export const useEventStore = create<EventStore>()(
+export const useEventStore = create()(
   persist(
     (set) => ({
       events: [],
       
       addEvent: (eventData) => set((state) => {
         const now = new Date();
-        const newEvent: Event = {
+        const newEvent = {
           ...eventData,
           id: nanoid(),
           code: nanoid(8).toUpperCase(),

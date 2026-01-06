@@ -7,21 +7,15 @@ import { useToast } from '@/hooks/use-toast';
 import { useEventStore } from '@/store/eventStore';
 import { AlertCircle, Check, Euro, Receipt, UserCheck, Users, Calculator, AlertTriangle } from 'lucide-react';
 
-interface CashPaymentProps {
-  eventId: string;
-  participantId: number;
-  amount: number;
-  onValidated: () => void;
-}
 
-export function CashPayment({ eventId, participantId, amount, onValidated }: CashPaymentProps) {
+export function CashPayment({ eventId, participantId, amount, onValidated }) {
   const { toast } = useToast();
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   const updateEvent = useEventStore((state) => state.updateEvent);
   
   const [declaredAmount, setDeclaredAmount] = useState(amount.toString());
-  const [validations, setValidations] = useState<Set<number>>(new Set());
+  const [validations, setValidations] = useState>(new Set());
 
   if (!event) return null;
 
@@ -34,7 +28,7 @@ export function CashPayment({ eventId, participantId, amount, onValidated }: Cas
   const isValidated = validationProgress >= 100;
 
   // Calcul des nouvelles contributions après règlement partiel
-  const calculateNewContributions = (paidAmount: number) => {
+  const calculateNewContributions = (paidAmount) => {
     const totalAmount = event.amount;
     const remainingAmount = totalAmount - paidAmount;
     const remainingParticipants = event.participants.filter(p => !p.hasPaid).length;
@@ -43,9 +37,9 @@ export function CashPayment({ eventId, participantId, amount, onValidated }: Cas
     if (remainingParticipants <= 1 || paidAmount >= totalAmount) {
       return {
         paidAmount,
-        newIndividualAmount: 0,
-        remainingTotal: 0,
-        paymentPercentage: 100
+        newIndividualAmount,
+        remainingTotal,
+        paymentPercentage
       };
     }
 
@@ -55,12 +49,12 @@ export function CashPayment({ eventId, participantId, amount, onValidated }: Cas
     return {
       paidAmount,
       newIndividualAmount,
-      remainingTotal: remainingAmount,
+      remainingTotal,
       paymentPercentage: (paidAmount / amount) * 100
     };
   };
 
-  const handleValidate = (validatorId: number) => {
+  const handleValidate = (validatorId) => {
     const newValidations = new Set(validations);
     if (newValidations.has(validatorId)) {
       newValidations.delete(validatorId);
@@ -80,9 +74,9 @@ export function CashPayment({ eventId, participantId, amount, onValidated }: Cas
 
     // Mise à jour du participant qui paie
     updateParticipant(eventId, participantId, {
-      hasPaid: true,
+      hasPaid,
       paidAmount,
-      paidDate: new Date(),
+      paidDate Date(),
       paymentPercentage
     });
 
@@ -91,15 +85,15 @@ export function CashPayment({ eventId, participantId, amount, onValidated }: Cas
       .filter(p => !p.hasPaid && p.id !== participantId)
       .forEach(p => {
         updateParticipant(eventId, p.id, {
-          paidAmount: 0,
-          amountDue: newIndividualAmount
+          paidAmount,
+          amountDue
         });
       });
 
     // Mise à jour du montant total restant de l'événement
     updateEvent(eventId, {
-      remainingAmount: remainingTotal,
-      lastPaymentPercentage: paymentPercentage
+      remainingAmount,
+      lastPaymentPercentage
     });
 
     toast({
@@ -110,7 +104,7 @@ export function CashPayment({ eventId, participantId, amount, onValidated }: Cas
     onValidated();
   };
 
-  const handleAmountChange = (value: string) => {
+  const handleAmountChange = (value) => {
     setDeclaredAmount(value);
     const paidAmount = parseFloat(value);
     if (!isNaN(paidAmount)) {

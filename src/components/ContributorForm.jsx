@@ -3,30 +3,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-interface Contributor {
-  id: number;
-  firstName: string;
-  lastName: string;
-  email: string;
-  mobile: string;
-  hasValidated: boolean;
-}
 
-interface ContributorFormProps {
-  contributor: Contributor;
-  onRemove: () => void;
-  onValidate: () => void;
-  canRemove: boolean;
-}
 
-export function ContributorForm({ contributor, onRemove, onValidate, canRemove }: ContributorFormProps) {
+export function ContributorForm({ contributor, onRemove, onValidate, canRemove }) {
   return (
     <div className="space-y-4 p-6 rounded-xl bg-background/50 neon-border relative group">
       {canRemove && (
         <Button
           variant="destructive"
           size="sm"
-          className="absolute -top-3 -right-3 rounded-full w-8 h-8 p-0 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+          className="absolute -top-3 -right-3 rounded-full w-8 h-8 p-0 shadow-lg opacity-0 group-hover-100 transition-opacity duration-200"
           onClick={onRemove}
         >
           <Trash2 className="w-4 h-4" />
@@ -54,7 +40,7 @@ export function ContributorForm({ contributor, onRemove, onValidate, canRemove }
           <Input
             id={`firstName-${contributor.id}`}
             placeholder="Entrez le prénom"
-            className="bg-background/50 border-primary/50 focus:border-primary"
+            className="bg-background/50 border-primary/50 focus-primary"
           />
         </div>
         <div className="space-y-2">
@@ -62,7 +48,7 @@ export function ContributorForm({ contributor, onRemove, onValidate, canRemove }
           <Input
             id={`lastName-${contributor.id}`}
             placeholder="Entrez le nom"
-            className="bg-background/50 border-primary/50 focus:border-primary"
+            className="bg-background/50 border-primary/50 focus-primary"
           />
         </div>
       </div>
@@ -74,7 +60,7 @@ export function ContributorForm({ contributor, onRemove, onValidate, canRemove }
             id={`email-${contributor.id}`}
             type="email"
             placeholder="Entrez l'adresse email"
-            className="bg-background/50 border-primary/50 focus:border-primary"
+            className="bg-background/50 border-primary/50 focus-primary"
           />
         </div>
         <div className="space-y-2">
@@ -85,7 +71,7 @@ export function ContributorForm({ contributor, onRemove, onValidate, canRemove }
               id={`mobile-${contributor.id}`}
               type="tel"
               placeholder="Entrez le numéro mobile"
-              className="pl-10 bg-background/50 border-primary/50 focus:border-primary"
+              className="pl-10 bg-background/50 border-primary/50 focus-primary"
             />
           </div>
         </div>

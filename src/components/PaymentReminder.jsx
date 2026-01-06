@@ -6,7 +6,7 @@ import { differenceInDays } from 'date-fns';
 export function PaymentReminder() {
   const { toast } = useToast();
   const events = useEventStore((state) => state.events);
-  const [lastReminderSent, setLastReminderSent] = useState<Record<string, Date>>({});
+  const [lastReminderSent, setLastReminderSent] = useState>({});
 
   useEffect(() => {
     const checkPayments = () => {
@@ -30,24 +30,24 @@ export function PaymentReminder() {
 
               // Envoyer le rappel par email
               sendEmailReminder(participant.email, {
-                eventTitle: event.title,
-                amount: remainingAmount,
-                eventCode: event.code
+                eventTitle.title,
+                amount,
+                eventCode.code
               });
 
               // Envoyer le rappel par SMS si un numéro est disponible
               if (participant.mobile) {
                 sendSMSReminder(participant.mobile, {
-                  eventTitle: event.title,
-                  amount: remainingAmount,
-                  eventCode: event.code
+                  eventTitle.title,
+                  amount,
+                  eventCode.code
                 });
               }
 
               // Mettre à jour la date du dernier rappel
               setLastReminderSent(prev => ({
                 ...prev,
-                [participantKey]: now
+                [participantKey]
               }));
 
               // Notification dans l'interface
@@ -71,10 +71,10 @@ export function PaymentReminder() {
   }, [events, lastReminderSent, toast]);
 
   // Fonction d'envoi d'email
-  const sendEmailReminder = (email: string, data: {
-    eventTitle: string;
-    amount: number;
-    eventCode: string;
+  const sendEmailReminder = (email, data: {
+    eventTitle;
+    amount;
+    eventCode;
   }) => {
     const subject = `Rappel de paiement - ${data.eventTitle}`;
     const body = `
@@ -96,10 +96,10 @@ export function PaymentReminder() {
   };
 
   // Fonction d'envoi de SMS
-  const sendSMSReminder = (mobile: string, data: {
-    eventTitle: string;
-    amount: number;
-    eventCode: string;
+  const sendSMSReminder = (mobile, data: {
+    eventTitle;
+    amount;
+    eventCode;
   }) => {
     const message = `
       Les bons comptes font les bons amis !

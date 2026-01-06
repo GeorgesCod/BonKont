@@ -1,14 +1,14 @@
- import { createContext, useContext, useEffect, useState } from "react";
+  import { createContext, useContext, useEffect, useState } from "react";
 
-// Remplacement des types par des valeurs JavaScript classiques
-const themeOptions = ["dark", "light", "system"]; // Valeurs possibles du thème
+// Valeurs possibles du thème
+const themeOptions = ["dark", "light", "system"];
 
 const initialState = {
-  theme: "system", // Valeur par défaut
-  setTheme: () => {}, // Fonction par défaut qui ne fait rien
+  theme: "system",
+  setTheme: () => {},
 };
 
-// Création du contexte sans types
+// Contexte
 const ThemeProviderContext = createContext(initialState);
 
 export function ThemeProvider({
@@ -41,6 +41,7 @@ export function ThemeProvider({
   const value = {
     theme,
     setTheme: (newTheme) => {
+      if (!themeOptions.includes(newTheme)) return;
       localStorage.setItem(storageKey, newTheme);
       setTheme(newTheme);
     },
@@ -51,4 +52,13 @@ export function ThemeProvider({
       {children}
     </ThemeProviderContext.Provider>
   );
+}
+
+// ✅ EXPORT MANQUANT (CAUSE DE L’ERREUR)
+export function useTheme() {
+  const context = useContext(ThemeProviderContext);
+  if (!context) {
+    throw new Error("useTheme must be used within a ThemeProvider");
+  }
+  return context;
 }

@@ -17,35 +17,17 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-interface Transaction {
-  from: string;
-  to: string;
-  amount: number;
-}
 
-interface Contributor {
-  id: number;
-  firstName: string;
-  lastName: string;
-  email: string;
-  hasValidated: boolean;
-}
 
-interface TransactionDetailsProps {
-  contributors: Contributor[];
-  totalAmount: string;
-  splitAmount: string;
-  onRemoveContributor: (id: number) => void;
-}
 
 export function TransactionDetails({ 
   contributors, 
   totalAmount, 
   splitAmount,
   onRemoveContributor 
-}: TransactionDetailsProps) {
-  const calculateTransactions = (): Transaction[] => {
-    const transactions: Transaction[] = [];
+}) {
+  const calculateTransactions = () => {
+    const transactions = [];
     const amount = parseFloat(splitAmount);
 
     contributors.forEach((payer, i) => {
@@ -54,7 +36,7 @@ export function TransactionDetails({
           transactions.push({
             from: `${payer.firstName} ${payer.lastName}`,
             to: `${receiver.firstName} ${receiver.lastName}`,
-            amount: amount / (contributors.length - 1)
+            amount / (contributors.length - 1)
           });
         }
       });
@@ -80,7 +62,7 @@ export function TransactionDetails({
       if (navigator.share) {
         navigator.share({
           title: 'Détails des transactions',
-          text: message
+          text
         });
       }
     }
@@ -133,7 +115,7 @@ export function TransactionDetails({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="text-destructive hover:text-destructive"
+                      className="text-destructive hover-destructive"
                       onClick={() => onRemoveContributor(contributor.id)}
                     >
                       <Trash2 className="w-4 h-4" />

@@ -32,9 +32,9 @@ import {
 export function EventDashboard() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('active');
-  const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
-  const [selectedParticipant, setSelectedParticipant] = useState<number | null>(null);
-  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedParticipant, setSelectedParticipant] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
   
   const events = useEventStore((state) => state.events);
   const updateEvent = useEventStore((state) => state.updateEvent);
@@ -252,4 +252,98 @@ export function EventDashboard() {
                   </div>
                 </div>
 
-                <div className
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    className="gap-2 neon-border"
+                    onClick={() => handlePayment(event.id, event.participants[0]?.id)}
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    Enregistrer un paiement
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2 neon-border"
+                    onClick={() => handleSendReminder(event.id)}
+                  >
+                    <Bell className="w-4 h-4" />
+                    Envoyer un rappel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="gap-2 neon-border text-destructive"
+                    onClick={() => handleDeleteEvent(event.id)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Supprimer
+                  </Button>
+                </div>
+              </Card>
+            );
+          })}
+        </TabsContent>
+
+        <TabsContent value="pending" className="space-y-4">
+          {filteredEvents.length === 0 ? (
+            <Card className="p-8 text-center neon-border">
+              <p className="text-muted-foreground">Aucun événement en attente</p>
+            </Card>
+          ) : (
+            filteredEvents.map((event) => (
+              <Card key={event.id} className="p-6 neon-border">
+                <h3 className="text-xl font-semibold">{event.title}</h3>
+                <p className="text-sm text-muted-foreground mt-2">{event.description}</p>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="completed" className="space-y-4">
+          {filteredEvents.length === 0 ? (
+            <Card className="p-8 text-center neon-border">
+              <p className="text-muted-foreground">Aucun événement terminé</p>
+            </Card>
+          ) : (
+            filteredEvents.map((event) => (
+              <Card key={event.id} className="p-6 neon-border">
+                <h3 className="text-xl font-semibold">{event.title}</h3>
+                <p className="text-sm text-muted-foreground mt-2">{event.description}</p>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={selectedEvent !== null} onOpenChange={() => setSelectedEvent(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enregistrer un paiement</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="participant">Participant</Label>
+              <Input
+                id="participant"
+                value={selectedParticipant !== null ? events.find(e => e.id === selectedEvent)?.participants.find(p => p.id === selectedParticipant)?.name || '' : ''}
+                disabled
+              />
+            </div>
+            <div>
+              <Label htmlFor="amount">Montant</Label>
+              <Input
+                id="amount"
+                type="number"
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <Button onClick={handlePaymentSubmit} className="w-full">
+              Enregistrer
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

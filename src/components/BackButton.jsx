@@ -10,7 +10,7 @@ export function BackButton() {
     <Button
       variant="ghost"
       size="icon"
-      className="fixed top-4 left-4 z-50 md:relative md:top-0 md:left-0"
+      className="fixed top-4 left-4 z-50 md md-0 md-0"
       onClick={handleBack}
     >
       <ArrowLeft className="w-5 h-5" />

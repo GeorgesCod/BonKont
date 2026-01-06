@@ -5,14 +5,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { CashPayment } from '@/components/CashPayment';
 
-interface PaymentMethodsProps {
-  eventId: string;
-  participantId: number;
-  amount: number;
-  onPaymentComplete?: () => void;
-}
 
-export function PaymentMethods({ eventId, participantId, amount, onPaymentComplete }: PaymentMethodsProps) {
+export function PaymentMethods({ eventId, participantId, amount, onPaymentComplete }) {
   const [selectedMethod, setSelectedMethod] = useState<'card' | 'cash'>('card');
 
   return (
@@ -77,12 +71,12 @@ export function PaymentMethods({ eventId, participantId, amount, onPaymentComple
                       <span>•••• •••• •••• 4242</span>
                     </Label>
                   </div>
-                  <Button variant="ghost" size="sm" className="text-primary hover:text-primary/90">
+                  <Button variant="ghost" size="sm" className="text-primary hover-primary/90">
                     Modifier
                   </Button>
                 </div>
               </RadioGroup>
-              <Button variant="outline" className="w-full mt-4 border-secondary hover:border-secondary hover:text-secondary">
+              <Button variant="outline" className="w-full mt-4 border-secondary hover-secondary hover-secondary">
                 <Plus className="w-4 h-4 mr-2" />
                 Ajouter une carte
               </Button>
@@ -94,19 +88,19 @@ export function PaymentMethods({ eventId, participantId, amount, onPaymentComple
       <div className="space-y-4">
         <h3 className="text-lg font-semibold text-secondary">Autres moyens de paiement</h3>
         <div className="grid grid-cols-3 gap-4">
-          <Button variant="outline" className="h-auto py-6 flex flex-col gap-2 neon-border border-primary/50 hover:border-primary">
+          <Button variant="outline" className="h-auto py-6 flex flex-col gap-2 neon-border border-primary/50 hover-primary">
             <div className="w-10 h-10 rounded-full bg-[#0070BA] flex items-center justify-center">
               <DollarSign className="h-5 w-5 text-white" />
             </div>
             <span className="text-sm">PayPal</span>
           </Button>
-          <Button variant="outline" className="h-auto py-6 flex flex-col gap-2 neon-border border-primary/50 hover:border-primary">
+          <Button variant="outline" className="h-auto py-6 flex flex-col gap-2 neon-border border-primary/50 hover-primary">
             <div className="w-10 h-10 rounded-full bg-[#3396CD] flex items-center justify-center">
               <Wallet className="h-5 w-5 text-white" />
             </div>
             <span className="text-sm">Lydia</span>
           </Button>
-          <Button variant="outline" className="h-auto py-6 flex flex-col gap-2 neon-border border-primary/50 hover:border-primary">
+          <Button variant="outline" className="h-auto py-6 flex flex-col gap-2 neon-border border-primary/50 hover-primary">
             <div className="w-10 h-10 rounded-full bg-[#00D54B] flex items-center justify-center">
               <DollarSign className="h-5 w-5 text-white" />
             </div>
