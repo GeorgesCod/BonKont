@@ -79,7 +79,7 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm-w-[400px] glass-morphism">
+      <DialogContent className="w-[95vw] sm:w-full sm:max-w-[400px] glass-morphism mx-2 sm:mx-0">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold gradient-text text-center">
             {activeTab === 'login' ? 'Connexion' : 'Inscription'}

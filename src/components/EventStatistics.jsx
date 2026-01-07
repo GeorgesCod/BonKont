@@ -282,8 +282,8 @@ export function EventStatistics() {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <h2 className="text-3xl font-bold gradient-text">Statistiques des Événements</h2>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
+        <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text">Statistiques des Événements</h2>
         <Button 
           onClick={generatePDF} 
           className="gap-2 button-glow"
@@ -309,7 +309,7 @@ export function EventStatistics() {
         </Card>
       ) : (
         <>
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <Card className="p-4 neon-border">
           <div className="flex items-center gap-2 text-primary mb-2">
             <CalendarIcon className="w-5 h-5" />
@@ -358,14 +358,14 @@ export function EventStatistics() {
 
       {/* Carte supplémentaire pour le taux de collecte */}
       <Card className="p-4 neon-border">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
           <div className="flex items-center gap-2 text-primary">
             <TrendingUp className="w-5 h-5" />
-            <h3 className="font-semibold">Taux de collecte global</h3>
+            <h3 className="font-semibold text-sm sm:text-base">Taux de collecte global</h3>
           </div>
-          <div className="text-right">
-            <p className="text-2xl font-bold">{collectionRate.toFixed(1)}%</p>
-            <p className="text-sm text-muted-foreground">
+          <div className="text-left sm:text-right">
+            <p className="text-xl sm:text-2xl font-bold">{collectionRate.toFixed(1)}%</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">
               {totalCollected.toFixed(2)}€ / {totalAmount.toFixed(2)}€
             </p>
           </div>
@@ -377,7 +377,7 @@ export function EventStatistics() {
         console.log('[EventStatistics] Tab changed:', value);
         setActiveTab(value);
       }}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 text-xs sm:text-sm">
           <TabsTrigger value="overview" className="gap-2">
             <ChartBar className="w-4 h-4" />
             Vue d'ensemble

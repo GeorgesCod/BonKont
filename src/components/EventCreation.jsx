@@ -307,7 +307,7 @@ export function EventCreation() {
 
         {step === 5 && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="p-4 rounded-lg neon-border space-y-2">
                 <div className="flex items-center gap-2 text-primary">
                   <Calendar className="w-5 h-5" />
@@ -332,7 +332,7 @@ export function EventCreation() {
                 <Users className="w-5 h-5" />
                 <h3 className="font-semibold">Participants ({participants.length})</h3>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {participants.map((p) => (
                   <div key={p.id} className="text-sm">
                     <p className="font-medium">{p.name}</p>

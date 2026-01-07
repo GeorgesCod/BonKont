@@ -405,8 +405,8 @@ Merci de votre attention.
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold gradient-text">Tableau de bord</h2>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
+        <h2 className="text-xl sm:text-2xl font-bold gradient-text">Tableau de bord</h2>
         <Button variant="outline" className="gap-2 neon-border">
           <History className="w-4 h-4" />
           Historique
@@ -414,7 +414,7 @@ Merci de votre attention.
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-3 text-xs sm:text-sm">
           <TabsTrigger value="active" className="gap-2">
             <Clock className="w-4 h-4" />
             En cours
@@ -466,7 +466,7 @@ Merci de votre attention.
                   </Badge>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                   <div className="p-4 rounded-lg neon-border space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -507,7 +507,7 @@ Merci de votre attention.
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2">
                   <Button
                     variant="outline"
                     className="gap-2 neon-border"
@@ -576,7 +576,7 @@ Merci de votre attention.
         setPaymentAmount('');
         setPaymentMethod('card');
       }}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto mx-2 sm:mx-0">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold gradient-text">
               Enregistrer un paiement
@@ -1113,7 +1113,7 @@ Merci de votre attention.
 
       {/* Dialogue pour envoyer un rappel */}
       <Dialog open={showReminderDialog} onOpenChange={setShowReminderDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-[500px] mx-2 sm:mx-0">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bell className="w-5 h-5" />

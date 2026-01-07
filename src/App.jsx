@@ -24,6 +24,23 @@ export default function App() {
 
   useEffect(() => {
     console.log('[App] Component mounted, setting up hash routing');
+    console.log('[App] Screen size:', {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      isMobile: window.innerWidth < 640,
+      isTablet: window.innerWidth >= 640 && window.innerWidth < 1024,
+      isDesktop: window.innerWidth >= 1024
+    });
+    
+    const handleResize = () => {
+      console.log('[App] Window resized:', {
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
     const handleHashChange = () => {
       const hash = window.location.hash;
       console.log('[App] Hash changed:', hash);
@@ -59,21 +76,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="py-6 border-b border-border/50 backdrop-blur-sm bg-background/80 sticky top-0 z-50">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Wallet2 className="w-8 h-8 text-primary hover-glow" />
-              <div>
-                <h1 className="text-3xl font-bold neon-glow bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
+      <header className="py-3 sm:py-6 border-b border-border/50 backdrop-blur-sm bg-background/80 sticky top-0 z-50">
+        <div className="container mx-auto px-3 sm:px-4">
+          <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Wallet2 className="w-6 h-6 sm:w-8 sm:h-8 text-primary hover-glow flex-shrink-0" />
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold neon-glow bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary truncate">
                   BONKONT
                 </h1>
-                <p className="text-sm text-muted-foreground italic">
+                <p className="text-xs sm:text-sm text-muted-foreground italic hidden sm:block">
                   Les bons comptes font les bons amis
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
               {!isLoggedIn ? (
                 <>
                   <InviteFriends />
@@ -116,7 +133,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
         <div className="max-w-4xl mx-auto">
           {isLoggedIn ? (
             currentView === 'event' && selectedEventId ? (

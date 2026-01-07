@@ -115,17 +115,17 @@ export function EventManagement({ eventId, onBack }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={onBack} className="neon-border">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+        <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+          <Button variant="ghost" size="icon" onClick={onBack} className="neon-border flex-shrink-0">
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <div>
-            <h1 className="text-3xl font-bold gradient-text">{event.title}</h1>
-            <p className="text-muted-foreground">{event.description}</p>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text truncate">{event.title}</h1>
+            <p className="text-sm sm:text-base text-muted-foreground truncate">{event.description}</p>
           </div>
         </div>
-        <Badge variant="outline" className="text-lg px-4 py-2">
+        <Badge variant="outline" className="text-sm sm:text-lg px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0">
           Code: {event.code}
         </Badge>
       </div>
@@ -234,7 +234,7 @@ export function EventManagement({ eventId, onBack }) {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
                     <div>
                       <p className="text-muted-foreground">Montant dû</p>
                       <p className="font-semibold">{stats.totalDue.toFixed(2)}€</p>
@@ -283,7 +283,7 @@ export function EventManagement({ eventId, onBack }) {
 
       {/* Dialog pour les détails du participant */}
       <Dialog open={selectedParticipant !== null} onOpenChange={() => setSelectedParticipant(null)}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl mx-2 sm:mx-0">
           <DialogHeader>
             <DialogTitle>Profil du participant</DialogTitle>
           </DialogHeader>
@@ -294,7 +294,7 @@ export function EventManagement({ eventId, onBack }) {
                 <p className="text-muted-foreground">{selectedParticipant.email}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="p-4 rounded-lg border border-border">
                   <p className="text-sm text-muted-foreground mb-1">Participations</p>
                   <p className="text-2xl font-bold">{participants.length}</p>
