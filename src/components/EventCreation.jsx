@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Calendar, Euro, Users, Clock, Plus, ArrowRight, Copy, Check } from 'lucide-react';
 import { ParticipantForm } from '@/components/ParticipantForm';
+import { EventLocation } from '@/components/EventLocation';
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import confetti from 'canvas-confetti';
@@ -22,6 +23,7 @@ export function EventCreation() {
   const [amount, setAmount] = useState('');
   const [deadline, setDeadline] = useState(30);
   const [eventCode, setEventCode] = useState(nanoid(8).toUpperCase());
+  const [location, setLocation] = useState(null);
   const [participants, setParticipants] = useState([
     { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false }
   ]);
@@ -57,6 +59,8 @@ export function EventCreation() {
       case 2:
         return amount.trim() !== '' && !isNaN(parseFloat(amount));
       case 3:
+        return location !== null && location.address.trim() !== '';
+      case 4:
         return participants.every(p => p.name.trim() !== '' && p.email.trim() !== '');
       default:
         return true;
@@ -70,6 +74,7 @@ export function EventCreation() {
       amount: parseFloat(amount),
       deadline,
       code: eventCode,
+      location,
       startDate: new Date(),
       participants: participants.map(p => ({
         ...p,
@@ -101,6 +106,7 @@ export function EventCreation() {
     setAmount('');
     setDeadline(30);
     setEventCode(nanoid(8).toUpperCase());
+    setLocation(null);
     setParticipants([
       { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false }
     ]);
@@ -111,11 +117,11 @@ export function EventCreation() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold gradient-text">Créer un événement</h2>
         <Badge variant="outline" className="gap-2">
-          Étape {step}/4
+          Étape {step}/5
         </Badge>
       </div>
 
-      <Progress value={step * 25} className="h-2" />
+      <Progress value={step * 20} className="h-2" />
 
       <Card className="p-6 neon-border space-y-6">
         {step === 1 && (
@@ -203,6 +209,15 @@ export function EventCreation() {
 
         {step === 3 && (
           <div className="space-y-4">
+            <EventLocation
+              location={location}
+              onLocationChange={setLocation}
+            />
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Participants</h3>
               <Button
@@ -229,7 +244,7 @@ export function EventCreation() {
           </div>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div className="p-4 rounded-lg neon-border space-y-2">
@@ -272,6 +287,15 @@ export function EventCreation() {
               </div>
               <p className="font-medium">{deadline} jours</p>
             </div>
+            {location && (
+              <div className="p-4 rounded-lg neon-border space-y-2">
+                <div className="flex items-center gap-2 text-primary">
+                  <Calendar className="w-5 h-5" />
+                  <h3 className="font-semibold">Lieu</h3>
+                </div>
+                <p className="font-medium">{location.address}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -286,7 +310,7 @@ export function EventCreation() {
             </Button>
           )}
           <div className="ml-auto">
-            {step < 4 ? (
+            {step < 5 ? (
               <Button
                 onClick={() => setStep(step + 1)}
                 disabled={!canProceed()}
