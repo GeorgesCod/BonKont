@@ -6,11 +6,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Calendar, Euro, Users, Clock, Plus, ArrowRight } from 'lucide-react';
+import { Calendar, Euro, Users, Clock, Plus, ArrowRight, Copy, Check } from 'lucide-react';
 import { ParticipantForm } from '@/components/ParticipantForm';
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import confetti from 'canvas-confetti';
+import { nanoid } from 'nanoid';
 
 export function EventCreation() {
   const { toast } = useToast();
@@ -20,6 +21,7 @@ export function EventCreation() {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [deadline, setDeadline] = useState(30);
+  const [eventCode, setEventCode] = useState(nanoid(8).toUpperCase());
   const [participants, setParticipants] = useState([
     { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false }
   ]);
@@ -67,6 +69,7 @@ export function EventCreation() {
       description,
       amount: parseFloat(amount),
       deadline,
+      code: eventCode,
       startDate: new Date(),
       participants: participants.map(p => ({
         ...p,
@@ -97,6 +100,7 @@ export function EventCreation() {
     setDescription('');
     setAmount('');
     setDeadline(30);
+    setEventCode(nanoid(8).toUpperCase());
     setParticipants([
       { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false }
     ]);
@@ -135,6 +139,29 @@ export function EventCreation() {
                 placeholder="Décrivez votre événement..."
                 className="neon-border min-h-[100px]"
               />
+            </div>
+            <div className="p-4 rounded-lg neon-border bg-primary/5">
+              <Label className="text-sm text-muted-foreground mb-2 block">Code de l'événement</Label>
+              <div className="flex items-center justify-between p-3 rounded-lg bg-background border border-primary/20">
+                <span className="text-2xl font-mono font-bold text-primary">{eventCode}</span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="neon-border"
+                  onClick={() => {
+                    navigator.clipboard.writeText(eventCode);
+                    toast({
+                      title: "Code copié !",
+                      description: "Le code a été copié dans le presse-papier."
+                    });
+                  }}
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Partagez ce code avec les participants pour qu'ils puissent rejoindre l'événement
+              </p>
             </div>
           </div>
         )}

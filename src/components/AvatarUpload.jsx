@@ -104,19 +104,43 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }) {
             </Avatar>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="avatar">Choisir une image</Label>
-            <Input
-              id="avatar"
-              type="file"
-              ref={fileInputRef}
-              accept="image/jpeg,image/png"
-              onChange={handleFileSelect}
-              className="cursor-pointer neon-border"
-            />
-            <p className="text-sm text-muted-foreground">
-              JPG ou PNG • Max 2MB
-            </p>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="avatar">Choisir une image</Label>
+              <Input
+                id="avatar"
+                type="file"
+                ref={fileInputRef}
+                accept="image/jpeg,image/png"
+                onChange={handleFileSelect}
+                className="cursor-pointer neon-border"
+              />
+              <p className="text-sm text-muted-foreground">
+                JPG ou PNG • Max 2MB
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Ou choisir un avatar prédéfini</Label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  '👤', '👨', '👩', '🧑', '👨‍💼', '👩‍💼', '👨‍🎓', '👩‍🎓',
+                  '👨‍🔬', '👩‍🔬', '👨‍⚕️', '👩‍⚕️', '👨‍🍳', '👩‍🍳', '👨‍🏫', '👩‍🏫'
+                ].map((emoji, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => {
+                      setPreviewUrl(`data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text y="50" font-size="50">${emoji}</text></svg>`);
+                      onAvatarChange(`data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text y="50" font-size="50">${emoji}</text></svg>`);
+                    }}
+                    className="w-12 h-12 rounded-full border-2 border-border hover:border-primary transition-colors text-2xl flex items-center justify-center bg-background hover:bg-primary/10"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="flex justify-between">

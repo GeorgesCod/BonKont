@@ -147,7 +147,7 @@ export function EventHistory() {
             {filteredEvents.map((event) => (
               <TableRow key={event.id}>
                 <TableCell>
-                  {format(new Date(event.startDate), 'dd MMMM yyyy', { locale })}
+                  {format(new Date(event.startDate), 'dd MMMM yyyy', { locale: fr })}
                 </TableCell>
                 <TableCell className="font-medium">{event.title}</TableCell>
                 <TableCell>{event.amount.toFixed(2)}€</TableCell>

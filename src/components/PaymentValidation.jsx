@@ -27,7 +27,7 @@ export function PaymentValidation({ eventId, participantId, onComplete }) {
   const { toast } = useToast();
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const updateParticipant = useEventStore((state) => state.updateParticipant);
-  const [validations, setValidations] = useState>(new Set());
+  const [validations, setValidations] = useState(new Set());
   const [validationLogs, setValidationLogs] = useState([]);
   const [autoValidationTimer, setAutoValidationTimer] = useState(null);
 
@@ -64,9 +64,9 @@ export function PaymentValidation({ eventId, participantId, onComplete }) {
     // Ajout du log de validation
     setValidationLogs(prev => [
       {
-        timestamp Date(),
+        timestamp: new Date(),
         participantId,
-        participantName,
+        participantName: participant.name,
         action
       },
       ...prev
@@ -91,15 +91,15 @@ export function PaymentValidation({ eventId, participantId, onComplete }) {
   const handleFullValidation = () => {
     // Mise à jour du statut du participant
     updateParticipant(eventId, participantId, {
-      hasValidatedAmount,
-      validationDate Date(),
-      validatedBy.from(validations)
+      hasValidatedAmount: true,
+      validationDate: new Date(),
+      validatedBy: Array.from(validations)
     });
 
     toast({
       title: "Paiement validé !",
       description: "Toutes les validations ont été reçues.",
-      duration
+      duration: 5000
     });
 
     // Notification de validation complète

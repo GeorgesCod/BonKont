@@ -5,7 +5,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Mail, Lock, AlertCircle } from 'lucide-react';
+import { AvatarUpload } from '@/components/AvatarUpload';
+import { Mail, Lock, AlertCircle, User } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 
@@ -14,6 +15,8 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
   const [activeTab, setActiveTab] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [avatar, setAvatar] = useState(null);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -31,6 +34,15 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           description: "Bienvenue sur BONKONT !",
         });
       } else {
+        // Sauvegarder les données utilisateur
+        const userData = {
+          name,
+          email,
+          avatar: avatar || null,
+          createdAt: new Date()
+        };
+        localStorage.setItem('bonkont-user', JSON.stringify(userData));
+        
         toast({
           title: "Inscription réussie",
           description: "Votre compte a été créé avec succès.",
@@ -81,6 +93,31 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           </TabsList>
 
           <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+            {activeTab === 'register' && (
+              <>
+                <div className="flex justify-center mb-4">
+                  <AvatarUpload
+                    currentAvatar={avatar}
+                    onAvatarChange={setAvatar}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nom complet</Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="name"
+                      type="text"
+                      placeholder="Votre nom"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="pl-10 neon-border"
+                      required
+                    />
+                  </div>
+                </div>
+              </>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <div className="relative">

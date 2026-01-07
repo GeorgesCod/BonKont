@@ -7,7 +7,7 @@ import { CashPayment } from '@/components/CashPayment';
 
 
 export function PaymentMethods({ eventId, participantId, amount, onPaymentComplete }) {
-  const [selectedMethod, setSelectedMethod] = useState<'card' | 'cash'>('card');
+  const [selectedMethod, setSelectedMethod] = useState('card');
 
   return (
     <div className="space-y-6">
@@ -15,7 +15,7 @@ export function PaymentMethods({ eventId, participantId, amount, onPaymentComple
         <h3 className="text-lg font-semibold text-secondary">Mode de paiement</h3>
         <RadioGroup
           value={selectedMethod}
-          onValueChange={(value) => setSelectedMethod(value as 'card' | 'cash')}
+          onValueChange={(value) => setSelectedMethod(value)}
           className="grid grid-cols-2 gap-4"
         >
           <div className={`p-4 rounded-xl neon-border cursor-pointer transition-all ${
