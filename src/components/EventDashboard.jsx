@@ -37,7 +37,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { PaymentMethods } from '@/components/PaymentMethods';
 import { CashPayment } from '@/components/CashPayment';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Plus, Lock } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Plus, Lock, Mail, MessageSquare, Send } from 'lucide-react';
 
 export function EventDashboard() {
   const { toast } = useToast();
@@ -58,6 +59,10 @@ export function EventDashboard() {
     cvv: '',
     name: ''
   });
+  const [showReminderDialog, setShowReminderDialog] = useState(false);
+  const [reminderEvent, setReminderEvent] = useState(null);
+  const [selectedParticipants, setSelectedParticipants] = useState([]);
+  const [reminderMethod, setReminderMethod] = useState('email'); // 'email', 'sms', 'both'
   
   const events = useEventStore((state) => state.events);
   const updateEvent = useEventStore((state) => state.updateEvent);
@@ -78,9 +83,154 @@ export function EventDashboard() {
   });
 
   const handleSendReminder = (eventId) => {
+    console.log('[EventDashboard] Opening reminder dialog for event:', eventId);
+    const event = events.find(e => e.id === eventId);
+    if (!event) {
+      console.error('[EventDashboard] Event not found:', eventId);
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: "Événement introuvable."
+      });
+      return;
+    }
+    
+    setReminderEvent(event);
+    // Sélectionner par défaut les participants qui n'ont pas payé
+    const unpaidParticipants = event.participants?.filter(p => {
+      const totalDue = event.amount / (event.participants?.length || 1);
+      const amountPaid = p.paidAmount || 0;
+      return amountPaid < totalDue;
+    }) || [];
+    setSelectedParticipants(unpaidParticipants.map(p => p.id));
+    setShowReminderDialog(true);
+  };
+
+  const handleSendReminderConfirm = () => {
+    if (!reminderEvent) {
+      console.error('[EventDashboard] No event selected for reminder');
+      return;
+    }
+
+    if (selectedParticipants.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Aucun participant sélectionné",
+        description: "Veuillez sélectionner au moins un participant."
+      });
+      return;
+    }
+
+    console.log('[EventDashboard] Sending reminders:', {
+      eventId: reminderEvent.id,
+      participants: selectedParticipants,
+      method: reminderMethod
+    });
+
+    const participantsToNotify = reminderEvent.participants?.filter(p => 
+      selectedParticipants.includes(p.id)
+    ) || [];
+
+    let sentCount = 0;
+    const totalDue = reminderEvent.amount / (reminderEvent.participants?.length || 1);
+
+    participantsToNotify.forEach(participant => {
+      const amountPaid = participant.paidAmount || 0;
+      const remainingAmount = totalDue - amountPaid;
+
+      if (remainingAmount <= 0) {
+        console.log(`[EventDashboard] Skipping ${participant.name} - already paid`);
+        return;
+      }
+
+      const reminderData = {
+        eventTitle: reminderEvent.title,
+        amount: remainingAmount,
+        eventCode: reminderEvent.code,
+        participantName: participant.name
+      };
+
+      // Envoyer par email
+      if (reminderMethod === 'email' || reminderMethod === 'both') {
+        if (participant.email) {
+          sendEmailReminder(participant.email, reminderData);
+          sentCount++;
+          console.log(`[EventDashboard] Email reminder sent to ${participant.email}`);
+        } else {
+          console.warn(`[EventDashboard] No email for participant ${participant.name}`);
+        }
+      }
+
+      // Envoyer par SMS
+      if (reminderMethod === 'sms' || reminderMethod === 'both') {
+        if (participant.mobile || participant.phone) {
+          sendSMSReminder(participant.mobile || participant.phone, reminderData);
+          if (reminderMethod === 'sms') sentCount++;
+          console.log(`[EventDashboard] SMS reminder sent to ${participant.mobile || participant.phone}`);
+        } else {
+          console.warn(`[EventDashboard] No phone for participant ${participant.name}`);
+        }
+      }
+    });
+
     toast({
-      title: "Rappel envoyé",
-      description: "Les participants ont été notifiés par email."
+      title: "✅ Rappels envoyés",
+      description: `${sentCount} rappel(s) envoyé(s) à ${participantsToNotify.length} participant(s) par ${reminderMethod === 'both' ? 'email et SMS' : reminderMethod === 'email' ? 'email' : 'SMS'}.`
+    });
+
+    console.log('[EventDashboard] Reminders sent successfully:', sentCount);
+    setShowReminderDialog(false);
+    setReminderEvent(null);
+    setSelectedParticipants([]);
+    setReminderMethod('email');
+  };
+
+  const sendEmailReminder = (email, data) => {
+    const subject = `Rappel de paiement - ${data.eventTitle}`;
+    const body = `
+Bonjour ${data.participantName},
+
+Les bons comptes font les bons amis !
+
+Un rappel concernant votre participation à l'événement "${data.eventTitle}".
+Montant restant à régler : ${data.amount.toFixed(2)}€
+Code de l'événement : ${data.eventCode}
+
+Vous pouvez effectuer votre paiement en vous connectant à votre espace.
+
+Merci de votre attention.
+    `.trim();
+
+    // Simulation d'envoi d'email (dans une vraie app, utiliser un service d'email)
+    console.log(`[EventDashboard] 📧 Email envoyé à ${email}`, { subject, body });
+    
+    // Dans une vraie application, vous utiliseriez ici un service comme:
+    // - SendGrid
+    // - Mailgun
+    // - AWS SES
+    // - ou votre API backend
+  };
+
+  const sendSMSReminder = (mobile, data) => {
+    const message = `Les bons comptes font les bons amis ! Rappel : ${data.amount.toFixed(2)}€ à régler pour "${data.eventTitle}". Code : ${data.eventCode}`;
+
+    // Simulation d'envoi de SMS (dans une vraie app, utiliser un service SMS)
+    console.log(`[EventDashboard] 📱 SMS envoyé à ${mobile}`, { message });
+    
+    // Dans une vraie application, vous utiliseriez ici un service comme:
+    // - Twilio
+    // - AWS SNS
+    // - ou votre API backend
+  };
+
+  const toggleParticipantSelection = (participantId) => {
+    console.log('[EventDashboard] Toggling participant selection:', participantId);
+    setSelectedParticipants(prev => {
+      if (prev.includes(participantId)) {
+        return prev.filter(id => id !== participantId);
+      } else {
+        return [...prev, participantId];
+      }
     });
   };
 
@@ -289,7 +439,7 @@ export function EventDashboard() {
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-xl font-semibold">{event.title}</h3>
+                    <h3 className="text-xl font-semibold">{event.title}</h3>
                       <Badge
                         variant="outline"
                         className="cursor-pointer hover:bg-primary/10 hover:border-primary transition-colors"
@@ -958,6 +1108,145 @@ export function EventDashboard() {
               </div>
             );
           })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialogue pour envoyer un rappel */}
+      <Dialog open={showReminderDialog} onOpenChange={setShowReminderDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5" />
+              Envoyer un rappel
+            </DialogTitle>
+          </DialogHeader>
+
+          {reminderEvent && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="text-sm font-medium">{reminderEvent.title}</p>
+                <p className="text-xs text-muted-foreground">Code: {reminderEvent.code}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Méthode d'envoi</Label>
+                <RadioGroup value={reminderMethod} onValueChange={(value) => {
+                  console.log('[EventDashboard] Reminder method changed:', value);
+                  setReminderMethod(value);
+                }}>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="email" id="reminder-email" />
+                    <Label htmlFor="reminder-email" className="flex items-center gap-2 cursor-pointer">
+                      <Mail className="w-4 h-4" />
+                      Email uniquement
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="sms" id="reminder-sms" />
+                    <Label htmlFor="reminder-sms" className="flex items-center gap-2 cursor-pointer">
+                      <MessageSquare className="w-4 h-4" />
+                      SMS uniquement
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="both" id="reminder-both" />
+                    <Label htmlFor="reminder-both" className="flex items-center gap-2 cursor-pointer">
+                      <Send className="w-4 h-4" />
+                      Email et SMS
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Participants à notifier</Label>
+                <ScrollArea className="h-[200px] border rounded-md p-4">
+                  <div className="space-y-3">
+                    {reminderEvent.participants?.map((participant) => {
+                      const totalDue = reminderEvent.amount / (reminderEvent.participants?.length || 1);
+                      const amountPaid = participant.paidAmount || 0;
+                      const remainingAmount = totalDue - amountPaid;
+                      const isSelected = selectedParticipants.includes(participant.id);
+                      const hasEmail = !!participant.email;
+                      const hasPhone = !!(participant.mobile || participant.phone);
+                      const canReceiveReminder = (reminderMethod === 'email' && hasEmail) || 
+                                                  (reminderMethod === 'sms' && hasPhone) || 
+                                                  (reminderMethod === 'both' && (hasEmail || hasPhone));
+
+                      return (
+                        <div
+                          key={participant.id}
+                          className={`flex items-center space-x-3 p-2 rounded-lg border ${
+                            isSelected ? 'bg-primary/10 border-primary' : 'bg-background'
+                          } ${!canReceiveReminder ? 'opacity-50' : ''}`}
+                        >
+                          <Checkbox
+                            id={`participant-${participant.id}`}
+                            checked={isSelected}
+                            onCheckedChange={() => {
+                              if (canReceiveReminder) {
+                                toggleParticipantSelection(participant.id);
+                              }
+                            }}
+                            disabled={!canReceiveReminder}
+                          />
+                          <Label
+                            htmlFor={`participant-${participant.id}`}
+                            className="flex-1 cursor-pointer"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-medium">{participant.name || participant.email}</p>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  {remainingAmount > 0 ? (
+                                    <span className="text-destructive">
+                                      {remainingAmount.toFixed(2)}€ restant
+                                    </span>
+                                  ) : (
+                                    <span className="text-green-500">Payé</span>
+                                  )}
+                                  {!hasEmail && reminderMethod !== 'sms' && (
+                                    <span className="text-yellow-500">⚠ Pas d'email</span>
+                                  )}
+                                  {!hasPhone && reminderMethod !== 'email' && (
+                                    <span className="text-yellow-500">⚠ Pas de téléphone</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </Label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              <div className="flex gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    console.log('[EventDashboard] Reminder dialog cancelled');
+                    setShowReminderDialog(false);
+                    setReminderEvent(null);
+                    setSelectedParticipants([]);
+                    setReminderMethod('email');
+                  }}
+                >
+                  Annuler
+                </Button>
+                <Button
+                  className="flex-1 button-glow"
+                  onClick={handleSendReminderConfirm}
+                  disabled={selectedParticipants.length === 0}
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  Envoyer ({selectedParticipants.length})
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

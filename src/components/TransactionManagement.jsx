@@ -23,19 +23,32 @@ import {
   Scan,
   Camera,
   Upload,
-  Loader2
+  Loader2,
+  CheckCircle2
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TesseractTest } from '@/components/TesseractTest';
 import { useEventStore } from '@/store/eventStore';
+import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export function TransactionManagement({ eventId, onBack }) {
   console.log('[TransactionManagement] Component mounted:', { eventId });
   
+  const { toast } = useToast();
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const transactions = useTransactionsStore((state) => state.getTransactionsByEvent(eventId));
   const addTransaction = useTransactionsStore((state) => state.addTransaction);
@@ -55,6 +68,8 @@ export function TransactionManagement({ eventId, onBack }) {
   const [scanMode, setScanMode] = useState('manual'); // 'manual' or 'scan'
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState(null);
 
   if (!event) {
     console.error('[TransactionManagement] Event not found:', eventId);
@@ -106,26 +121,39 @@ export function TransactionManagement({ eventId, onBack }) {
   const handleSaveTransaction = () => {
     console.log('[TransactionManagement] Saving transaction:', formData);
     
+    // Validation avec messages clairs
     if (!formData.store || !formData.store.trim()) {
       console.error('[TransactionManagement] Validation failed: store name is required');
-      alert('Veuillez remplir le nom de l\'enseigne');
+      toast({
+        variant: "destructive",
+        title: "⚠️ Champ requis",
+        description: "Veuillez remplir le nom de l'enseigne ou du magasin pour continuer.",
+      });
       return;
     }
     
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
       console.error('[TransactionManagement] Validation failed: amount is required');
-      alert('Veuillez remplir un montant valide');
+      toast({
+        variant: "destructive",
+        title: "⚠️ Montant invalide",
+        description: "Veuillez saisir un montant supérieur à 0.",
+      });
       return;
     }
     
     if (formData.participants.length === 0) {
       console.error('[TransactionManagement] Validation failed: at least one participant is required');
-      alert('Veuillez sélectionner au moins un participant');
+      toast({
+        variant: "destructive",
+        title: "⚠️ Participants requis",
+        description: "Veuillez sélectionner au moins un participant concerné par cette transaction.",
+      });
       return;
     }
 
     const transactionData = {
-      store: formData.store,
+      store: formData.store.trim(),
       date: new Date(formData.date),
       time: formData.time,
       amount: parseFloat(formData.amount),
@@ -133,16 +161,44 @@ export function TransactionManagement({ eventId, onBack }) {
       participants: formData.participants
     };
 
+    // Obtenir les noms des participants pour le message de confirmation
+    const participantNames = formData.participants
+      .map(pId => {
+        const p = participants.find(participant => participant.id === pId);
+        return p ? p.name : null;
+      })
+      .filter(Boolean)
+      .join(', ');
+
     if (editingTransaction) {
       updateTransaction(editingTransaction.id, transactionData);
       console.log('[TransactionManagement] Transaction updated:', editingTransaction.id);
+      
+      toast({
+        title: "✅ Transaction modifiée avec succès",
+        description: `La transaction "${formData.store.trim()}" d'un montant de ${transactionData.amount.toFixed(2)}${getCurrencySymbol(formData.currency)} a été mise à jour avec succès.`,
+      });
     } else {
       addTransaction(eventId, transactionData);
       console.log('[TransactionManagement] Transaction added');
+      
+      const participantCount = formData.participants.length;
+      const participantText = participantCount === 1 
+        ? participantNames 
+        : `${participantCount} participant${participantCount > 1 ? 's' : ''} (${participantNames})`;
+      
+      toast({
+        title: "✅ Transaction enregistrée avec succès",
+        description: `Transaction "${formData.store.trim()}" d'un montant de ${transactionData.amount.toFixed(2)}${getCurrencySymbol(formData.currency)} enregistrée pour ${participantText}.`,
+      });
     }
 
+    // Réinitialiser le formulaire
     setIsAdding(false);
     setEditingTransaction(null);
+    setScanMode('manual');
+    setIsScanning(false);
+    setScanResult(null);
     setFormData({
       store: '',
       date: format(new Date(), 'yyyy-MM-dd'),
@@ -154,10 +210,29 @@ export function TransactionManagement({ eventId, onBack }) {
   };
 
   const handleDeleteTransaction = (transactionId) => {
-    console.log('[TransactionManagement] Deleting transaction:', transactionId);
-    if (confirm('Êtes-vous sûr de vouloir supprimer cette transaction ?')) {
-      deleteTransaction(transactionId);
+    console.log('[TransactionManagement] Opening delete dialog for transaction:', transactionId);
+    const transaction = transactions.find(t => t.id === transactionId);
+    setTransactionToDelete(transaction);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteTransaction = () => {
+    if (!transactionToDelete) {
+      console.error('[TransactionManagement] No transaction to delete');
+      return;
     }
+    
+    console.log('[TransactionManagement] Confirming deletion of transaction:', transactionToDelete.id);
+    deleteTransaction(transactionToDelete.id);
+    console.log('[TransactionManagement] Transaction deleted successfully:', transactionToDelete.id);
+    
+    toast({
+      title: "✅ Transaction supprimée",
+      description: `La transaction "${transactionToDelete.store || ''}" a été supprimée avec succès.`,
+    });
+    
+    setDeleteDialogOpen(false);
+    setTransactionToDelete(null);
   };
 
   const toggleParticipant = (participantId) => {
@@ -359,66 +434,136 @@ export function TransactionManagement({ eventId, onBack }) {
             <TabsContent value="scan" className="space-y-4">
               <div className="p-4 rounded-lg border border-border bg-primary/5">
                 <p className="text-sm text-muted-foreground mb-4">
-                  Scannez votre ticket de caisse pour remplir automatiquement les informations
+                  Scannez votre ticket de caisse pour remplir automatiquement les informations. Les données extraites seront affichées ci-dessous.
                 </p>
-                <TesseractTest
-                  onDataExtracted={(extractedData) => {
-                    console.log('[TransactionManagement] Data extracted from scan:', extractedData);
-                    setScanResult(extractedData);
-                    
-                    // Remplir automatiquement le formulaire
-                    if (extractedData) {
-                      const newFormData = { ...formData };
-                      
-                      if (extractedData.enseigne && extractedData.enseigne !== 'Magasin inconnu') {
-                        newFormData.store = extractedData.enseigne;
-                        console.log('[TransactionManagement] Store filled:', extractedData.enseigne);
-                      }
-                      
-                      if (extractedData.date) {
-                        try {
-                          // Convertir la date au format YYYY-MM-DD
-                          const dateParts = extractedData.date.split('/');
-                          if (dateParts.length === 3) {
-                            const day = dateParts[0].padStart(2, '0');
-                            const month = dateParts[1].padStart(2, '0');
-                            const year = dateParts[2].length === 2 ? `20${dateParts[2]}` : dateParts[2];
-                            newFormData.date = `${year}-${month}-${day}`;
-                            console.log('[TransactionManagement] Date filled:', newFormData.date);
+                
+                {scanResult ? (
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-lg border border-green-500/50 bg-green-500/10">
+                      <div className="flex items-center gap-2 mb-3">
+                        <CheckCircle2 className="w-5 h-5 text-green-500" />
+                        <h4 className="font-semibold text-green-500">Données extraites avec succès</h4>
+                      </div>
+                      <div className="space-y-2 text-sm">
+                        {scanResult.enseigne && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Enseigne:</span>
+                            <span className="font-medium">{scanResult.enseigne}</span>
+                          </div>
+                        )}
+                        {scanResult.date && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Date:</span>
+                            <span className="font-medium">{scanResult.date}</span>
+                          </div>
+                        )}
+                        {scanResult.heure && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Heure:</span>
+                            <span className="font-medium">{scanResult.heure}</span>
+                          </div>
+                        )}
+                        {scanResult.total && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Montant:</span>
+                            <span className="font-medium">{scanResult.total}{scanResult.devise || '€'}</span>
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        onClick={() => {
+                          console.log('[TransactionManagement] User clicked to apply scan results');
+                          // Remplir automatiquement le formulaire
+                          if (scanResult) {
+                            const newFormData = { ...formData };
+                            
+                            if (scanResult.enseigne && scanResult.enseigne !== 'Magasin inconnu') {
+                              newFormData.store = scanResult.enseigne;
+                              console.log('[TransactionManagement] Store filled:', scanResult.enseigne);
+                            }
+                            
+                            if (scanResult.date) {
+                              try {
+                                // Convertir la date au format YYYY-MM-DD
+                                const dateParts = scanResult.date.split('/');
+                                if (dateParts.length === 3) {
+                                  const day = dateParts[0].padStart(2, '0');
+                                  const month = dateParts[1].padStart(2, '0');
+                                  const year = dateParts[2].length === 2 ? `20${dateParts[2]}` : dateParts[2];
+                                  newFormData.date = `${year}-${month}-${day}`;
+                                  console.log('[TransactionManagement] Date filled:', newFormData.date);
+                                }
+                              } catch (e) {
+                                console.error('[TransactionManagement] Date parsing error:', e);
+                              }
+                            }
+                            
+                            if (scanResult.heure) {
+                              newFormData.time = scanResult.heure;
+                              console.log('[TransactionManagement] Time filled:', scanResult.heure);
+                            }
+                            
+                            if (scanResult.total) {
+                              newFormData.amount = scanResult.total.toString();
+                              console.log('[TransactionManagement] Amount filled:', scanResult.total);
+                            }
+                            
+                            if (scanResult.devise) {
+                              // Convertir le symbole en code devise
+                              if (scanResult.devise === '€' || scanResult.devise === 'EUR') {
+                                newFormData.currency = 'EUR';
+                              } else if (scanResult.devise === '$' || scanResult.devise === 'USD') {
+                                newFormData.currency = 'USD';
+                              } else if (scanResult.devise === '£' || scanResult.devise === 'GBP') {
+                                newFormData.currency = 'GBP';
+                              }
+                              console.log('[TransactionManagement] Currency filled:', newFormData.currency);
+                            }
+                            
+                            setFormData(newFormData);
+                            setScanMode('manual'); // Passer à l'onglet manuel pour compléter
+                            console.log('[TransactionManagement] Form filled from scan, switching to manual mode');
+                            
+                            toast({
+                              title: "✅ Données appliquées",
+                              description: "Les données scannées ont été appliquées au formulaire. Vous pouvez maintenant compléter et enregistrer.",
+                            });
                           }
-                        } catch (e) {
-                          console.error('[TransactionManagement] Date parsing error:', e);
-                        }
+                        }}
+                        className="w-full mt-4 button-glow"
+                      >
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Appliquer les données et compléter
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          console.log('[TransactionManagement] User clicked to rescan');
+                          setScanResult(null);
+                        }}
+                        className="w-full mt-2"
+                      >
+                        <Scan className="w-4 h-4 mr-2" />
+                        Scanner un autre ticket
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <TesseractTest
+                    onDataExtracted={(extractedData) => {
+                      console.log('[TransactionManagement] Data extracted from scan:', extractedData);
+                      if (extractedData) {
+                        setScanResult(extractedData);
+                        console.log('[TransactionManagement] Scan result saved, keeping scanner visible');
+                        
+                        toast({
+                          title: "✅ Scan réussi",
+                          description: "Les données ont été extraites. Vérifiez les informations ci-dessous avant de les appliquer.",
+                        });
                       }
-                      
-                      if (extractedData.heure) {
-                        newFormData.time = extractedData.heure;
-                        console.log('[TransactionManagement] Time filled:', extractedData.heure);
-                      }
-                      
-                      if (extractedData.total) {
-                        newFormData.amount = extractedData.total.toString();
-                        console.log('[TransactionManagement] Amount filled:', extractedData.total);
-                      }
-                      
-                      if (extractedData.devise) {
-                        // Convertir le symbole en code devise
-                        if (extractedData.devise === '€' || extractedData.devise === 'EUR') {
-                          newFormData.currency = 'EUR';
-                        } else if (extractedData.devise === '$' || extractedData.devise === 'USD') {
-                          newFormData.currency = 'USD';
-                        } else if (extractedData.devise === '£' || extractedData.devise === 'GBP') {
-                          newFormData.currency = 'GBP';
-                        }
-                        console.log('[TransactionManagement] Currency filled:', newFormData.currency);
-                      }
-                      
-                      setFormData(newFormData);
-                      setScanMode('manual'); // Passer à l'onglet manuel pour compléter
-                      console.log('[TransactionManagement] Form filled from scan, switching to manual mode');
-                    }
-                  }}
-                />
+                    }}
+                  />
+                )}
               </div>
             </TabsContent>
 
@@ -564,6 +709,38 @@ export function TransactionManagement({ eventId, onBack }) {
           </Tabs>
         </DialogContent>
       </Dialog>
+
+      {/* AlertDialog pour la confirmation de suppression */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={(open) => {
+        console.log('[TransactionManagement] Delete dialog open changed:', open);
+        setDeleteDialogOpen(open);
+        if (!open) {
+          setTransactionToDelete(null);
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer la transaction "{transactionToDelete?.store || 'cette transaction'}" ?
+              Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              console.log('[TransactionManagement] Delete cancelled by user');
+            }}>
+              Annuler
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteTransaction}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -6,8 +6,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar } from '@/components/ui/calendar';
 import { Button } from '@/components/ui/button';
 import { useEventStore } from '@/store/eventStore';
+import { useToast } from '@/hooks/use-toast';
 import { format, differenceInDays, isBefore } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import jsPDF from 'jspdf';
 import {
   BarChart,
   Bar,
@@ -28,11 +30,15 @@ import { Calendar as CalendarIcon, Clock, Download, FileText, Star, TrendingUp, 
 const COLORS = ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#6b7280'];
 
 export function EventStatistics() {
+  const { toast } = useToast();
   const events = useEventStore((state) => state.events) || [];
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [activeTab, setActiveTab] = useState('overview');
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   // Calcul des statistiques générales
+  console.log('[EventStatistics] Calculating statistics for', events.length, 'events');
+  
   const totalEvents = events.length || 0;
   const totalParticipants = events.reduce((acc, event) => {
     const participants = Array.isArray(event?.participants) ? event.participants : [];
@@ -40,19 +46,46 @@ export function EventStatistics() {
   }, 0);
   const totalAmount = events.reduce((acc, event) => acc + (event?.amount || 0), 0);
   const averageAmount = totalEvents > 0 ? totalAmount / totalEvents : 0;
+  
+  // Calcul du montant total collecté
+  const totalCollected = events.reduce((acc, event) => {
+    const participants = Array.isArray(event?.participants) ? event.participants : [];
+    const eventCollected = participants.reduce((sum, p) => sum + (p?.paidAmount || 0), 0);
+    return acc + eventCollected;
+  }, 0);
+  
+  // Taux de collecte
+  const collectionRate = totalAmount > 0 ? (totalCollected / totalAmount) * 100 : 0;
+  
+  console.log('[EventStatistics] Statistics calculated:', {
+    totalEvents,
+    totalParticipants,
+    totalAmount,
+    averageAmount,
+    totalCollected,
+    collectionRate: collectionRate.toFixed(2) + '%'
+  });
 
   // Calcul des délais moyens
   const averageDelay = events.reduce((acc, event) => {
     const participants = Array.isArray(event?.participants) ? event.participants : [];
-    const participantsWithDelay = participants.filter(p => p?.hasPaid);
+    const participantsWithDelay = participants.filter(p => p?.hasPaid && p?.paidDate && event?.startDate);
     if (participantsWithDelay.length === 0) return acc;
     const avgEventDelay = participantsWithDelay.reduce((sum, p) => {
-      const paidDate = p?.paidDate ? new Date(p.paidDate) : new Date();
-      const startDate = event?.startDate ? new Date(event.startDate) : new Date();
-      return sum + differenceInDays(paidDate, startDate);
+      try {
+        const paidDate = new Date(p.paidDate);
+        const startDate = new Date(event.startDate);
+        const delay = differenceInDays(paidDate, startDate);
+        return sum + delay;
+      } catch (error) {
+        console.warn('[EventStatistics] Error calculating delay for participant:', error);
+        return sum;
+      }
     }, 0) / participantsWithDelay.length;
     return acc + avgEventDelay;
   }, 0) / (totalEvents || 1);
+  
+  console.log('[EventStatistics] Average delay calculated:', Math.round(averageDelay), 'days');
 
   // Données pour les graphiques
   const participationData = events.map(event => {
@@ -97,29 +130,185 @@ export function EventStatistics() {
 
   const contributionTrends = events.map(event => {
     const participants = Array.isArray(event?.participants) ? event.participants : [];
+    const collected = participants.reduce((sum, p) => sum + (p?.paidAmount || 0), 0);
     return {
       date: event?.startDate ? format(new Date(event.startDate), 'dd/MM/yyyy') : 'N/A',
       montant: event?.amount || 0,
-      collecté: event?.totalPaid || 0,
+      collecté: collected,
       participants: participants.length
     };
   });
+  
+  console.log('[EventStatistics] Contribution trends calculated:', contributionTrends.length, 'data points');
 
-  const generatePDF = () => {
-    // Simulation de génération de PDF
-    console.log('Génération du rapport PDF...');
+  const generatePDF = async () => {
+    console.log('[EventStatistics] Starting PDF generation...');
+    setIsGeneratingPDF(true);
+
+    try {
+      const doc = new jsPDF();
+      let yPosition = 20;
+
+      // En-tête
+      doc.setFontSize(20);
+      doc.setTextColor(99, 102, 241); // Couleur primary
+      doc.text('Statistiques des Événements BONKONT', 20, yPosition);
+      yPosition += 10;
+
+      doc.setFontSize(12);
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Généré le ${format(new Date(), 'dd/MM/yyyy à HH:mm', { locale: fr })}`, 20, yPosition);
+      yPosition += 15;
+
+      // Statistiques générales
+      doc.setFontSize(16);
+      doc.setTextColor(99, 102, 241);
+      doc.text('Statistiques Générales', 20, yPosition);
+      yPosition += 10;
+
+      doc.setFontSize(11);
+      doc.setTextColor(0, 0, 0);
+      doc.text(`Total d'événements: ${totalEvents}`, 25, yPosition);
+      yPosition += 7;
+      doc.text(`Total de participants: ${totalParticipants}`, 25, yPosition);
+      yPosition += 7;
+      doc.text(`Montant total: ${totalAmount.toFixed(2)}€`, 25, yPosition);
+      yPosition += 7;
+      doc.text(`Montant moyen: ${averageAmount.toFixed(2)}€`, 25, yPosition);
+      yPosition += 7;
+      doc.text(`Délai moyen: ${Math.round(averageDelay)} jours`, 25, yPosition);
+      yPosition += 7;
+      doc.text(`Montant collecté: ${totalCollected.toFixed(2)}€`, 25, yPosition);
+      yPosition += 7;
+      doc.text(`Taux de collecte: ${collectionRate.toFixed(2)}%`, 25, yPosition);
+      yPosition += 15;
+
+      // Détails des événements
+      if (events.length > 0) {
+        doc.setFontSize(16);
+        doc.setTextColor(99, 102, 241);
+        doc.text('Détails des Événements', 20, yPosition);
+        yPosition += 10;
+
+        events.forEach((event, index) => {
+          // Vérifier si on doit ajouter une nouvelle page
+          if (yPosition > 250) {
+            doc.addPage();
+            yPosition = 20;
+          }
+
+          const participants = Array.isArray(event?.participants) ? event.participants : [];
+          const confirmed = participants.filter(p => p?.hasConfirmed).length;
+          const paid = participants.filter(p => p?.hasPaid).length;
+          const totalPaid = participants.reduce((sum, p) => sum + (p?.paidAmount || 0), 0);
+
+          doc.setFontSize(12);
+          doc.setTextColor(0, 0, 0);
+          doc.setFont(undefined, 'bold');
+          doc.text(`${index + 1}. ${event?.title || 'Sans titre'}`, 25, yPosition);
+          yPosition += 7;
+
+          doc.setFont(undefined, 'normal');
+          doc.text(`Code: ${event?.code || 'N/A'}`, 30, yPosition);
+          yPosition += 6;
+          doc.text(`Montant: ${(event?.amount || 0).toFixed(2)}€`, 30, yPosition);
+          yPosition += 6;
+          doc.text(`Participants: ${participants.length} (${confirmed} confirmés, ${paid} payés)`, 30, yPosition);
+          yPosition += 6;
+          doc.text(`Montant collecté: ${totalPaid.toFixed(2)}€`, 30, yPosition);
+          yPosition += 6;
+          if (event?.startDate) {
+            doc.text(`Date: ${format(new Date(event.startDate), 'dd/MM/yyyy', { locale: fr })}`, 30, yPosition);
+            yPosition += 6;
+          }
+          yPosition += 5;
+        });
+      }
+
+      // Statut des paiements
+      yPosition += 5;
+      if (yPosition > 250) {
+        doc.addPage();
+        yPosition = 20;
+      }
+
+      doc.setFontSize(16);
+      doc.setTextColor(99, 102, 241);
+      doc.text('Statut des Paiements', 20, yPosition);
+      yPosition += 10;
+
+      doc.setFontSize(11);
+      doc.setTextColor(0, 0, 0);
+      paymentStatusData.forEach((status) => {
+        doc.text(`${status.name}: ${status.value}`, 25, yPosition);
+        yPosition += 7;
+      });
+
+      // Pied de page
+      const pageCount = doc.internal.pages.length - 1;
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(10);
+        doc.setTextColor(128, 128, 128);
+        doc.text(
+          `Page ${i} sur ${pageCount} - BONKONT - Les bons comptes font les bons amis`,
+          105,
+          285,
+          { align: 'center' }
+        );
+      }
+
+      // Sauvegarder le PDF
+      const fileName = `bonkont-statistiques-${format(new Date(), 'yyyy-MM-dd-HHmm', { locale: fr })}.pdf`;
+      doc.save(fileName);
+
+      console.log('[EventStatistics] PDF generated successfully:', fileName);
+      
+      toast({
+        title: "✅ PDF généré avec succès",
+        description: `Le rapport a été téléchargé: ${fileName}`,
+      });
+    } catch (error) {
+      console.error('[EventStatistics] Error generating PDF:', error);
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: "Une erreur est survenue lors de la génération du PDF.",
+      });
+    } finally {
+      setIsGeneratingPDF(false);
+    }
   };
 
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold gradient-text">Statistiques des Événements</h2>
-        <Button onClick={generatePDF} className="gap-2">
-          <FileText className="w-4 h-4" />
-          Exporter en PDF
+        <Button 
+          onClick={generatePDF} 
+          className="gap-2 button-glow"
+          disabled={isGeneratingPDF || totalEvents === 0}
+        >
+          {isGeneratingPDF ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+              Génération...
+            </>
+          ) : (
+            <>
+              <FileText className="w-4 h-4" />
+              Exporter en PDF
+            </>
+          )}
         </Button>
       </div>
 
+      {totalEvents === 0 ? (
+        <Card className="p-8 text-center neon-border">
+          <p className="text-muted-foreground">Aucun événement disponible pour les statistiques.</p>
+        </Card>
+      ) : (
+        <>
       <div className="grid grid-cols-4 gap-4">
         <Card className="p-4 neon-border">
           <div className="flex items-center gap-2 text-primary mb-2">
@@ -137,7 +326,7 @@ export function EventStatistics() {
           </div>
           <p className="text-2xl font-bold">{totalParticipants}</p>
           <Progress 
-            value={(totalParticipants / (totalEvents * 10)) * 100} 
+            value={totalEvents > 0 ? Math.min((totalParticipants / (totalEvents * 10)) * 100, 100) : 0} 
             className="mt-2" 
           />
         </Card>
@@ -149,7 +338,7 @@ export function EventStatistics() {
           </div>
           <p className="text-2xl font-bold">{averageAmount.toFixed(2)}€</p>
           <Progress 
-            value={(averageAmount / 1000) * 100} 
+            value={Math.min((averageAmount / 1000) * 100, 100)} 
             className="mt-2" 
           />
         </Card>
@@ -164,10 +353,30 @@ export function EventStatistics() {
             value={Math.min((averageDelay / 30) * 100, 100)} 
             className="mt-2" 
           />
-        </Card>
+          </Card>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      {/* Carte supplémentaire pour le taux de collecte */}
+      <Card className="p-4 neon-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-primary">
+            <TrendingUp className="w-5 h-5" />
+            <h3 className="font-semibold">Taux de collecte global</h3>
+          </div>
+          <div className="text-right">
+            <p className="text-2xl font-bold">{collectionRate.toFixed(1)}%</p>
+            <p className="text-sm text-muted-foreground">
+              {totalCollected.toFixed(2)}€ / {totalAmount.toFixed(2)}€
+            </p>
+          </div>
+        </div>
+        <Progress value={collectionRate} className="mt-2" />
+      </Card>
+
+      <Tabs value={activeTab} onValueChange={(value) => {
+        console.log('[EventStatistics] Tab changed:', value);
+        setActiveTab(value);
+      }}>
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview" className="gap-2">
             <ChartBar className="w-4 h-4" />
@@ -278,7 +487,10 @@ export function EventStatistics() {
               <Calendar
                 mode="single"
                 selected={selectedDate}
-                onSelect={setSelectedDate}
+                onSelect={(date) => {
+                  console.log('[EventStatistics] Date selected:', date);
+                  setSelectedDate(date);
+                }}
                 className="rounded-md border"
               />
             </Card>
@@ -351,6 +563,8 @@ export function EventStatistics() {
           </div>
         </TabsContent>
       </Tabs>
+      </>
+      )}
     </div>
   );
 }
