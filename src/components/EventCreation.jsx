@@ -6,9 +6,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Calendar, Euro, Users, Clock, Plus, ArrowRight, Copy, Check } from 'lucide-react';
+import { Calendar, Euro, Users, Clock, Plus, ArrowRight, Copy, Check, FileText, Shield } from 'lucide-react';
 import { ParticipantForm } from '@/components/ParticipantForm';
 import { EventLocation } from '@/components/EventLocation';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import confetti from 'canvas-confetti';
@@ -25,8 +27,9 @@ export function EventCreation() {
   const [eventCode, setEventCode] = useState(nanoid(8).toUpperCase());
   const [location, setLocation] = useState(null);
   const [participants, setParticipants] = useState([
-    { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false }
+    { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false, hasAcceptedCharter: false }
   ]);
+  const [charterAccepted, setCharterAccepted] = useState(false);
 
   const addParticipant = () => {
     const newId = Math.max(...participants.map(p => p.id)) + 1;
@@ -61,7 +64,7 @@ export function EventCreation() {
       case 3:
         return location !== null && location.address.trim() !== '';
       case 4:
-        return participants.every(p => p.name.trim() !== '' && p.email.trim() !== '');
+        return participants.every(p => p.name.trim() !== '' && p.email.trim() !== '') && charterAccepted;
       default:
         return true;
     }
@@ -79,7 +82,8 @@ export function EventCreation() {
       participants: participants.map(p => ({
         ...p,
         hasPaid: false,
-        paidAmount: 0
+        paidAmount: 0,
+        hasAcceptedCharter: true
       })),
       status: 'active',
       totalPaid: 0
@@ -107,8 +111,9 @@ export function EventCreation() {
     setDeadline(30);
     setEventCode(nanoid(8).toUpperCase());
     setLocation(null);
+    setCharterAccepted(false);
     setParticipants([
-      { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false }
+      { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false, hasAcceptedCharter: false }
     ]);
   };
 
@@ -217,29 +222,85 @@ export function EventCreation() {
         )}
 
         {step === 4 && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Participants</h3>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={addParticipant}
-                className="gap-2 neon-border"
-              >
-                <Plus className="w-4 h-4" />
-                Ajouter
-              </Button>
-            </div>
+          <div className="space-y-6">
             <div className="space-y-4">
-              {participants.map((participant) => (
-                <ParticipantForm
-                  key={participant.id}
-                  participant={participant}
-                  onUpdate={(updates) => updateParticipant(participant.id, updates)}
-                  onRemove={() => removeParticipant(participant.id)}
-                  canRemove={participants.length > 1}
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Participants</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={addParticipant}
+                  className="gap-2 neon-border"
+                >
+                  <Plus className="w-4 h-4" />
+                  Ajouter
+                </Button>
+              </div>
+              <div className="space-y-4">
+                {participants.map((participant) => (
+                  <ParticipantForm
+                    key={participant.id}
+                    participant={participant}
+                    onUpdate={(updates) => updateParticipant(participant.id, updates)}
+                    onRemove={() => removeParticipant(participant.id)}
+                    canRemove={participants.length > 1}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 rounded-lg neon-border bg-primary/5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-semibold">Charte d'équité et d'engagement</h3>
+              </div>
+              
+              <ScrollArea className="h-48 rounded-lg border border-border p-4 bg-background">
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <h4 className="font-semibold mb-2">1. Respect et engagement aux frais communs</h4>
+                    <p className="text-muted-foreground">
+                      Chaque participant s'engage à respecter les montants convenus et à contribuer équitablement aux frais communs de l'événement.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-2">2. Transparence des transactions</h4>
+                    <p className="text-muted-foreground">
+                      Toutes les transactions doivent être validées par l'ensemble des participants. Les tickets de caisse et justificatifs doivent être partagés.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-2">3. Validation obligatoire</h4>
+                    <p className="text-muted-foreground">
+                      Chaque achat effectué doit être validé par tous les participants avant d'être intégré au solde restant dû.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-2">4. Paiement dans les délais</h4>
+                    <p className="text-muted-foreground">
+                      Les participants s'engagent à effectuer leurs paiements dans les délais convenus pour maintenir la confiance et l'équité du groupe.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-2">5. Communication et respect</h4>
+                    <p className="text-muted-foreground">
+                      Une communication respectueuse et transparente est essentielle pour le bon déroulement de l'événement et la gestion des frais partagés.
+                    </p>
+                  </div>
+                </div>
+              </ScrollArea>
+
+              <div className="flex items-start space-x-3 p-4 rounded-lg bg-background border border-border">
+                <Checkbox
+                  id="charter"
+                  checked={charterAccepted}
+                  onCheckedChange={setCharterAccepted}
+                  className="mt-1"
                 />
-              ))}
+                <Label htmlFor="charter" className="text-sm leading-relaxed cursor-pointer">
+                  J'accepte la charte d'équité et d'engagement aux frais communs. Je m'engage à respecter les règles de transparence, de validation et de paiement dans les délais convenus.
+                </Label>
+              </div>
             </div>
           </div>
         )}

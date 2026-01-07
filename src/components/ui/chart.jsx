@@ -1,5 +1,5 @@
 import * as React from 'react';
-import * from 'recharts';
+import * as RechartsPrimitive from 'recharts';
 import {
   NameType,
   Payload,

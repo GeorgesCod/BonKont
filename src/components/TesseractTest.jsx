@@ -138,7 +138,7 @@ const compressImage = (file, maxSizeMB = 2, maxDim = 1600, initialQ = 0.8) => {
 // -----------------------------------------------------------------------------
 // Composant principal
 // -----------------------------------------------------------------------------
-export function TesseractTest() {
+export function TesseractTest({ onDataExtracted }) {
   // ---------- state ----------
   const [image, setImage] = useState(null);
   const [scannedText, setScannedText] = useState("");
@@ -344,9 +344,21 @@ export function TesseractTest() {
           console.log("📝 Texte analysé:", cleanedText);
           console.log("📝 Texte OCR brut (premiers 500 chars):", texteOCR.substring(0, 500));
           setExtractedData(extracted);
+          
+          // Appeler le callback si fourni
+          if (onDataExtracted) {
+            console.log("[TesseractTest] Calling onDataExtracted callback");
+            onDataExtracted(extracted);
+          }
         } else {
           // Utiliser les données de l'API mais compléter si nécessaire
           const apiData = result.donnees_extraites;
+          
+          // Appeler le callback si fourni
+          if (onDataExtracted && apiData) {
+            console.log("[TesseractTest] Calling onDataExtracted callback with API data");
+            onDataExtracted(apiData);
+          }
           
           // Si le montant n'est pas dans les données de l'API, essayer de l'extraire
           if (!apiData.total || apiData.total === "" || apiData.total === "0") {

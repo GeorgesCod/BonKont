@@ -15,7 +15,7 @@ export function CashPayment({ eventId, participantId, amount, onValidated }) {
   const updateEvent = useEventStore((state) => state.updateEvent);
   
   const [declaredAmount, setDeclaredAmount] = useState(amount.toString());
-  const [validations, setValidations] = useState>(new Set());
+  const [validations, setValidations] = useState(new Set());
 
   if (!event) return null;
 
@@ -33,24 +33,19 @@ export function CashPayment({ eventId, participantId, amount, onValidated }) {
     const remainingAmount = totalAmount - paidAmount;
     const remainingParticipants = event.participants.filter(p => !p.hasPaid).length;
     
-    // Si c'est le dernier participant ou si le montant payé couvre tout
-    if (remainingParticipants <= 1 || paidAmount >= totalAmount) {
-      return {
-        paidAmount,
-        newIndividualAmount,
-        remainingTotal,
-        paymentPercentage
-      };
-    }
-
     // Calcul du nouveau montant individuel pour les participants restants
-    const newIndividualAmount = Number((remainingAmount / remainingParticipants).toFixed(2));
+    const newIndividualAmount = remainingParticipants > 0 
+      ? Number((remainingAmount / remainingParticipants).toFixed(2))
+      : 0;
+    
+    const remainingTotal = Math.max(0, remainingAmount);
+    const paymentPercentage = (paidAmount / amount) * 100;
     
     return {
       paidAmount,
       newIndividualAmount,
       remainingTotal,
-      paymentPercentage: (paidAmount / amount) * 100
+      paymentPercentage
     };
   };
 
@@ -71,12 +66,26 @@ export function CashPayment({ eventId, participantId, amount, onValidated }) {
 
   const processPayment = () => {
     const { newIndividualAmount, remainingTotal, paymentPercentage } = calculateNewContributions(paidAmount);
+    const totalDue = event.amount / event.participants.length;
+    const alreadyPaid = participant.paidAmount || 0;
+    const isFullyPaid = (alreadyPaid + paidAmount) >= totalDue - 0.01;
+
+    console.log('[CashPayment] Processing payment:', {
+      participantId,
+      paidAmount,
+      alreadyPaid,
+      totalDue,
+      isFullyPaid,
+      newIndividualAmount,
+      remainingTotal,
+      paymentPercentage
+    });
 
     // Mise à jour du participant qui paie
     updateParticipant(eventId, participantId, {
-      hasPaid,
-      paidAmount,
-      paidDate Date(),
+      hasPaid: isFullyPaid,
+      paidAmount: alreadyPaid + paidAmount,
+      paidDate: new Date(),
       paymentPercentage
     });
 
@@ -84,17 +93,28 @@ export function CashPayment({ eventId, participantId, amount, onValidated }) {
     event.participants
       .filter(p => !p.hasPaid && p.id !== participantId)
       .forEach(p => {
+        const pTotalDue = event.amount / event.participants.length;
+        const pAlreadyPaid = p.paidAmount || 0;
+        const pAmountDue = Math.max(0, pTotalDue - pAlreadyPaid);
+        
         updateParticipant(eventId, p.id, {
-          paidAmount,
-          amountDue
+          amountDue: pAmountDue
         });
       });
 
     // Mise à jour du montant total restant de l'événement
+    const currentTotalPaid = event.totalPaid || 0;
+    const newTotalPaid = currentTotalPaid + paidAmount;
+    const eventRemainingAmount = Math.max(0, event.amount - newTotalPaid);
+    
     updateEvent(eventId, {
-      remainingAmount,
-      lastPaymentPercentage
+      totalPaid: newTotalPaid,
+      remainingAmount: eventRemainingAmount,
+      lastPaymentPercentage: paymentPercentage,
+      status: newTotalPaid >= event.amount - 0.01 ? 'completed' : 'active'
     });
+
+    console.log('[CashPayment] Payment processed successfully');
 
     toast({
       title: "Paiement validé !",

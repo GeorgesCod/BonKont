@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { EventCreation } from '@/components/EventCreation';
 import { EventDashboard } from '@/components/EventDashboard';
 import { EventStatistics } from '@/components/EventStatistics';
+import { EventManagement } from '@/components/EventManagement';
+import { TransactionManagement } from '@/components/TransactionManagement';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { AuthDialog } from '@/components/AuthDialog';
 import { UserProfile } from '@/components/UserProfile';
@@ -16,6 +18,34 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions'
+  const [selectedEventId, setSelectedEventId] = useState(null);
+  const [viewMode, setViewMode] = useState('management'); // 'management' or 'transactions'
+
+  useEffect(() => {
+    console.log('[App] Component mounted, setting up hash routing');
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      console.log('[App] Hash changed:', hash);
+      
+      if (hash.startsWith('#event/')) {
+        const eventId = hash.replace('#event/', '').split('/')[0];
+        const mode = hash.includes('/transactions') ? 'transactions' : 'management';
+        console.log('[App] Navigating to event view:', { eventId, mode });
+        setSelectedEventId(eventId);
+        setViewMode(mode);
+        setCurrentView('event');
+      } else {
+        console.log('[App] Navigating to dashboard');
+        setCurrentView('dashboard');
+        setSelectedEventId(null);
+      }
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   const handleAuthSuccess = () => {
     setIsLoggedIn(true);
@@ -89,7 +119,53 @@ export default function App() {
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           {isLoggedIn ? (
-            showStats ? (
+            currentView === 'event' && selectedEventId ? (
+              <div className="space-y-4">
+                <div className="flex gap-4 border-b border-border pb-4">
+                  <Button
+                    variant={viewMode === 'management' ? 'default' : 'outline'}
+                    onClick={() => {
+                      console.log('[App] Switching to management view');
+                      setViewMode('management');
+                      window.location.hash = `event/${selectedEventId}`;
+                    }}
+                    className="gap-2"
+                  >
+                    Gestion de l'événement
+                  </Button>
+                  <Button
+                    variant={viewMode === 'transactions' ? 'default' : 'outline'}
+                    onClick={() => {
+                      console.log('[App] Switching to transactions view');
+                      setViewMode('transactions');
+                      window.location.hash = `event/${selectedEventId}/transactions`;
+                    }}
+                    className="gap-2"
+                  >
+                    Gestion des transactions
+                  </Button>
+                </div>
+                {viewMode === 'management' ? (
+                  <EventManagement
+                    eventId={selectedEventId}
+                    onBack={() => {
+                      console.log('[App] Back to dashboard from event management');
+                      window.location.hash = '';
+                      setCurrentView('dashboard');
+                    }}
+                  />
+                ) : (
+                  <TransactionManagement
+                    eventId={selectedEventId}
+                    onBack={() => {
+                      console.log('[App] Back to dashboard from transactions');
+                      window.location.hash = '';
+                      setCurrentView('dashboard');
+                    }}
+                  />
+                )}
+              </div>
+            ) : showStats ? (
               <EventStatistics />
             ) : (
               <>
