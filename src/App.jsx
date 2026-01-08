@@ -4,13 +4,14 @@ import { EventDashboard } from '@/components/EventDashboard';
 import { EventStatistics } from '@/components/EventStatistics';
 import { EventManagement } from '@/components/EventManagement';
 import { TransactionManagement } from '@/components/TransactionManagement';
+import { EventHistory } from '@/components/EventHistory';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { AuthDialog } from '@/components/AuthDialog';
 import { UserProfile } from '@/components/UserProfile';
 import { InviteFriends } from '@/components/InviteFriends';
 import { ScrollToTop } from '@/components/ScrollToTop';
 import { TesseractTest } from '@/components/TesseractTest';
-import { Wallet2, LogIn, UserCircle, BarChart as ChartBar } from 'lucide-react';
+import { Wallet2, LogIn, UserCircle, BarChart as ChartBar, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function App() {
@@ -18,7 +19,8 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [showStats, setShowStats] = useState(false);
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions'
+  const [showHistory, setShowHistory] = useState(false);
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history'
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [viewMode, setViewMode] = useState('management'); // 'management' or 'transactions'
 
@@ -182,12 +184,31 @@ export default function App() {
                   />
                 )}
               </div>
+            ) : showHistory ? (
+              <div className="space-y-4">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    console.log('[App] Back to dashboard from history');
+                    setShowHistory(false);
+                  }}
+                  className="gap-2 mb-4"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Retour au tableau de bord
+                </Button>
+                <EventHistory />
+              </div>
             ) : showStats ? (
               <EventStatistics />
             ) : (
               <>
                 <EventCreation />
-                <EventDashboard />
+                <EventDashboard onShowHistory={() => {
+                  console.log('[App] Opening history from dashboard');
+                  setShowHistory(true);
+                  setShowStats(false);
+                }} />
               </>
             )
           ) : (

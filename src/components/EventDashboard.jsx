@@ -40,7 +40,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Lock, Mail, MessageSquare, Send } from 'lucide-react';
 
-export function EventDashboard() {
+export function EventDashboard({ onShowHistory }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('active');
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -407,9 +407,20 @@ Merci de votre attention.
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
         <h2 className="text-xl sm:text-2xl font-bold gradient-text">Tableau de bord</h2>
-        <Button variant="outline" className="gap-2 neon-border">
+        <Button 
+          variant="outline" 
+          className="gap-2 neon-border w-full sm:w-auto"
+          onClick={() => {
+            console.log('[EventDashboard] History button clicked');
+            if (onShowHistory) {
+              onShowHistory();
+            } else {
+              console.warn('[EventDashboard] onShowHistory callback not provided');
+            }
+          }}
+        >
           <History className="w-4 h-4" />
-          Historique
+          <span className="text-xs sm:text-sm">Historique</span>
         </Button>
       </div>
 

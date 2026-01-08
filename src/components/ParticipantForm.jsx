@@ -12,7 +12,7 @@ export function ParticipantForm({
   canRemove
 }) {
   return (
-    <div className="p-4 rounded-lg neon-border relative group">
+    <div className="p-3 sm:p-4 rounded-lg neon-border relative group">
       {canRemove && (
         <Button
           variant="destructive"
@@ -24,7 +24,7 @@ export function ParticipantForm({
         </Button>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div className="space-y-2">
           <Label htmlFor={`name-${participant.id}`}>Nom</Label>
           <div className="relative">
