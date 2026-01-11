@@ -38,7 +38,8 @@ import { PaymentMethods } from '@/components/PaymentMethods';
 import { CashPayment } from '@/components/CashPayment';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Lock, Mail, MessageSquare, Send } from 'lucide-react';
+import { Plus, Lock, Mail, MessageSquare, Send, Scan } from 'lucide-react';
+import { EventDashboardScanner } from '@/components/EventDashboardScanner';
 
 export function EventDashboard({ onShowHistory }) {
   const { toast } = useToast();
@@ -63,6 +64,8 @@ export function EventDashboard({ onShowHistory }) {
   const [reminderEvent, setReminderEvent] = useState(null);
   const [selectedParticipants, setSelectedParticipants] = useState([]);
   const [reminderMethod, setReminderMethod] = useState('email'); // 'email', 'sms', 'both'
+  const [showScannerDialog, setShowScannerDialog] = useState(false);
+  const [scannerEventId, setScannerEventId] = useState(null);
   
   const events = useEventStore((state) => state.events);
   const updateEvent = useEventStore((state) => state.updateEvent);
@@ -304,11 +307,22 @@ Merci de votre attention.
     const amount = parseFloat(paymentAmount);
     if (isNaN(amount) || amount <= 0) {
       console.error('[Payment] Invalid amount:', paymentAmount);
-      toast({
-        variant: "destructive",
-        title: "Montant invalide",
-        description: "Veuillez entrer un montant valide."
-      });
+       toast({
+  title: "Paiement effectué",
+  description: `Paiement de ${amount.toFixed(2)}€ par ${
+    paymentMethod === 'card' ? 'carte bancaire' : 'espèces'
+  } enregistré avec succès.`
+});
+
+// 👉 BASCULE VERS LE RÉCAP ÉVÉNEMENT
+window.location.hash = `#event/${selectedEvent}`;
+
+// Nettoyage du dialog paiement
+setSelectedEvent(null);
+setSelectedParticipant(null);
+setPaymentAmount('');
+setPaymentMethod('card');
+
       return;
     }
 
@@ -403,10 +417,35 @@ Merci de votre attention.
     return days;
   };
 
+  console.log('[EventDashboard] ===== COMPONENT RENDERING =====');
+  console.log('[EventDashboard] State:', {
+    eventsCount: events.length,
+    filteredEventsCount: filteredEvents.length,
+    showScannerDialog,
+    scannerEventId,
+    activeTab,
+    selectedEvent,
+    selectedParticipant
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
-        <h2 className="text-xl sm:text-2xl font-bold gradient-text">Tableau de bord</h2>
+        <div className="flex items-center gap-3 flex-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              console.log('[EventDashboard] Return to home clicked');
+              window.location.hash = '';
+            }}
+            className="neon-border"
+            title="Retour à l'accueil"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <h2 className="text-xl sm:text-2xl font-bold gradient-text">Tableau de bord</h2>
+        </div>
         <Button 
           variant="outline" 
           className="gap-2 neon-border w-full sm:w-auto"
@@ -477,7 +516,7 @@ Merci de votre attention.
                   </Badge>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                   <div className="p-4 rounded-lg neon-border space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -518,32 +557,78 @@ Merci de votre attention.
                   </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    className="gap-2 neon-border"
-                    onClick={() => handlePayment(event.id, event.participants[0]?.id)}
-                  >
-                    <CreditCard className="w-4 h-4" />
-                    Enregistrer un paiement
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="gap-2 neon-border"
-                    onClick={() => handleSendReminder(event.id)}
-                  >
-                    <Bell className="w-4 h-4" />
-                    Envoyer un rappel
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="gap-2 neon-border text-destructive"
-                    onClick={() => handleDeleteEvent(event.id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Supprimer
-                  </Button>
-                </div>
+                 <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3">
+  {/* Enregistrer un paiement */}
+  <Button
+    variant="outline"
+    className="gap-2 neon-border"
+    onClick={() => {
+      console.log('[EventDashboard] Payment button clicked for event:', event.id);
+      handlePayment(event.id, event.participants[0]?.id);
+    }}
+  >
+    <CreditCard className="w-4 h-4" />
+    Enregistrer un paiement
+  </Button>
+
+  {/* Scanner un ticket */}
+  <Button
+    variant="outline"
+    className="gap-2 neon-border"
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      console.log('[EventDashboard] ===== SCANNER BUTTON CLICKED =====');
+      localStorage.setItem('bonkont_scanner_eventId', event.id);
+
+      setScannerEventId(event.id);
+      setShowScannerDialog(true);
+    }}
+  >
+    <Scan className="w-4 h-4" />
+    Scanner un ticket
+  </Button>
+
+  {/* ✅ NOUVEAU : Transactions */}
+  <Button
+    variant="outline"
+    className="gap-2 neon-border"
+    onClick={() => {
+      console.log('[EventDashboard] Navigate to transactions:', event.id);
+      window.location.hash = `event/${event.id}/transactions`;
+    }}
+  >
+    💳 Transactions
+  </Button>
+
+  {/* Envoyer un rappel */}
+  <Button
+    variant="outline"
+    className="gap-2 neon-border"
+    onClick={() => {
+      console.log('[EventDashboard] Reminder button clicked for event:', event.id);
+      handleSendReminder(event.id);
+    }}
+  >
+    <Bell className="w-4 h-4" />
+    Envoyer un rappel
+  </Button>
+
+  {/* Supprimer */}
+  <Button
+    variant="outline"
+    className="gap-2 neon-border text-destructive"
+    onClick={() => {
+      console.log('[EventDashboard] Delete button clicked for event:', event.id);
+      handleDeleteEvent(event.id);
+    }}
+  >
+    <Trash2 className="w-4 h-4" />
+    Supprimer
+  </Button>
+</div>
+
               </Card>
             );
           })}
@@ -700,7 +785,7 @@ Merci de votre attention.
                     <Calculator className="w-5 h-5 text-primary" />
                     Solde participatif restant dû
                   </h3>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
                     <div>
                       <p className="text-muted-foreground">Montant total événement</p>
                       <p className="text-lg font-bold">{event.amount.toFixed(2)}€</p>
@@ -734,7 +819,7 @@ Merci de votre attention.
                     <CreditCard className="w-5 h-5 text-primary" />
                     Mode de paiement
                   </Label>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div
                       onClick={() => handlePaymentMethodSelect('card')}
                       className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
@@ -1233,33 +1318,66 @@ Merci de votre attention.
                 </ScrollArea>
               </div>
 
-              <div className="flex gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    console.log('[EventDashboard] Reminder dialog cancelled');
-                    setShowReminderDialog(false);
-                    setReminderEvent(null);
-                    setSelectedParticipants([]);
-                    setReminderMethod('email');
-                  }}
-                >
-                  Annuler
-                </Button>
-                <Button
-                  className="flex-1 button-glow"
-                  onClick={handleSendReminderConfirm}
-                  disabled={selectedParticipants.length === 0}
-                >
-                  <Send className="w-4 h-4 mr-2" />
-                  Envoyer ({selectedParticipants.length})
-                </Button>
-              </div>
+               <div className="flex flex-col sm:flex-row gap-2 pt-4">
+  {/* Annuler */}
+  <Button
+    variant="outline"
+    className="flex-1"
+    onClick={() => {
+      console.log('[EventDashboard] Reminder dialog cancelled');
+      setShowReminderDialog(false);
+      setReminderEvent(null);
+      setSelectedParticipants([]);
+      setReminderMethod('email');
+    }}
+  >
+    Annuler
+  </Button>
+
+  {/* Envoyer rappel */}
+  <Button
+    className="flex-1 button-glow"
+    onClick={handleSendReminderConfirm}
+    disabled={selectedParticipants.length === 0}
+  >
+    <Send className="w-4 h-4 mr-2" />
+    Envoyer ({selectedParticipants.length})
+  </Button>
+
+  {/* Navigation vers les transactions */}
+  <Button
+    variant="outline"
+    className="flex-1 gap-2"
+    onClick={() => {
+      console.log('[EventDashboard] Navigate to transactions', event.id);
+      window.location.hash = `event/${event.id}/transactions`;
+    }}
+  >
+    💳 Transactions
+  </Button>
+</div>
+
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Dialog pour scanner un ticket */}
+      <EventDashboardScanner
+        eventId={scannerEventId}
+        isOpen={showScannerDialog}
+        onClose={() => {
+          console.log('[EventDashboard] Closing scanner dialog');
+          setShowScannerDialog(false);
+          setScannerEventId(null);
+        }}
+        onPaymentProcessed={() => {
+           console.log('[EventDashboard] Payment processed from scanner -> go to EventManagement', scannerEventId);
+  setShowScannerDialog(false);
+  const id = scannerEventId || localStorage.getItem('bonkont_scanner_eventId');
+  if (id) window.location.hash = `event/${id}`;
+        }}
+      />
     </div>
   );
 }

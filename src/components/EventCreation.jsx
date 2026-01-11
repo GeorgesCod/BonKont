@@ -39,11 +39,17 @@ export function EventCreation() {
       const isTablet = width >= 640 && width < 1024;
       const isDesktop = width >= 1024;
       
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      const orientation = width > window.innerHeight ? 'landscape' : 'portrait';
+      
       console.log('[EventCreation] Screen size:', {
         width,
+        height: window.innerHeight,
         isMobile,
         isTablet,
         isDesktop,
+        devicePixelRatio,
+        orientation,
         breakpoint: isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop'
       });
     };

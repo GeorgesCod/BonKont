@@ -1,4 +1,4 @@
-import { Mail, Smartphone, Trash2, X } from 'lucide-react';
+  import { Mail, Smartphone, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,53 +17,72 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-
-
-
-export function TransactionDetails({ 
-  contributors, 
-  totalAmount, 
+export function TransactionDetails({
+  contributors,
+  totalAmount,
   splitAmount,
-  onRemoveContributor 
+  onRemoveContributor,
 }) {
-  const calculateTransactions = () => {
-    const transactions = [];
-    const amount = parseFloat(splitAmount);
+  const calculateSettlements = () => {
+    const n = contributors.length;
+    const fairShare = totalAmount / n;
 
-    contributors.forEach((payer, i) => {
-      contributors.forEach((receiver, j) => {
-        if (i !== j) {
-          transactions.push({
-            from: `${payer.firstName} ${payer.lastName}`,
-            to: `${receiver.firstName} ${receiver.lastName}`,
-            amount / (contributors.length - 1)
-          });
-        }
+    const balances = contributors.map((c) => ({
+      name: `${c.firstName} ${c.lastName}`,
+      email: c.email,
+      balance: (c.amountPaid ?? 0) - fairShare,
+    }));
+
+    const debtors = balances.filter((b) => b.balance < 0).sort((a, b) => a.balance - b.balance);
+    const creditors = balances.filter((b) => b.balance > 0).sort((a, b) => b.balance - a.balance);
+
+    const settlements = [];
+    let i = 0, j = 0;
+
+    while (i < debtors.length && j < creditors.length) {
+      const debtor = debtors[i];
+      const creditor = creditors[j];
+      const amount = Math.min(creditor.balance, -debtor.balance);
+
+      settlements.push({
+        from: debtor.name,
+        to: creditor.name,
+        amount,
       });
-    });
 
-    return transactions;
+      debtor.balance += amount;
+      creditor.balance -= amount;
+
+      if (Math.abs(debtor.balance) < 0.01) i++;
+      if (Math.abs(creditor.balance) < 0.01) j++;
+    }
+
+    return settlements;
   };
 
-  const handleShare = (type: 'email' | 'sms') => {
-    const transactions = calculateTransactions();
-    const message = `Détails des transactions pour l'événement:\n\n` +
-      `Montant total: ${totalAmount}€\n` +
-      `Montant par personne: ${splitAmount}€\n\n` +
-      transactions.map(t => 
-        `${t.from} doit ${t.amount.toFixed(2)}€ à ${t.to}`
-      ).join('\n');
+  const handleShare = (type) => {
+    const transactions = calculateSettlements();
+    const message =
+      `Détails des transactions pour l'événement:\n\n` +
+      `Montant total: ${totalAmount.toFixed(2)}€\n` +
+      `Montant par personne: ${splitAmount.toFixed(2)}€\n\n` +
+      transactions
+        .map((t) => `${t.from} doit ${t.amount.toFixed(2)}€ à ${t.to}`)
+        .join('\n');
 
     if (type === 'email') {
-      const mailtoLink = `mailto:${contributors.map(c => c.email).join(',')}?subject=Détails des transactions&body=${encodeURIComponent(message)}`;
+      const mailtoLink = `mailto:${contributors
+        .map((c) => c.email)
+        .join(',')}?subject=Détails des transactions&body=${encodeURIComponent(message)}`;
       window.open(mailtoLink);
     } else {
-      // Pour SMS, on utilise l'API Web Share si disponible
       if (navigator.share) {
         navigator.share({
           title: 'Détails des transactions',
-          text
+          text: message,
         });
+      } else {
+        alert("Le partage mobile n'est pas supporté sur ce navigateur.");
       }
     }
   };
@@ -87,11 +106,11 @@ export function TransactionDetails({
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 rounded-lg neon-border">
               <p className="text-sm text-muted-foreground">Montant total</p>
-              <p className="text-2xl font-bold text-primary">{totalAmount}€</p>
+              <p className="text-2xl font-bold text-primary">{totalAmount.toFixed(2)}€</p>
             </div>
             <div className="p-4 rounded-lg neon-border">
               <p className="text-sm text-muted-foreground">Par personne</p>
-              <p className="text-2xl font-bold text-secondary">{splitAmount}€</p>
+              <p className="text-2xl font-bold text-secondary">{splitAmount.toFixed(2)}€</p>
             </div>
           </div>
 
@@ -99,7 +118,7 @@ export function TransactionDetails({
             <h3 className="text-lg font-semibold">Participants</h3>
             <div className="grid grid-cols-2 gap-2">
               {contributors.map((contributor) => (
-                <div 
+                <div
                   key={contributor.id}
                   className="flex items-center justify-between p-2 rounded-lg neon-border"
                 >
@@ -107,9 +126,8 @@ export function TransactionDetails({
                     <p className="font-medium">
                       {contributor.firstName} {contributor.lastName}
                     </p>
-                    <p className="text-sm text-muted-foreground">
-                      {contributor.email}
-                    </p>
+                    <p className="text-sm text-muted-foreground">{contributor.email}</p>
+                    <p className="text-sm">Payé : {contributor.amountPaid?.toFixed(2) ?? '0.00'}€</p>
                   </div>
                   {contributors.length > 2 && (
                     <Button
@@ -138,7 +156,7 @@ export function TransactionDetails({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {calculateTransactions().map((transaction, index) => (
+                  {calculateSettlements().map((transaction, index) => (
                     <TableRow key={index}>
                       <TableCell>{transaction.from}</TableCell>
                       <TableCell>{transaction.to}</TableCell>
@@ -153,10 +171,7 @@ export function TransactionDetails({
           </div>
 
           <div className="flex gap-2">
-            <Button
-              className="flex-1 gap-2"
-              onClick={() => handleShare('email')}
-            >
+            <Button className="flex-1 gap-2" onClick={() => handleShare('email')}>
               <Mail className="w-4 h-4" />
               Envoyer par email
             </Button>

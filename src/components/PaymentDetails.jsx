@@ -124,7 +124,7 @@ export function PaymentDetails({ eventId, onClose }) {
   return (
     <div
       ref={containerRef}
-      className="fixed z-50 min-w-[600px] max-w-2xl h-[80vh] rounded-lg neon-border bg-card"
+      className="fixed z-50 w-[95vw] sm:min-w-[600px] sm:max-w-2xl h-[80vh] rounded-lg neon-border bg-card"
       style={{
         transform: `translate(${position.x}px, ${position.y}px)`,
         cursor ? 'grabbing' : 'default'

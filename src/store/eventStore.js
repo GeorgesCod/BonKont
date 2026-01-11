@@ -76,7 +76,7 @@ export const useEventStore = create()(
             ...event,
             updatedAt: new Date(),
             participants: updatedParticipants,
-            totalPaid: updatedParticipants.reduce((sum, p) => sum + (p.hasPaid ? p.paidAmount : 0), 0),
+            totalPaid: updatedParticipants.reduce((sum, p) => sum + (p.paidAmount || 0), 0),
           };
         }),
       })),

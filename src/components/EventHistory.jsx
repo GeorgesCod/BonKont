@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card } from '@/components/ui/card';
 import { useEventStore } from '@/store/eventStore';
+import { useTransactionsStore } from '@/store/transactionsStore';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -13,6 +14,7 @@ import { Download, Filter, Search, SortAsc, SortDesc, Calendar, FileText } from 
 export function EventHistory() {
   const { toast } = useToast();
   const events = useEventStore((state) => state.events);
+  const getTransactionsByEvent = useTransactionsStore((state) => state.getTransactionsByEvent);
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -213,6 +215,54 @@ export function EventHistory() {
 
         yPosition += 12;
 
+        // Ajouter les transactions de l'événement
+        const eventTransactions = getTransactionsByEvent(event.id);
+        if (eventTransactions && eventTransactions.length > 0) {
+          console.log('[EventHistory] Adding transactions for event:', { eventId: event.id, count: eventTransactions.length });
+          
+          // Vérifier si on doit créer une nouvelle page
+          if (yPosition > pageHeight - 60) {
+            doc.addPage();
+            yPosition = margin;
+          }
+
+          doc.setFontSize(7);
+          doc.setTextColor(100, 100, 100);
+          doc.setFont(undefined, 'bold');
+          doc.text('Transactions:', margin + 5, yPosition);
+          yPosition += 6;
+
+          doc.setFont(undefined, 'normal');
+          eventTransactions.forEach((transaction, txIndex) => {
+            // Vérifier si on doit créer une nouvelle page
+            if (yPosition > pageHeight - 20) {
+              doc.addPage();
+              yPosition = margin;
+            }
+
+            const txDate = transaction.date ? format(new Date(transaction.date), 'dd/MM/yyyy', { locale: fr }) : 'N/A';
+            const txStore = (transaction.store || 'Magasin inconnu').substring(0, 25);
+            const txAmount = `${(transaction.amount || 0).toFixed(2)}${transaction.currency === 'USD' ? '$' : transaction.currency === 'GBP' ? '£' : '€'}`;
+            const txTime = transaction.time || 'N/A';
+            const txParticipants = transaction.participants?.length || 0;
+
+            doc.setTextColor(80, 80, 80);
+            doc.text(`  • ${txStore}`, margin + 5, yPosition);
+            doc.text(`${txAmount}`, pageWidth - margin - 30, yPosition);
+            yPosition += 5;
+            
+            doc.setFontSize(6);
+            doc.setTextColor(120, 120, 120);
+            doc.text(`    ${txDate} ${txTime} | ${txParticipants} participant(s)`, margin + 5, yPosition);
+            doc.setFontSize(7);
+            yPosition += 5;
+          });
+
+          doc.setFontSize(8);
+          doc.setTextColor(0, 0, 0);
+          yPosition += 3;
+        }
+
         // Ligne de séparation entre les événements
         if (index < filteredEvents.length - 1) {
           doc.setDrawColor(240, 240, 240);
@@ -246,6 +296,11 @@ export function EventHistory() {
       const totalParticipants = filteredEvents.reduce((sum, e) => sum + (e.participants?.length || 0), 0);
       const completedCount = filteredEvents.filter(e => e.status === 'completed').length;
       const activeCount = filteredEvents.filter(e => e.status === 'active').length;
+      
+      // Calculer le total des transactions
+      const allTransactions = filteredEvents.flatMap(e => getTransactionsByEvent(e.id));
+      const totalTransactionsAmount = allTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+      const totalTransactionsCount = allTransactions.length;
 
       doc.text(`Total d'événements: ${filteredEvents.length}`, margin, yPosition);
       yPosition += 7;
@@ -254,6 +309,8 @@ export function EventHistory() {
       doc.text(`Total participants: ${totalParticipants}`, margin, yPosition);
       yPosition += 7;
       doc.text(`Terminés: ${completedCount} | Actifs: ${activeCount}`, margin, yPosition);
+      yPosition += 7;
+      doc.text(`Total transactions: ${totalTransactionsCount} (${totalTransactionsAmount.toFixed(2)}€)`, margin, yPosition);
 
       // Numéro de page
       const pageCount = doc.internal.pages.length - 1;

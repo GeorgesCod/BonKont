@@ -149,7 +149,7 @@ export function ContributorsPodium() {
         </Badge>
       </div>
 
-      <div className="grid grid-cols-1 md-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Position 2 - Argent */}
         <div className="order-2 md-1">
           <div className="flex flex-col items-center">

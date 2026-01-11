@@ -16,18 +16,25 @@ import {
   Navigation,
   CheckCircle,
   Clock,
-  TrendingUp
+  TrendingUp,
+  Scan
 } from 'lucide-react';
 import { EventLocation } from '@/components/EventLocation';
+import { EventTicketScanner } from '@/components/EventTicketScanner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { FileText } from 'lucide-react';
 
 export function EventManagement({ eventId, onBack }) {
   console.log('[EventManagement] Component mounted:', { eventId });
   
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const [selectedParticipant, setSelectedParticipant] = useState(null);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerParticipantId, setScannerParticipantId] = useState(null);
 
   if (!event) {
     console.error('[EventManagement] Event not found:', eventId);
@@ -94,6 +101,33 @@ export function EventManagement({ eventId, onBack }) {
       }).catch(err => console.error('[EventManagement] Share error:', err));
     }
   };
+const handleExportPDF = () => {
+  console.log('[PDF] Exporting event summary:', event.title);
+
+  const doc = new jsPDF();
+
+  doc.setFontSize(16);
+  doc.text(`Récapitulatif - ${event.title}`, 14, 20);
+
+  const tableData = participants.map((p) => {
+    const stats = getParticipantStats(p);
+    return [
+      p.name,
+      stats.totalDue.toFixed(2) + ' €',
+      stats.paid.toFixed(2) + ' €',
+      stats.remaining.toFixed(2) + ' €',
+      `${stats.score}/100`,
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 30,
+    head: [['Participant', 'Dû', 'Payé', 'Reste', 'Score']],
+    body: tableData,
+  });
+
+  doc.save(`BONKONT-${event.code}.pdf`);
+};
 
   const getParticipantStats = (participant) => {
     const totalDue = event.amount / participants.length;
@@ -125,9 +159,23 @@ export function EventManagement({ eventId, onBack }) {
             <p className="text-sm sm:text-base text-muted-foreground truncate">{event.description}</p>
           </div>
         </div>
-        <Badge variant="outline" className="text-sm sm:text-lg px-2 sm:px-4 py-1 sm:py-2 flex-shrink-0">
-          Code: {event.code}
-        </Badge>
+        <div className="flex items-center gap-2 flex-shrink-0">
+  <Badge
+    variant="outline"
+    className="text-sm sm:text-lg px-2 sm:px-4 py-1 sm:py-2"
+  >
+    Code: {event.code}
+  </Badge>
+
+  <Button
+    variant="outline"
+    className="gap-2"
+    onClick={handleExportPDF}
+  >
+    📄 Export PDF
+  </Button>
+</div>
+
       </div>
 
       {/* Localisation */}
@@ -211,15 +259,7 @@ export function EventManagement({ eventId, onBack }) {
               return (
                 <div
                   key={participant.id}
-                  className="p-4 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer"
-                  onClick={() => {
-                    console.log('[EventManagement] Participant clicked:', {
-                      id: participant.id,
-                      name: participant.name,
-                      stats
-                    });
-                    setSelectedParticipant(participant);
-                  }}
+                  className="p-4 rounded-lg border border-border hover:border-primary/50 transition-colors"
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
@@ -234,7 +274,42 @@ export function EventManagement({ eventId, onBack }) {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('[EventManagement] Scanner button clicked for participant:', {
+                          participantId: participant.id,
+                          participantName: participant.name,
+                          eventId
+                        });
+                        setScannerParticipantId(participant.id);
+                        setIsScannerOpen(true);
+                      }}
+                    >
+                      <Scan className="w-4 h-4" />
+                      Scanner un ticket
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        console.log('[EventManagement] Participant clicked:', {
+                          id: participant.id,
+                          name: participant.name,
+                          stats
+                        });
+                        setSelectedParticipant(participant);
+                      }}
+                    >
+                      Voir détails
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-sm">
                     <div>
                       <p className="text-muted-foreground">Montant dû</p>
                       <p className="font-semibold">{stats.totalDue.toFixed(2)}€</p>
@@ -281,6 +356,22 @@ export function EventManagement({ eventId, onBack }) {
         </ScrollArea>
       </Card>
 
+      {/* Scanner de ticket */}
+      <EventTicketScanner
+        eventId={eventId}
+        participantId={scannerParticipantId}
+        isOpen={isScannerOpen}
+        onClose={() => {
+          console.log('[EventManagement] Closing scanner');
+          setIsScannerOpen(false);
+          setScannerParticipantId(null);
+        }}
+        onPaymentProcessed={() => {
+          console.log('[EventManagement] Payment processed, refreshing view');
+          // Le store se met à jour automatiquement, pas besoin de refresh manuel
+        }}
+      />
+
       {/* Dialog pour les détails du participant */}
       <Dialog open={selectedParticipant !== null} onOpenChange={() => setSelectedParticipant(null)}>
         <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl mx-2 sm:mx-0">
@@ -293,6 +384,20 @@ export function EventManagement({ eventId, onBack }) {
                 <h3 className="font-semibold text-lg">{selectedParticipant.name}</h3>
                 <p className="text-muted-foreground">{selectedParticipant.email}</p>
               </div>
+              
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => {
+                  console.log('[EventManagement] Opening scanner from participant dialog');
+                  setSelectedParticipant(null);
+                  setScannerParticipantId(selectedParticipant.id);
+                  setIsScannerOpen(true);
+                }}
+              >
+                <Scan className="w-4 h-4" />
+                Scanner un ticket pour ce participant
+              </Button>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="p-4 rounded-lg border border-border">

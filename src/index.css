@@ -51,6 +51,18 @@
   * {
     @apply border-border;
   }
+
+  /* Empêcher le scroll horizontal global */
+  html {
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  html, body {
+    position: relative;
+    overflow-x: hidden;
+  }
   
   body {
     @apply bg-background text-foreground transition-colors duration-300;
@@ -71,8 +83,15 @@
     );
     background-attachment: fixed;
     min-height: 100vh;
+    min-height: -webkit-fill-available; /* Pour mobile */
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain; /* Évite le pull-to-refresh accidentel */
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    overflow-x: hidden; /* Empêche le scroll horizontal */
+    position: relative;
   }
 
   /* Styles pour le défilement fluide */
@@ -97,7 +116,28 @@
   /* Styles pour le responsive design */
   @media (max-width: 768px) {
     .container {
-      @apply px-4;
+      @apply px-3 sm:px-4;
+      width: 100%;
+      max-width: 100%;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* S'assurer que tous les éléments ne débordent pas */
+    * {
+      box-sizing: border-box;
+    }
+
+    /* Empêcher le débordement horizontal */
+    img, video, iframe, embed, object {
+      max-width: 100%;
+      height: auto;
+    }
+
+    /* Tables responsive */
+    table {
+      width: 100%;
+      table-layout: auto;
     }
 
     .glass-morphism {
@@ -110,6 +150,45 @@
 
     .button-glow::before {
       @apply opacity-50;
+    }
+
+    /* Optimisations pour mobile */
+    body {
+      font-size: 16px; /* Évite le zoom automatique sur iOS */
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* Zones tactiles minimales */
+    button, a, input[type="button"], input[type="submit"] {
+      min-height: 44px;
+      min-width: 44px;
+    }
+
+    /* Safe area pour iPhone avec encoche - appliqué uniquement aux éléments spécifiques */
+    @supports (padding: max(0px)) {
+      /* Ne pas appliquer aux body pour éviter les décalages */
+      /* Les safe areas seront appliquées via les classes utilitaires */
+      
+      .safe-top {
+        padding-top: max(0.75rem, env(safe-area-inset-top));
+      }
+
+      .safe-bottom {
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
+      }
+
+      .safe-left {
+        padding-left: max(0.75rem, env(safe-area-inset-left));
+      }
+
+      .safe-right {
+        padding-right: max(0.75rem, env(safe-area-inset-right));
+      }
+
+      /* Header avec safe area uniquement en haut */
+      header.safe-top {
+        padding-top: max(0.75rem, env(safe-area-inset-top));
+      }
     }
   }
 
@@ -200,6 +279,42 @@
       scroll-behavior: auto;
     }
   }
+
+  /* Améliorations pour mobile immersif */
+  @media (max-width: 640px) {
+    /* Empêcher le zoom sur focus des inputs */
+    input[type="text"],
+    input[type="email"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="date"],
+    input[type="time"],
+    textarea,
+    select {
+      font-size: 16px !important; /* Évite le zoom automatique sur iOS */
+    }
+
+    /* Améliorer les espacements pour mobile */
+    .space-y-4 > * + * {
+      margin-top: 1rem;
+    }
+
+    .space-y-6 > * + * {
+      margin-top: 1.5rem;
+    }
+
+    /* Cards plus compactes sur mobile */
+    .neon-border {
+      padding: 1rem;
+    }
+
+    /* Textes plus lisibles */
+    p, span, div {
+      line-height: 1.6;
+    }
+  }
+
+  /* Support pour les appareils avec encoche - déjà défini dans la section mobile */
 
   /* Styles pour le ScrollArea */
   .scrollarea-viewport {

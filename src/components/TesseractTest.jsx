@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, Loader2, Upload, Scan, Camera, X, CheckCircle2 } from 'lucide-react';
+import { FileText, Loader2, Upload, Scan, Camera, X, CheckCircle2, Save, Calendar } from 'lucide-react';
+import { useEventStore } from '@/store/eventStore';
+import { useTransactionsStore } from '@/store/transactionsStore';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { format } from 'date-fns';
 
 const API_BASE_URL = "https://api.walletfamily.fr";
 
@@ -138,7 +143,7 @@ const compressImage = (file, maxSizeMB = 2, maxDim = 1600, initialQ = 0.8) => {
 // -----------------------------------------------------------------------------
 // Composant principal
 // -----------------------------------------------------------------------------
-export function TesseractTest({ onDataExtracted }) {
+export function TesseractTest({ onDataExtracted, showEventSelection = false }) {
   // ---------- state ----------
   const [image, setImage] = useState(null);
   const [scannedText, setScannedText] = useState("");
@@ -150,6 +155,16 @@ export function TesseractTest({ onDataExtracted }) {
   const [ocrResult, setOcrResult] = useState("");
   const [category, setCategory] = useState("");
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  
+  // États pour l'enregistrement dans un événement
+  const [selectedEventId, setSelectedEventId] = useState(null);
+  const [selectedParticipantId, setSelectedParticipantId] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  const events = useEventStore((state) => state.events);
+  const addTransaction = useTransactionsStore((state) => state.addTransaction);
+  const updateParticipant = useEventStore((state) => state.updateParticipant);
+  const updateEvent = useEventStore((state) => state.updateEvent);
 
   // ---------- refs / hooks ----------
   const webcamRef = useRef(null);
@@ -1310,6 +1325,204 @@ export function TesseractTest({ onDataExtracted }) {
                 <p className="text-base font-semibold text-muted-foreground">Non détecté</p>
               )}
             </div>
+
+            {/* Section pour enregistrer dans un événement */}
+            {showEventSelection && events.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-green-500/30 space-y-3">
+                <Label className="text-sm font-semibold">Enregistrer dans un événement</Label>
+                
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-2 block">Sélectionner un événement</Label>
+                  <Select
+                    value={selectedEventId || ''}
+                    onValueChange={(value) => {
+                      console.log('[TesseractTest] Event selected:', value);
+                      setSelectedEventId(value);
+                      setSelectedParticipantId(null);
+                    }}
+                  >
+                    <SelectTrigger className="neon-border">
+                      <SelectValue placeholder="Choisir un événement" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {events.map((event) => (
+                        <SelectItem key={event.id} value={event.id}>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4" />
+                            <span>{event.title}</span>
+                            <span className="text-xs text-muted-foreground">({event.code})</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedEventId && (() => {
+                  const selectedEvent = events.find(e => e.id === selectedEventId);
+                  const participants = Array.isArray(selectedEvent?.participants) ? selectedEvent.participants : [];
+                  
+                  if (participants.length === 0) {
+                    return (
+                      <p className="text-xs text-muted-foreground">
+                        Cet événement n'a pas de participants.
+                      </p>
+                    );
+                  }
+
+                  return (
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-2 block">Sélectionner le participant payeur</Label>
+                      <Select
+                        value={selectedParticipantId || ''}
+                        onValueChange={(value) => {
+                          console.log('[TesseractTest] Participant selected:', value);
+                          setSelectedParticipantId(value);
+                        }}
+                      >
+                        <SelectTrigger className="neon-border">
+                          <SelectValue placeholder="Choisir le participant" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {participants.map((participant) => (
+                            <SelectItem key={participant.id} value={participant.id}>
+                              {participant.name} {participant.email ? `(${participant.email})` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  );
+                })()}
+
+                {selectedEventId && selectedParticipantId && extractedData.total && (
+                  <Button
+                    onClick={async () => {
+                      console.log('[TesseractTest] ===== SAVING TO EVENT =====');
+                      console.log('[TesseractTest] Event ID:', selectedEventId);
+                      console.log('[TesseractTest] Participant ID:', selectedParticipantId);
+                      console.log('[TesseractTest] Extracted data:', extractedData);
+                      
+                      setIsSaving(true);
+                      
+                      try {
+                        const selectedEvent = events.find(e => e.id === selectedEventId);
+                        const participant = selectedEvent?.participants.find(p => p.id === selectedParticipantId);
+                        
+                        if (!selectedEvent || !participant) {
+                          throw new Error('Événement ou participant introuvable');
+                        }
+
+                        const scannedAmount = parseFloat(extractedData.total);
+                        if (isNaN(scannedAmount) || scannedAmount <= 0) {
+                          throw new Error('Montant invalide');
+                        }
+
+                        // 1. Créer la transaction
+                        const transactionData = {
+                          store: extractedData.enseigne || 'Magasin inconnu',
+                          date: extractedData.date ? (() => {
+                            try {
+                              if (extractedData.date.includes('/')) {
+                                const [day, month, year] = extractedData.date.split('/');
+                                return new Date(`${year}-${month}-${day}`).toISOString().split('T')[0];
+                              }
+                              return extractedData.date;
+                            } catch (e) {
+                              return new Date().toISOString().split('T')[0];
+                            }
+                          })() : new Date().toISOString().split('T')[0],
+                          time: extractedData.heure || new Date().toTimeString().slice(0, 5),
+                          amount: scannedAmount,
+                          currency: extractedData.devise === '$' || extractedData.devise === 'USD' ? 'USD' :
+                                    extractedData.devise === '£' || extractedData.devise === 'GBP' ? 'GBP' : 'EUR',
+                          participants: [selectedParticipantId],
+                          source: 'scanned_ticket',
+                          scannedData: extractedData
+                        };
+
+                        console.log('[TesseractTest] Creating transaction:', transactionData);
+                        addTransaction(selectedEventId, transactionData);
+                        console.log('[TesseractTest] Transaction created');
+
+                        // 2. Créditer le compte du participant
+                        const totalDue = selectedEvent.amount / selectedEvent.participants.length;
+                        const alreadyPaid = participant.paidAmount || 0;
+                        const newPaidAmount = alreadyPaid + scannedAmount;
+                        const isFullyPaid = newPaidAmount >= totalDue - 0.01;
+
+                        console.log('[TesseractTest] Payment calculation:', {
+                          totalDue,
+                          alreadyPaid,
+                          scannedAmount,
+                          newPaidAmount,
+                          isFullyPaid
+                        });
+
+                        updateParticipant(selectedEventId, selectedParticipantId, {
+                          hasPaid: isFullyPaid,
+                          paidAmount: newPaidAmount,
+                          paidDate: new Date(),
+                          paymentMethod: 'scanned_ticket'
+                        });
+                        console.log('[TesseractTest] Participant updated');
+
+                        // 3. Mettre à jour l'événement
+                        const currentTotalPaid = selectedEvent.totalPaid || 0;
+                        const newTotalPaid = currentTotalPaid + scannedAmount;
+                        const eventRemainingAmount = Math.max(0, selectedEvent.amount - newTotalPaid);
+
+                        updateEvent(selectedEventId, {
+                          totalPaid: newTotalPaid,
+                          remainingAmount: eventRemainingAmount,
+                          status: newTotalPaid >= selectedEvent.amount - 0.01 ? 'completed' : 'active'
+                        });
+                        console.log('[TesseractTest] Event updated');
+
+                        console.log('[TesseractTest] ===== SAVE COMPLETE =====');
+                        
+                        toast({
+                          title: "✅ Enregistré avec succès !",
+                          description: `Transaction de ${scannedAmount.toFixed(2)}€ enregistrée pour ${participant.name} dans l'événement "${selectedEvent.title}".`,
+                        });
+
+                        // Réinitialiser
+                        setSelectedEventId(null);
+                        setSelectedParticipantId(null);
+                        setExtractedData(null);
+                        setImage(null);
+                        setCapturedImage(null);
+                        setOcrResult("");
+                        setScannedText("");
+                      } catch (error) {
+                        console.error('[TesseractTest] Error saving to event:', error);
+                        toast({
+                          variant: "destructive",
+                          title: "Erreur",
+                          description: error.message || "Une erreur est survenue lors de l'enregistrement.",
+                        });
+                      } finally {
+                        setIsSaving(false);
+                      }
+                    }}
+                    disabled={isSaving}
+                    className="w-full gap-2 button-glow"
+                  >
+                    {isSaving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Enregistrement...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        Enregistrer dans l'événement
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
