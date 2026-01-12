@@ -20,6 +20,9 @@ export function EventHistory() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  
+  const normalizeText = (v) =>
+    String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
   useEffect(() => {
     console.log('[EventHistory] Component mounted');
@@ -27,38 +30,18 @@ export function EventHistory() {
     console.log('[EventHistory] Events:', events.map(e => ({ id: e.id, title: e.title, status: e.status })));
   }, []);
 
-  useEffect(() => {
-    const filtered = events
-      .filter(event => {
-        const matchesSearch = event.title.toLowerCase().includes(search.toLowerCase()) ||
-                             (event.description && event.description.toLowerCase().includes(search.toLowerCase()));
-        const matchesStatus = statusFilter === 'all' || event.status === statusFilter;
-        return matchesSearch && matchesStatus;
-      });
-    
-    console.log('[EventHistory] Filter changed:', { search, statusFilter, sortField, sortOrder });
-    console.log('[EventHistory] Filtered events count:', filtered.length);
-  }, [search, statusFilter, sortField, sortOrder, events]);
+  const filteredEvents = (Array.isArray(events) ? events : [])
+    .filter((event) => {
+      const searchLower = normalizeText(search);
 
-  const filteredEvents = events
-    .filter(event => {
-      const matchesSearch = event.title.toLowerCase().includes(search.toLowerCase()) ||
-                           (event.description && event.description.toLowerCase().includes(search.toLowerCase()));
-      const matchesStatus = statusFilter === 'all' || event.status === statusFilter;
-      const result = matchesSearch && matchesStatus;
-      
-      if (!result) {
-        console.log('[EventHistory] Event filtered out:', {
-          id: event.id,
-          title: event.title,
-          matchesSearch,
-          matchesStatus,
-          status: event.status,
-          statusFilter
-        });
-      }
-      
-      return result;
+      const matchesSearch =
+        normalizeText(event.title).includes(searchLower) ||
+        normalizeText(event.description).includes(searchLower);
+
+      const matchesStatus =
+        statusFilter === 'all' || event.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
     })
     .sort((a, b) => {
       const order = sortOrder === 'asc' ? 1 : -1;

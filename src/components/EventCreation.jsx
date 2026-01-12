@@ -303,6 +303,7 @@ export function EventCreation() {
             <EventLocation
               location={location}
               onLocationChange={setLocation}
+              isSejour={deadline >= 2} // Considérer comme séjour si délai >= 2 jours
             />
           </div>
         )}

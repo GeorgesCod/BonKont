@@ -3,14 +3,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
-import { MapPin, Search, Share2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { MapPin, Search, Share2, Star, MapPinned, ArrowLeft, Copy, Home } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
-export function EventLocation({ initialLocation, onLocationChange = () => {} }) {
+export function EventLocation({ initialLocation, onLocationChange = () => {}, isSejour = false }) {
   const { toast } = useToast();
   const mapRef = useRef(null);
 
   const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+  
+  const [pointsOfInterest, setPointsOfInterest] = useState([]);
+  const [isLoadingPOI, setIsLoadingPOI] = useState(false);
 
   // Normaliser initialLocation (peut être string ou objet)
   const normalizedInitial = useMemo(() => {
@@ -97,6 +101,102 @@ export function EventLocation({ initialLocation, onLocationChange = () => {} }) 
       : `https://www.google.com/maps?q=${encoded}`;
   };
 
+  // Fonction pour récupérer les points d'intérêt via Google Places API
+  const fetchPointsOfInterest = async (coords, placeId) => {
+    if (!googleMapsApiKey || !isSejour) return [];
+    
+    setIsLoadingPOI(true);
+    try {
+      // Utiliser Nearby Search pour trouver les points d'intérêt
+      const url = placeId 
+        ? `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,rating,user_ratings_total,types,geometry&key=${googleMapsApiKey}`
+        : `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${coords.lat},${coords.lng}&radius=5000&type=tourist_attraction|point_of_interest&key=${googleMapsApiKey}`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.results) {
+        // Trier par rating et prendre les 5 meilleurs
+        const poi = data.results
+          .filter(place => place.rating && place.user_ratings_total >= 2) // Au moins 2 avis
+          .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+          .slice(0, 5)
+          .map(place => ({
+            name: place.name,
+            rating: place.rating || 0,
+            totalReviews: place.user_ratings_total || 0,
+            types: place.types || [],
+            placeId: place.place_id,
+            coordinates: place.geometry?.location ? {
+              lat: place.geometry.location.lat,
+              lng: place.geometry.location.lng
+            } : null
+          }));
+        
+        setPointsOfInterest(poi);
+        return poi;
+      }
+      
+      // Si Nearby Search ne fonctionne pas, essayer Text Search
+      if (data.status !== 'OK' && coords) {
+        const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=points+of+interest+near+${coords.lat},${coords.lng}&key=${googleMapsApiKey}`;
+        const textResponse = await fetch(textSearchUrl);
+        const textData = await textResponse.json();
+        
+        if (textData.status === 'OK' && textData.results) {
+          const poi = textData.results
+            .filter(place => place.rating && place.user_ratings_total >= 2)
+            .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+            .slice(0, 5)
+            .map(place => ({
+              name: place.name,
+              rating: place.rating || 0,
+              totalReviews: place.user_ratings_total || 0,
+              types: place.types || [],
+              placeId: place.place_id,
+              coordinates: place.geometry?.location ? {
+                lat: place.geometry.location.lat,
+                lng: place.geometry.location.lng
+              } : null
+            }));
+          
+          setPointsOfInterest(poi);
+          return poi;
+        }
+      }
+      
+      setPointsOfInterest([]);
+      return [];
+    } catch (error) {
+      console.error('[EventLocation] Error fetching POI:', error);
+      setPointsOfInterest([]);
+      return [];
+    } finally {
+      setIsLoadingPOI(false);
+    }
+  };
+
+  // Détection automatique du copier-coller
+  useEffect(() => {
+    const handlePaste = (e) => {
+      const pastedText = e.clipboardData?.getData('text') || '';
+      if (pastedText.trim() && pastedText.length > 5) {
+        // Si l'utilisateur colle une adresse, la géocoder automatiquement
+        setTimeout(() => {
+          const trimmed = pastedText.trim();
+          setAddress(trimmed);
+          // Le debounce effect se chargera de la géocodage
+        }, 100);
+      }
+    };
+
+    const inputElement = document.getElementById('address');
+    if (inputElement) {
+      inputElement.addEventListener('paste', handlePaste);
+      return () => inputElement.removeEventListener('paste', handlePaste);
+    }
+  }, []);
+
   // Debounce: géocode automatiquement quand address change
   useEffect(() => {
     const trimmed = (address || '').trim();
@@ -104,6 +204,7 @@ export function EventLocation({ initialLocation, onLocationChange = () => {} }) 
     // Si vide → reset propre
     if (!trimmed) {
       setCoordinates(null);
+      setPointsOfInterest([]);
       if (typeof onLocationChange === 'function') onLocationChange(null);
       return;
     }
@@ -114,17 +215,26 @@ export function EventLocation({ initialLocation, onLocationChange = () => {} }) 
       if (result?.coordinates) {
         setCoordinates(result.coordinates);
 
+        // Si c'est un séjour, récupérer les points d'intérêt
+        let poi = [];
+        if (isSejour && result.coordinates) {
+          poi = await fetchPointsOfInterest(result.coordinates, result.placeId);
+        } else {
+          setPointsOfInterest([]);
+        }
+
         const newLocation = {
           address: result.address || trimmed,
           coordinates: result.coordinates,
           mapUrl: buildMapUrl(result.address || trimmed),
           placeId: result.placeId,
           displayName: result.displayName,
+          pointsOfInterest: poi, // Inclure les points d'intérêt dans la localisation
         };
 
         if (typeof onLocationChange === 'function') onLocationChange(newLocation);
       } else {
-        // Géocodage échoué : on garde l’adresse, coords null (pas 0/0)
+        // Géocodage échoué : on garde l'adresse, coords null (pas 0/0)
         const newLocation = {
           address: trimmed,
           coordinates: null,
@@ -132,13 +242,14 @@ export function EventLocation({ initialLocation, onLocationChange = () => {} }) 
         };
 
         setCoordinates(null);
+        setPointsOfInterest([]);
         if (typeof onLocationChange === 'function') onLocationChange(newLocation);
       }
     }, 800);
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address]);
+  }, [address, isSejour]);
 
   const handleSearch = async () => {
     const trimmed = (address || '').trim();
@@ -158,12 +269,19 @@ export function EventLocation({ initialLocation, onLocationChange = () => {} }) 
       if (result?.coordinates) {
         setCoordinates(result.coordinates);
 
+        // Si c'est un séjour, récupérer les points d'intérêt
+        let poi = [];
+        if (isSejour && result.coordinates) {
+          poi = await fetchPointsOfInterest(result.coordinates, result.placeId);
+        }
+
         const newLocation = {
           address: result.address || trimmed,
           coordinates: result.coordinates,
           mapUrl: buildMapUrl(result.address || trimmed),
           placeId: result.placeId,
           displayName: result.displayName,
+          pointsOfInterest: poi, // Inclure les points d'intérêt dans la localisation
         };
 
         if (typeof onLocationChange === 'function') onLocationChange(newLocation);
@@ -235,10 +353,170 @@ export function EventLocation({ initialLocation, onLocationChange = () => {} }) 
     }
   };
 
+  // Fonction pour copier l'adresse dans le presse-papier
+  const handleCopyAddress = async () => {
+    const trimmed = (address || '').trim();
+    if (!trimmed) {
+      toast({
+        variant: 'destructive',
+        title: 'Aucune adresse',
+        description: "Veuillez d'abord saisir une adresse.",
+      });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(trimmed);
+      toast({
+        title: 'Adresse copiée !',
+        description: 'Vous pouvez maintenant la coller dans Google Maps ou une autre application.',
+      });
+    } catch (err) {
+      console.error('[EventLocation] Copy error:', err);
+      toast({
+        variant: 'destructive',
+        title: 'Erreur',
+        description: 'Impossible de copier l\'adresse.',
+      });
+    }
+  };
+
+  // Effet pour afficher un message d'aide au chargement
+  useEffect(() => {
+    // Afficher un message d'aide au focus de la page
+    const handleFocus = () => {
+      const addressInput = document.getElementById('address');
+      if (addressInput && !addressInput.value.trim()) {
+        // Si le champ est vide, suggérer de coller l'adresse
+        setTimeout(() => {
+          toast({
+            title: '💡 Astuce',
+            description: 'Collez l\'adresse copiée depuis Maps dans le champ ci-dessous',
+            duration: 5000,
+          });
+        }, 500);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
+      {/* Message d'aide très visible en haut */}
+      <Card className="p-4 bg-primary/10 border-2 border-primary neon-border">
+        <div className="flex items-start gap-3">
+          <Home className="w-6 h-6 text-primary shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-bold text-base mb-2 text-foreground">
+              📍 Comment revenir au champ adresse ?
+            </h3>
+            <ol className="text-sm text-foreground space-y-1.5 list-decimal list-inside">
+              <li>Copiez l'adresse depuis Google Maps</li>
+              <li>Revenez à cette page Bonkont (onglet ou application)</li>
+              <li>Cliquez sur le bouton <strong className="text-primary">"Retour au champ adresse"</strong> ci-dessous</li>
+              <li>Collez l'adresse (Ctrl+V ou Cmd+V)</li>
+            </ol>
+          </div>
+        </div>
+      </Card>
+
+      {/* Bouton flottant toujours visible pour revenir au champ adresse */}
+      <div 
+        className="fixed bottom-20 right-4 z-[100] sm:bottom-24 sm:right-6"
+        style={{ 
+          position: 'fixed',
+          zIndex: 100,
+          pointerEvents: 'auto'
+        }}
+      >
+        <Button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // Faire défiler vers le haut pour s'assurer que l'utilisateur voit le formulaire
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            // Focus sur le champ d'adresse pour faciliter le retour
+            setTimeout(() => {
+              const addressInput = document.getElementById('address');
+              if (addressInput) {
+                addressInput.focus();
+                addressInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Sélectionner tout le texte pour faciliter le remplacement
+                addressInput.select();
+              }
+            }, 300);
+            
+            toast({
+              title: '✅ Retour au champ adresse',
+              description: 'Le champ est prêt - Collez votre adresse (Ctrl+V ou Cmd+V)',
+              duration: 3000,
+            });
+          }}
+          className="gap-2 neon-border shadow-2xl button-glow min-h-[56px] min-w-[56px] bg-primary text-primary-foreground hover:bg-primary/90"
+          style={{
+            animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            boxShadow: '0 0 20px rgba(139, 92, 246, 0.5), 0 0 40px rgba(139, 92, 246, 0.3)',
+          }}
+          size="lg"
+          title="Revenir au champ adresse - Cliquez ici après avoir copié l'adresse depuis Maps"
+        >
+          <Home className="w-6 h-6" />
+          <span className="hidden sm:inline text-sm font-bold">Retour adresse</span>
+        </Button>
+      </div>
+
+      {/* Bouton retour visible pour revenir à l'application */}
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            // Faire défiler vers le haut pour s'assurer que l'utilisateur voit le formulaire
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            // Focus sur le champ d'adresse pour faciliter le retour
+            const addressInput = document.getElementById('address');
+            if (addressInput) {
+              setTimeout(() => {
+                addressInput.focus();
+                addressInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 300);
+            }
+          }}
+          className="gap-2 neon-border"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span className="text-xs sm:text-sm">Retour au champ adresse</span>
+        </Button>
+        
+        {address.trim() && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleCopyAddress}
+            className="gap-2 neon-border"
+            title="Copier l'adresse"
+          >
+            <Copy className="w-4 h-4" />
+            <span className="text-xs sm:text-sm hidden sm:inline">Copier</span>
+          </Button>
+        )}
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="address">Lieu de l'événement</Label>
+        <div className="bg-muted/50 border border-border rounded-lg p-3 mb-2">
+          <p className="text-xs sm:text-sm text-foreground font-medium mb-2 flex items-center gap-2">
+            <MapPin className="w-4 h-4" />
+            Champ de saisie d'adresse
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Collez directement une adresse depuis Google Maps ou saisissez-la manuellement
+          </p>
+        </div>
 
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1">
@@ -247,11 +525,25 @@ export function EventLocation({ initialLocation, onLocationChange = () => {} }) 
               id="address"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
+              onPaste={(e) => {
+                // Laisser le comportement par défaut, puis géocoder automatiquement
+                const pastedText = e.clipboardData?.getData('text') || '';
+                if (pastedText.trim() && pastedText.length > 5) {
+                  setTimeout(() => {
+                    setAddress(pastedText.trim());
+                    toast({
+                      title: 'Adresse détectée',
+                      description: 'Géocodage en cours...',
+                    });
+                  }, 100);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSearch();
               }}
-              placeholder="Ex: 123 Rue de la Paix, Paris"
+              placeholder="Ex: 123 Rue de la Paix, Paris ou collez une adresse"
               className="pl-10 neon-border"
+              autoFocus={false}
             />
           </div>
 
@@ -324,6 +616,54 @@ export function EventLocation({ initialLocation, onLocationChange = () => {} }) 
                 </div>
               )}
             </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Points d'intérêt pour les séjours */}
+      {isSejour && coordinates && (
+        <Card className="p-4 neon-border">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <MapPinned className="w-5 h-5 text-primary" />
+              <h3 className="font-semibold text-base sm:text-lg">Points d'intérêt à proximité</h3>
+            </div>
+            
+            {isLoadingPOI ? (
+              <div className="text-center py-4 text-muted-foreground">
+                <p>Recherche des meilleurs points d'intérêt...</p>
+              </div>
+            ) : pointsOfInterest.length > 0 ? (
+              <div className="space-y-3">
+                {pointsOfInterest.map((poi, index) => (
+                  <div key={poi.placeId || index} className="p-3 rounded-lg border border-border bg-card">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-medium text-sm sm:text-base mb-1 break-words">{poi.name}</h4>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-1">
+                            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                            <span className="text-sm font-medium">{poi.rating.toFixed(1)}</span>
+                          </div>
+                          {poi.totalReviews >= 2 && (
+                            <Badge variant="outline" className="text-xs">
+                              {poi.totalReviews} avis
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground text-center pt-2">
+                  Ces points d'intérêt seront partagés avec les participants
+                </p>
+              </div>
+            ) : coordinates ? (
+              <div className="text-center py-4 text-muted-foreground">
+                <p className="text-sm">Aucun point d'intérêt trouvé avec au moins 2 avis</p>
+              </div>
+            ) : null}
           </div>
         </Card>
       )}

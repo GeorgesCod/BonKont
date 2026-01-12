@@ -429,18 +429,25 @@ setPaymentMethod('card');
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
         <div className="flex items-center gap-3 flex-1">
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               console.log('[EventDashboard] Return to home clicked');
               window.location.hash = '';
+              // Force le re-render
+              setTimeout(() => {
+                window.location.reload();
+              }, 100);
             }}
-            className="neon-border"
+            className="neon-border min-h-[44px] min-w-[44px] touch-manipulation"
             title="Retour à l'accueil"
+            style={{ touchAction: 'manipulation' }}
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
@@ -448,8 +455,10 @@ setPaymentMethod('card');
         </div>
         <Button 
           variant="outline" 
-          className="gap-2 neon-border w-full sm:w-auto"
-          onClick={() => {
+          className="gap-2 neon-border w-full sm:w-auto min-h-[44px] touch-manipulation"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
             console.log('[EventDashboard] History button clicked');
             if (onShowHistory) {
               onShowHistory();
@@ -457,6 +466,7 @@ setPaymentMethod('card');
               console.warn('[EventDashboard] onShowHistory callback not provided');
             }
           }}
+          style={{ touchAction: 'manipulation' }}
         >
           <History className="w-4 h-4" />
           <span className="text-xs sm:text-sm">Historique</span>
@@ -492,16 +502,53 @@ setPaymentMethod('card');
                     <h3 className="text-xl font-semibold">{event.title}</h3>
                       <Badge
                         variant="outline"
-                        className="cursor-pointer hover:bg-primary/10 hover:border-primary transition-colors"
+                        role="button"
+                        tabIndex={0}
+                        className="cursor-pointer select-none hover:bg-primary/10 hover:border-primary transition-colors min-h-[44px] px-3 py-1 touch-manipulation"
                         onClick={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
-                          console.log('[EventDashboard] Event code clicked:', event.code, event.id);
-                          window.location.hash = `event/${event.id}`;
+                          console.log('[EventDashboard] Badge code clicked:', { 
+                            eventId: event?.id, 
+                            eventCode: event?.code,
+                            timestamp: new Date().toISOString()
+                          });
+                          
+                          if (!event?.id) {
+                            console.error('[EventDashboard] Event ID missing');
+                            return;
+                          }
+                          
+                          console.log('[EventDashboard] Navigating to event:', event.id);
+                          
+                          // Navigation avec vérification
+                          const targetHash = `#event/${event.id}`;
+                          console.log('[EventDashboard] Setting hash to:', targetHash);
+                          
+                          window.location.hash = targetHash;
+                          
+                          // Force le re-render après un court délai
+                          requestAnimationFrame(() => {
+                            window.dispatchEvent(new HashChangeEvent('hashchange'));
+                          });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!event?.id) return;
+                            window.location.hash = `#event/${event.id}`;
+                            setTimeout(() => {
+                              window.dispatchEvent(new HashChangeEvent('hashchange'));
+                            }, 100);
+                          }
                         }}
                         title="Cliquez pour gérer l'événement"
+                        style={{ touchAction: 'manipulation' }}
                       >
                         {event.code}
                       </Badge>
+
                     </div>
                     <p className="text-sm text-muted-foreground">
                       {event.description}
@@ -596,7 +643,7 @@ setPaymentMethod('card');
     className="gap-2 neon-border"
     onClick={() => {
       console.log('[EventDashboard] Navigate to transactions:', event.id);
-      window.location.hash = `event/${event.id}/transactions`;
+      window.location.hash = `#event/${event.id}/transactions`;
     }}
   >
     💳 Transactions
@@ -1350,7 +1397,7 @@ setPaymentMethod('card');
     className="flex-1 gap-2"
     onClick={() => {
       console.log('[EventDashboard] Navigate to transactions', event.id);
-      window.location.hash = `event/${event.id}/transactions`;
+      window.location.hash = `#event/${event.id}/transactions`;
     }}
   >
     💳 Transactions
@@ -1375,7 +1422,7 @@ setPaymentMethod('card');
            console.log('[EventDashboard] Payment processed from scanner -> go to EventManagement', scannerEventId);
   setShowScannerDialog(false);
   const id = scannerEventId || localStorage.getItem('bonkont_scanner_eventId');
-  if (id) window.location.hash = `event/${id}`;
+  if (id) window.location.hash = `#event/${id}`;
         }}
       />
     </div>

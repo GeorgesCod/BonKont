@@ -8,7 +8,7 @@ const Separator = React.forwardRef(
     { className, orientation = 'horizontal', decorative = true, ...props },
     ref
   ) => (
-    <SeparatorPrimitive.Root
+    <separatorPrimitive.Root
       ref={ref}
       decorative={decorative}
       orientation={orientation}
@@ -21,6 +21,6 @@ const Separator = React.forwardRef(
     />
   )
 );
-Separator.displayName = SeparatorPrimitive.Root.displayName;
+Separator.displayName = separatorPrimitive.Root.displayName;
 
 export { Separator };

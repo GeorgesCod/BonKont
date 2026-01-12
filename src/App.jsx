@@ -11,13 +11,18 @@ import { UserProfile } from '@/components/UserProfile';
 import { InviteFriends } from '@/components/InviteFriends';
 import { ScrollToTop } from '@/components/ScrollToTop';
 import { TesseractTest } from '@/components/TesseractTest';
-import { Wallet2, LogIn, UserCircle, BarChart as ChartBar, ArrowLeft } from 'lucide-react';
+import { SettingsDialog } from '@/components/SettingsDialog';
+import { Wallet2, LogIn, UserCircle, BarChart as ChartBar, ArrowLeft, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useEventStore } from '@/store/eventStore';
+import { useToast } from '@/hooks/use-toast';
 
 export default function App() {
+  const { toast } = useToast();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history'
@@ -128,11 +133,46 @@ export default function App() {
   const handleHashChange = () => {
     const hash = window.location.hash;
     console.log('[App] Hash changed:', hash);
+    console.log('[App] Current state:', { 
+      isLoggedIn, 
+      currentView, 
+      selectedEventId,
+      hash 
+    });
 
     if (hash.startsWith('#event/')) {
       const eventId = hash.replace('#event/', '').split('/')[0];
       const mode = hash.includes('/transactions') ? 'transactions' : 'management';
-      console.log('[App] Navigating to event view:', { eventId, mode });
+      console.log('[App] Navigating to event view:', { eventId, mode, hash });
+      
+      // Vérifier que l'événement existe
+      const events = useEventStore.getState().events;
+      const eventExists = events.some(e => String(e.id) === String(eventId));
+      
+      console.log('[App] Event check:', {
+        eventId,
+        eventExists,
+        eventsCount: events.length,
+        availableIds: events.map(e => e.id)
+      });
+      
+      if (!eventExists && events.length > 0) {
+        console.error('[App] Event not found:', eventId);
+        console.log('[App] Available events:', events.map(e => ({ id: e.id, title: e.title })));
+        window.location.hash = '';
+        setCurrentView('dashboard');
+        setSelectedEventId(null);
+        return;
+      }
+      
+      // Si l'utilisateur n'est pas connecté mais qu'un événement existe, on peut quand même naviguer
+      // (pour permettre l'accès via lien partagé)
+      if (!isLoggedIn && eventExists) {
+        console.log('[App] User not logged in but event exists, allowing navigation');
+        // Optionnel: on pourrait rediriger vers la connexion ici
+        // setIsAuthOpen(true);
+      }
+      
       setSelectedEventId(eventId);
       setViewMode(mode);
       setCurrentView('event');
@@ -142,6 +182,11 @@ export default function App() {
       console.log('[App] Navigating to dashboard');
       setCurrentView('dashboard');
       setSelectedEventId(null);
+      setViewMode('management');
+      setShowHistory(false);
+      // Ne pas réinitialiser showStats ici, il est géré par le bouton Statistiques
+      // setShowStats(false);
+      // S'assurer que showStats reste dans son état actuel si on vient du bouton
     }
   };
 
@@ -158,17 +203,56 @@ export default function App() {
 
 
   const handleAuthSuccess = () => {
+    console.log('[App] Auth success, setting logged in');
     setIsLoggedIn(true);
     setIsAuthOpen(false);
+    // S'assurer qu'on est sur le dashboard après connexion
+    setCurrentView('dashboard');
+    setShowHistory(false);
+    setShowStats(false);
+    window.location.hash = '';
   };
 
   const handleLogout = () => {
     setIsLoggedIn(false);
     setIsProfileOpen(false);
+    setIsSettingsOpen(false);
+    // Nettoyer les données utilisateur
+    localStorage.removeItem('bonkont-user');
+    setCurrentView('dashboard');
+    setSelectedEventId(null);
+    setShowStats(false);
+    setShowHistory(false);
+    window.location.hash = '';
+    // Afficher un toast de confirmation
+    toast({
+      title: "Déconnexion réussie",
+      description: "Vous avez été déconnecté avec succès.",
+      duration: 3000,
+    });
+  };
+
+  const handleDeleteAccount = () => {
+    // Supprimer toutes les données utilisateur
+    localStorage.removeItem('bonkont-user');
+    localStorage.removeItem('bonkont-currency');
+    localStorage.removeItem('bonkont-language');
+    localStorage.removeItem('bonkont-subscription');
+    // Supprimer les événements (optionnel - selon les besoins)
+    useEventStore.getState().events.forEach(event => {
+      useEventStore.getState().removeEvent(event.id);
+    });
+    
+    setIsLoggedIn(false);
+    setIsProfileOpen(false);
+    setIsSettingsOpen(false);
+    setCurrentView('dashboard');
+    setSelectedEventId(null);
+    window.location.hash = '';
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground" style={{ touchAction: 'pan-y' }}>
       <header className="py-3 sm:py-6 border-b border-border/50 backdrop-blur-sm bg-background/80 sticky top-0 z-50 safe-top w-full">
         <div className="container mx-auto px-3 sm:px-4 max-w-full">
           <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-0">
@@ -202,8 +286,31 @@ export default function App() {
                   <InviteFriends />
                   <Button
                     variant="outline"
-                    className="neon-border gap-2 min-h-[44px] px-3 sm:px-4"
-                    onClick={() => setShowStats(!showStats)}
+                    className="neon-border gap-2 min-h-[44px] px-3 sm:px-4 touch-manipulation"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('[App] Statistics/Dashboard button clicked, current showStats:', showStats);
+                      const newShowStats = !showStats;
+                      
+                      // Toujours s'assurer qu'on est au dashboard
+                      setSelectedEventId(null);
+                      setViewMode('management');
+                      setShowHistory(false);
+                      setCurrentView('dashboard');
+                      setShowStats(newShowStats);
+                      
+                      // Changer le hash pour forcer la navigation
+                      window.location.hash = '';
+                      
+                      // Force le re-render après un court délai
+                      setTimeout(() => {
+                        window.dispatchEvent(new HashChangeEvent('hashchange'));
+                      }, 50);
+                      
+                      console.log('[App] showStats set to:', newShowStats, 'currentView:', 'dashboard');
+                    }}
+                    style={{ touchAction: 'manipulation' }}
                   >
                     <ChartBar className="w-4 h-4 sm:w-5 sm:h-5" />
                     <span className="hidden sm:inline">
@@ -215,8 +322,18 @@ export default function App() {
                     size="icon"
                     className="neon-border min-h-[44px] min-w-[44px]"
                     onClick={() => setIsProfileOpen(true)}
+                    title="Profil"
                   >
                     <UserCircle className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="neon-border min-h-[44px] min-w-[44px]"
+                    onClick={() => setIsSettingsOpen(true)}
+                    title="Paramètres"
+                  >
+                    <Settings className="w-5 h-5 sm:w-6 sm:h-6" />
                   </Button>
                   <ThemeToggle />
                 </>
@@ -226,18 +343,32 @@ export default function App() {
         </div>
       </header>
 
-      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full">
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full overflow-y-auto" style={{ minHeight: 'calc(100vh - 80px)' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
-          {isLoggedIn ? (
-            currentView === 'event' && selectedEventId ? (
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 border-b border-border pb-4">
+          {/* Permettre l'accès à la vue événement même sans connexion (pour liens partagés) */}
+          {currentView === 'event' && selectedEventId ? (
+            <div className="space-y-4 animate-fade-in">
+              {!isLoggedIn && (
+                <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 mb-4">
+                  <p className="text-sm text-center">
+                    <Button
+                      variant="link"
+                      className="text-primary underline"
+                      onClick={() => setIsAuthOpen(true)}
+                    >
+                      Connectez-vous
+                    </Button>
+                    {' '}pour gérer cet événement
+                  </p>
+                </div>
+              )}
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 border-b border-border pb-4">
                   <Button
                     variant={viewMode === 'management' ? 'default' : 'outline'}
                     onClick={() => {
                       console.log('[App] Switching to management view');
                       setViewMode('management');
-                      window.location.hash = `event/${selectedEventId}`;
+                      window.location.hash = `#event/${selectedEventId}`;
                     }}
                     className="gap-2 min-h-[44px] w-full sm:w-auto"
                   >
@@ -248,7 +379,7 @@ export default function App() {
                     onClick={() => {
                       console.log('[App] Switching to transactions view');
                       setViewMode('transactions');
-                      window.location.hash = `event/${selectedEventId}/transactions`;
+                      window.location.hash = `#event/${selectedEventId}/transactions`;
                     }}
                     className="gap-2 min-h-[44px] w-full sm:w-auto"
                   >
@@ -260,8 +391,16 @@ export default function App() {
                     eventId={selectedEventId}
                     onBack={() => {
                       console.log('[App] Back to dashboard from event management');
-                      window.location.hash = '';
+                      setSelectedEventId(null);
+                      setViewMode('management');
+                      setShowHistory(false);
+                      setShowStats(false);
                       setCurrentView('dashboard');
+                      window.location.hash = '';
+                      // Force le re-render
+                      setTimeout(() => {
+                        window.dispatchEvent(new HashChangeEvent('hashchange'));
+                      }, 50);
                     }}
                   />
                 ) : (
@@ -269,53 +408,81 @@ export default function App() {
                     eventId={selectedEventId}
                     onBack={() => {
                       console.log('[App] Back to dashboard from transactions');
-                      window.location.hash = '';
+                      setSelectedEventId(null);
+                      setViewMode('management');
+                      setShowHistory(false);
+                      setShowStats(false);
                       setCurrentView('dashboard');
+                      window.location.hash = '';
+                      // Force le re-render
+                      setTimeout(() => {
+                        window.dispatchEvent(new HashChangeEvent('hashchange'));
+                      }, 50);
                     }}
                   />
                 )}
-              </div>
-            ) : showHistory ? (
-              <div className="space-y-4">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    console.log('[App] Back to dashboard from history');
-                    setShowHistory(false);
-                  }}
-                  className="gap-2 mb-4"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Retour au tableau de bord
-                </Button>
-                <EventHistory />
-              </div>
-            ) : showStats ? (
-              <EventStatistics />
+            </div>
+          ) : currentView === 'dashboard' ? (
+            isLoggedIn ? (
+              showHistory ? (
+                <div className="space-y-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      console.log('[App] Back to dashboard from history');
+                      setShowHistory(false);
+                    }}
+                    className="gap-2 mb-4"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Retour au tableau de bord
+                  </Button>
+                  <EventHistory />
+                </div>
+              ) : showStats ? (
+                <EventStatistics />
+              ) : (
+                <>
+                  <EventCreation />
+                  <EventDashboard onShowHistory={() => {
+                    console.log('[App] Opening history from dashboard');
+                    setShowHistory(true);
+                    setShowStats(false);
+                  }} />
+                </>
+              )
             ) : (
-              <>
-                <EventCreation />
-                <EventDashboard onShowHistory={() => {
-                  console.log('[App] Opening history from dashboard');
-                  setShowHistory(true);
-                  setShowStats(false);
-                }} />
-              </>
+              <div className="space-y-8">
+                <div className="text-center py-20">
+                  <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
+                  <p className="text-muted-foreground mb-8">
+                    Connectez-vous pour gérer vos événements partagés
+                  </p>
+                  <Button
+                    className="gap-2 button-glow"
+                    onClick={() => setIsAuthOpen(true)}
+                  >
+                    <LogIn className="w-4 h-4" />
+                    Commencer
+                  </Button>
+                </div>
+                <TesseractTest showEventSelection={true} />
+              </div>
             )
           ) : (
             <div className="space-y-8">
-            <div className="text-center py-20">
-              <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
-              <p className="text-muted-foreground mb-8">
-                Connectez-vous pour gérer vos événements partagés
-              </p>
-              <Button
-                className="gap-2 button-glow"
-                onClick={() => setIsAuthOpen(true)}
-              >
-                <LogIn className="w-4 h-4" />
-                Commencer
-              </Button>
+              <div className="text-center py-20">
+                <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
+                <p className="text-muted-foreground mb-8">
+                  Connectez-vous pour gérer vos événements partagés
+                </p>
+                <Button
+                  className="gap-2 button-glow"
+                  onClick={() => setIsAuthOpen(true)}
+                >
+                  <LogIn className="w-4 h-4" />
+                  Commencer
+                </Button>
               </div>
               <TesseractTest showEventSelection={true} />
             </div>
@@ -331,7 +498,14 @@ export default function App() {
 
       <UserProfile
         isOpen={isProfileOpen}
-        onClose={handleLogout}
+        onClose={() => setIsProfileOpen(false)}
+      />
+
+      <SettingsDialog
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onLogout={handleLogout}
+        onDeleteAccount={handleDeleteAccount}
       />
 
       <ScrollToTop />

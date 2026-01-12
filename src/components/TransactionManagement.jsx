@@ -219,6 +219,8 @@ export function TransactionManagement({ eventId, onBack }) {
     }
   };
 
+  const asString = (v) => String(v ?? '');
+
   const canSaveScanned =
     !scannedData ||
     (scannedData &&
@@ -404,12 +406,19 @@ export function TransactionManagement({ eventId, onBack }) {
 
   return (
     <div className="space-y-6">
+      {/* Bouton retour au tableau de bord */}
+      <Button 
+        variant="outline" 
+        onClick={onBack} 
+        className="gap-2 min-h-[44px] w-full sm:w-auto touch-manipulation"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Retour au tableau de bord
+      </Button>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
         <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
-          <Button variant="ghost" size="icon" onClick={onBack} className="neon-border flex-shrink-0">
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text truncate">
               Gestion des transactions
@@ -727,16 +736,22 @@ export function TransactionManagement({ eventId, onBack }) {
                 </div>
                 <div>
                   <Label htmlFor="currency">Devise</Label>
-                  <Select value={formData.currency} onValueChange={(value) => setFormData({ ...formData, currency: value })}>
-                    <SelectTrigger className="neon-border">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-popover text-popover-foreground border border-border">
-                      <SelectItem value="EUR">EUR (€)</SelectItem>
-                      <SelectItem value="USD">USD ($)</SelectItem>
-                      <SelectItem value="GBP">GBP (£)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                   <Select
+  value={asString(formData.currency)}
+  onValueChange={(value) =>
+    setFormData((prev) => ({ ...prev, currency: value }))
+  }
+>
+  <SelectTrigger className="neon-border">
+    <SelectValue placeholder="Devise" />
+  </SelectTrigger>
+
+  <SelectContent className="bg-popover text-popover-foreground border border-border">
+    <SelectItem value="EUR">EUR (€)</SelectItem>
+    <SelectItem value="USD">USD ($)</SelectItem>
+    <SelectItem value="GBP">GBP (£)</SelectItem>
+  </SelectContent>
+</Select>
                 </div>
               </div>
 
@@ -750,9 +765,10 @@ export function TransactionManagement({ eventId, onBack }) {
                       Sélectionnez le participant qui a payé (liste scrollable).
                     </p>
 
-                     <Select
-  value={selectedPayerId}
+<Select
+  value={asString(selectedPayerId)}
   onValueChange={(value) => {
+    // value est toujours une string côté Radix
     setSelectedPayerId(value);
     setFormData((prev) => ({ ...prev, participants: value ? [value] : [] }));
   }}
@@ -774,7 +790,11 @@ export function TransactionManagement({ eventId, onBack }) {
             `Participant ${idx + 1}`;
 
           return (
-            <SelectItem key={p.id} value={p.id} className="cursor-pointer">
+            <SelectItem
+              key={asString(p.id)}
+              value={asString(p.id)}
+              className="cursor-pointer"
+            >
               {label} {p.email ? `(${p.email})` : ''}
             </SelectItem>
           );
@@ -783,6 +803,7 @@ export function TransactionManagement({ eventId, onBack }) {
     </ScrollArea>
   </SelectContent>
 </Select>
+
 
                     {selectedPayerId ? (
                       <div className="text-xs text-green-500 font-semibold">✅ Payeur sélectionné</div>

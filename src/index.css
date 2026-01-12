@@ -51,7 +51,7 @@
   * {
     @apply border-border;
   }
-
+  
   /* Empêcher le scroll horizontal global */
   html {
     overflow-x: hidden;
@@ -91,7 +91,9 @@
     padding: 0;
     width: 100%;
     overflow-x: hidden; /* Empêche le scroll horizontal */
+    overflow-y: auto; /* Permet le scroll vertical */
     position: relative;
+    touch-action: pan-y; /* Permet le scroll vertical, bloque le zoom */
   }
 
   /* Styles pour le défilement fluide */
@@ -158,10 +160,29 @@
       -webkit-text-size-adjust: 100%;
     }
 
-    /* Zones tactiles minimales */
-    button, a, input[type="button"], input[type="submit"] {
+    /* Zones tactiles minimales et interactions */
+    button, a, input[type="button"], input[type="submit"], [role="button"] {
       min-height: 44px;
       min-width: 44px;
+      touch-action: manipulation; /* Évite le double-tap zoom */
+      -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1); /* Feedback visuel au tap */
+      cursor: pointer;
+      user-select: none; /* Évite la sélection de texte accidentelle */
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+    }
+
+    /* S'assurer que les boutons sont cliquables */
+    button:not(:disabled),
+    a:not(:disabled),
+    [role="button"]:not(:disabled) {
+      pointer-events: auto !important;
+    }
+
+    /* Empêcher les éléments de bloquer les interactions */
+    * {
+      -webkit-touch-callout: none; /* Désactive le menu contextuel iOS */
     }
 
     /* Safe area pour iPhone avec encoche - appliqué uniquement aux éléments spécifiques */
@@ -206,6 +227,85 @@
 
     .button-glow:active {
       transform: translateY(1px);
+    }
+
+    /* Feedback tactile amélioré */
+    button:active,
+    a:active,
+    [role="button"]:active {
+      opacity: 0.7;
+      transform: scale(0.98);
+      transition: all 0.1s ease;
+    }
+
+    /* S'assurer que les éléments sont interactifs */
+    button:not(:disabled),
+    a:not(:disabled) {
+      pointer-events: auto;
+      touch-action: manipulation;
+    }
+  }
+
+  /* Amélioration du scroll sur mobile */
+  @media (max-width: 768px) {
+    main {
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+      touch-action: pan-y !important;
+      height: auto;
+      min-height: calc(100vh - 80px);
+      position: relative;
+      z-index: 1;
+    }
+
+    /* S'assurer que le contenu peut scroller */
+    .space-y-6,
+    .space-y-4 {
+      position: relative;
+    }
+
+    /* Empêcher les éléments de bloquer le scroll */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: hsl(var(--background) / 0.95);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    /* S'assurer que les cartes et contenus sont interactifs */
+    [role="main"],
+    .container {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Améliorer les interactions avec les cartes */
+    .neon-border,
+    [class*="card"],
+    [class*="Card"] {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* S'assurer que les liens et boutons dans les cartes fonctionnent */
+    .neon-border button,
+    .neon-border a,
+    [class*="card"] button,
+    [class*="card"] a {
+      position: relative;
+      z-index: 2;
+      pointer-events: auto !important;
+    }
+
+    /* Empêcher les overlays de bloquer les interactions */
+    [class*="overlay"]:not([class*="dialog"]):not([class*="modal"]) {
+      pointer-events: none;
+    }
+
+    [class*="overlay"]:not([class*="dialog"]):not([class*="modal"]) > * {
+      pointer-events: auto;
     }
   }
 
