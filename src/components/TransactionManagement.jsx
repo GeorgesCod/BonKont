@@ -285,6 +285,12 @@ export function TransactionManagement({ eventId, onBack }) {
       currency: formData.currency,
       participants: formData.participants,
     };
+    
+    // Pour les transactions scannées avec selectedPayerId, ajouter le payeur
+    if (scannedData && selectedPayerId) {
+      transactionData.payerId = selectedPayerId;
+      transactionData.source = 'scanned_ticket';
+    }
 
     const participantNames = formData.participants
       .map((pId) => participants.find((p) => p.id === pId)?.name)

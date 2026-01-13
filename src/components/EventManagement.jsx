@@ -18,7 +18,10 @@ import {
   CheckCircle,
   Clock,
   TrendingUp,
-  Scan
+  TrendingDown,
+  ArrowRight,
+  Scan,
+  AlertCircle
 } from 'lucide-react';
 import { EventLocation } from '@/components/EventLocation';
 import { EventTicketScanner } from '@/components/EventTicketScanner';
@@ -27,6 +30,7 @@ import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { computeBalances, computeTransfers, formatBalance } from '@/utils/bonkontBalances';
 import { FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -288,14 +292,28 @@ const handleExportPDF = () => {
     
     const participantsTableData = participants.map((p) => {
       const stats = getParticipantStats(p);
-      const participantName = p.name || p.firstName || p.email || 'Participant inconnu';
+      // Construire le nom du participant avec toutes les options possibles
+      let participantName = 'Participant inconnu';
+      if (p.name) {
+        participantName = p.name;
+      } else if (p.firstName && p.lastName) {
+        participantName = `${p.firstName} ${p.lastName}`.trim();
+      } else if (p.firstName) {
+        participantName = p.firstName;
+      } else if (p.lastName) {
+        participantName = p.lastName;
+      } else if (p.email) {
+        participantName = p.email;
+      } else if (p.mobile) {
+        participantName = p.mobile;
+      }
       return [
         participantName,
         `${stats.totalDue.toFixed(2)} €`,
         `${stats.paid.toFixed(2)} €`,
         `${stats.remaining.toFixed(2)} €`,
         stats.hasPaid ? 'Oui' : 'Non',
-        `${stats.score}/100`,
+        `${stats.score}%`,
       ];
     });
     
@@ -335,8 +353,39 @@ const handleExportPDF = () => {
       
       // Pour chaque participant avec des transactions
       Object.keys(transactionsByParticipant).forEach(participantId => {
-        const participant = participants.find(p => p.id === participantId);
-        const participantName = participant ? (participant.name || participant.firstName || participant.email || 'Participant inconnu') : 'Participant inconnu';
+        // Chercher le participant avec comparaison flexible des IDs (string/number)
+        const participant = participants.find(p => 
+          String(p.id) === String(participantId) || 
+          p.id === participantId ||
+          String(p.id) === participantId ||
+          p.id === String(participantId)
+        );
+        
+        // Construire le nom du participant avec toutes les options possibles
+        let participantName = 'Participant inconnu';
+        if (participant) {
+          if (participant.name) {
+            participantName = participant.name;
+          } else if (participant.firstName && participant.lastName) {
+            participantName = `${participant.firstName} ${participant.lastName}`.trim();
+          } else if (participant.firstName) {
+            participantName = participant.firstName;
+          } else if (participant.lastName) {
+            participantName = participant.lastName;
+          } else if (participant.email) {
+            participantName = participant.email;
+          } else if (participant.mobile) {
+            participantName = participant.mobile;
+          }
+        }
+        
+        console.log('[EventManagement PDF] Participant found:', {
+          participantId,
+          participant,
+          participantName,
+          participantIds: participants.map(p => ({ id: p.id, name: p.name, type: typeof p.id }))
+        });
+        
         const participantTransactions = transactionsByParticipant[participantId];
         
         checkNewPage(30);
@@ -372,6 +421,94 @@ const handleExportPDF = () => {
       doc.setFontSize(11);
       doc.setTextColor(150, 150, 150);
       doc.text('Aucune transaction enregistrée', margin, yPosition);
+      yPosition += 10;
+    }
+    
+    // ===== RÉPARTITION PROVISOIRE (QUI DOIT À QUI) =====
+    checkNewPage(40);
+    doc.setFontSize(16);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('Répartition Provisoire', margin, yPosition);
+    yPosition += 5;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    doc.setFont(undefined, 'italic');
+    doc.text('Basée sur les transactions validées à ce jour', margin, yPosition);
+    yPosition += 10;
+    
+    // Calculer les soldes
+    const balances = computeBalances(event, transactions);
+    const transfers = computeTransfers(balances);
+    
+    // Afficher les soldes par participant
+    doc.setFontSize(12);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('Soldes par participant', margin, yPosition);
+    yPosition += 8;
+    
+    const balancesTableData = Object.values(balances).map(balance => {
+      const formatted = formatBalance(balance);
+      const soldeText = formatted.status === 'doit_recevoir' 
+        ? `+${balance.soldeFinal.toFixed(2)} € (à recevoir)`
+        : formatted.status === 'doit_verser'
+          ? `${balance.soldeFinal.toFixed(2)} € (à verser)`
+          : '0,00 € (équilibré)';
+      
+      return [
+        balance.participantName,
+        `${balance.avance.toFixed(2)} €`,
+        `${balance.consomme.toFixed(2)} €`,
+        soldeText
+      ];
+    });
+    
+    autoTable(doc, {
+      startY: yPosition,
+      head: [['Participant', 'Avancé', 'Consommé', 'Solde provisoire']],
+      body: balancesTableData,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [245, 245, 245] },
+      margin: { left: margin, right: margin },
+    });
+    
+    yPosition = doc.lastAutoTable.finalY + 10;
+    
+    // Afficher les transferts "qui verse à qui"
+    if (transfers.length > 0) {
+      checkNewPage(30);
+      doc.setFontSize(12);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('Transferts recommandés', margin, yPosition);
+      yPosition += 8;
+      
+      const transfersTableData = transfers.map(t => [
+        t.fromName,
+        t.toName,
+        `${t.amount.toFixed(2)} €`
+      ]);
+      
+      autoTable(doc, {
+        startY: yPosition,
+        head: [['De', 'Vers', 'Montant']],
+        body: transfersTableData,
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        margin: { left: margin, right: margin },
+      });
+      
+      yPosition = doc.lastAutoTable.finalY + 10;
+    } else {
+      checkNewPage(10);
+      doc.setFontSize(10);
+      doc.setTextColor(150, 150, 150);
+      doc.setFont(undefined, 'normal');
+      doc.text('Aucun transfert nécessaire (tous les comptes sont équilibrés)', margin, yPosition);
       yPosition += 10;
     }
     
@@ -464,14 +601,43 @@ const handleExportPDF = () => {
     const paid = participant.paidAmount || 0;
     const remaining = Math.max(0, totalDue - paid);
     const paymentProgress = totalDue > 0 ? (paid / totalDue) * 100 : 0;
+    const hasPaid = paid >= totalDue - 0.01;
+    
+    // Calculer le score en temps réel en fonction de l'état actuel de la participation
+    let score = 0;
+    
+    if (hasPaid && participant.paidDate) {
+      // Score basé sur la ponctualité du paiement
+      const eventStartDate = new Date(event.startDate);
+      const paymentDate = new Date(participant.paidDate);
+      const paymentDelay = Math.floor(
+        (paymentDate.getTime() - eventStartDate.getTime()) 
+        / (1000 * 60 * 60 * 24)
+      );
+      
+      // Score initial de 100, moins 5 points par jour de retard
+      score = Math.max(0, 100 - (paymentDelay * 5));
+      
+      // Bonus si le paiement est fait avant la date de début de l'événement
+      if (paymentDate < eventStartDate) {
+        score = Math.min(100, score + 10); // Bonus de 10 points pour paiement anticipé
+      }
+    } else if (hasPaid && !participant.paidDate) {
+      // Si payé mais pas de date, score de base de 70
+      score = 70;
+    } else {
+      // Pas encore payé, score basé sur le pourcentage payé
+      const paymentPercentage = totalDue > 0 ? (paid / totalDue) * 100 : 0;
+      score = Math.floor(paymentPercentage * 0.5); // Score proportionnel jusqu'à 50 points max
+    }
     
     return {
       totalDue,
       paid,
       remaining,
       paymentProgress,
-      hasPaid: participant.hasPaid || false,
-      score: participant.score || 0,
+      hasPaid,
+      score: Math.round(score),
       paymentRank: participant.paymentRank || null
     };
   };
@@ -590,6 +756,75 @@ const handleExportPDF = () => {
           </div>
         </ScrollArea>
       </Card>
+
+      {/* Ajustements provisoires - Qui verse à qui */}
+      {(() => {
+        const balances = computeBalances(event, transactions);
+        const transfers = computeTransfers(balances);
+        
+        return (
+          <Card className="p-6 neon-border border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-950/20">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <TrendingUp className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+                Ajustements à effectuer (provisoire)
+              </h2>
+              <Badge variant="outline" className="text-sm border-orange-300 dark:border-orange-700">
+                {transfers.length} transfert{transfers.length > 1 ? 's' : ''}
+              </Badge>
+            </div>
+            
+            <div className="mb-3 p-3 rounded-lg bg-orange-100/50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-orange-800 dark:text-orange-200">
+                  Cette liste est mise à jour en temps réel selon les transactions validées. 
+                  Les ajustements peuvent être effectués progressivement pendant l'événement.
+                </p>
+              </div>
+            </div>
+            
+            {transfers.length > 0 ? (
+              <div className="space-y-3">
+                {transfers.map((transfer, index) => (
+                  <Card key={index} className="p-4 border-2 border-orange-200 dark:border-orange-800 hover:border-orange-300 dark:hover:border-orange-700 transition-colors">
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <div className="p-3 rounded-full bg-orange-100 dark:bg-orange-900/50 flex-shrink-0">
+                          <TrendingDown className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-lg text-destructive">{transfer.fromName}</span>
+                            <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            <span className="font-semibold text-lg text-green-600 dark:text-green-400">{transfer.toName}</span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Ajustement #{index + 1} sur {transfers.length}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant="default" className="text-lg px-4 py-2 flex-shrink-0 bg-orange-600 hover:bg-orange-700">
+                        {transfer.amount.toFixed(2)}€
+                      </Badge>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+                <h3 className="text-lg font-semibold mb-2 text-green-700 dark:text-green-400">
+                  ✅ Tout est équilibré
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Aucun ajustement financier n'est nécessaire. La liste sera mise à jour automatiquement dès qu'une transaction créera un déséquilibre.
+                </p>
+              </div>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* Liste des participants */}
       <Card className="p-6 neon-border">
@@ -774,29 +1009,167 @@ const handleExportPDF = () => {
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <h4 className="font-semibold">Détails financiers</h4>
-                <div className="space-y-2">
-                  {(() => {
-                    const stats = getParticipantStats(selectedParticipant);
-                    return (
-                      <>
-                        <div className="flex justify-between p-2 rounded border border-border">
-                          <span>Montant total dû</span>
-                          <span className="font-semibold">{stats.totalDue.toFixed(2)}€</span>
+                
+                {(() => {
+                  const stats = getParticipantStats(selectedParticipant);
+                  
+                  // Calculer les soldes Bonkont
+                  const balances = computeBalances(event, transactions);
+                  const participantBalance = balances[selectedParticipant.id] || {
+                    avance: 0,
+                    consomme: 0,
+                    soldeDepenses: 0,
+                    verse: 0,
+                    recu: 0,
+                    soldePaiements: 0,
+                    soldeFinal: 0
+                  };
+                  
+                  // Part cible (budget)
+                  const partCible = event.amount / event.participants.length;
+                  
+                  // Contributions (paiements validés)
+                  // Pour l'instant, on utilise paidAmount comme approximation des contributions
+                  // TODO: Créer des transactions de type "payment" avec fromId/toId lors des paiements CB/espèces
+                  const paiements = transactions.filter(t => 
+                    (t.source === 'payment' || t.type === 'payment' || (t.fromId && t.toId)) &&
+                    (t.fromId === selectedParticipant.id || String(t.fromId) === String(selectedParticipant.id))
+                  );
+                  const contributionsFromTransactions = paiements.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+                  
+                  // Si pas de transactions de paiement, utiliser paidAmount comme approximation
+                  // paidAmount inclut les paiements CB/espèces validés
+                  const contributions = contributionsFromTransactions > 0 
+                    ? contributionsFromTransactions 
+                    : (selectedParticipant.paidAmount || 0);
+                  
+                  // Solde provisoire (répartition)
+                  const soldeProvisoire = participantBalance.soldeFinal;
+                  
+                  return (
+                    <>
+                      {/* Bloc 1: Budget (repère) */}
+                      <div className="p-4 rounded-lg border border-border bg-primary/5">
+                        <h5 className="font-semibold text-sm mb-2 text-primary">Budget (repère)</h5>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Part cible</span>
+                            <span className="font-semibold text-lg">{partCible.toFixed(2)}€</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground italic">
+                            Budget total / Nombre de participants
+                          </p>
                         </div>
-                        <div className="flex justify-between p-2 rounded border border-border">
-                          <span>Montant payé</span>
-                          <span className="font-semibold text-green-500">{stats.paid.toFixed(2)}€</span>
+                      </div>
+                      
+                      {/* Bloc 2: Contributions (paiements) */}
+                      <div className="p-4 rounded-lg border border-border bg-green-50 dark:bg-green-950/20">
+                        <h5 className="font-semibold text-sm mb-2 text-green-700 dark:text-green-400">Contributions (paiements)</h5>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Total versé</span>
+                            <span className="font-semibold text-lg text-green-600 dark:text-green-400">
+                              {contributions.toFixed(2)}€
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground italic">
+                            Paiements validés (CB/espèces) enregistrés
+                          </p>
+                          {contributions > 0 && (
+                            <div className="mt-2 text-xs">
+                              <span className="text-muted-foreground">Détail: </span>
+                              <span>{paiements.length} paiement(s) enregistré(s)</span>
+                            </div>
+                          )}
                         </div>
-                        <div className="flex justify-between p-2 rounded border border-border">
-                          <span>Reste à payer</span>
-                          <span className="font-semibold text-destructive">{stats.remaining.toFixed(2)}€</span>
+                      </div>
+                      
+                      {/* Bloc 3: Répartition (provisoire) */}
+                      <div className={`p-4 rounded-lg border ${
+                        soldeProvisoire > 0.01 
+                          ? 'border-blue-300 bg-blue-50 dark:bg-blue-950/20' 
+                          : soldeProvisoire < -0.01
+                            ? 'border-orange-300 bg-orange-50 dark:bg-orange-950/20'
+                            : 'border-gray-300 bg-gray-50 dark:bg-gray-950/20'
+                      }`}>
+                        <h5 className="font-semibold text-sm mb-2 text-blue-700 dark:text-blue-400">Répartition (provisoire)</h5>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-muted-foreground">Solde provisoire</span>
+                            <span className={`font-semibold text-lg ${
+                              soldeProvisoire > 0.01 
+                                ? 'text-blue-600 dark:text-blue-400' 
+                                : soldeProvisoire < -0.01
+                                  ? 'text-orange-600 dark:text-orange-400'
+                                  : 'text-gray-600 dark:text-gray-400'
+                            }`}>
+                              {soldeProvisoire >= 0 ? '+' : ''}{soldeProvisoire.toFixed(2)}€
+                              {soldeProvisoire > 0.01 && ' (à recevoir)'}
+                              {soldeProvisoire < -0.01 && ' (à verser)'}
+                              {Math.abs(soldeProvisoire) < 0.01 && ' (équilibré)'}
+                            </span>
+                          </div>
+                          <div className="mt-3 space-y-1 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Avancé:</span>
+                              <span className="font-medium">{participantBalance.avance.toFixed(2)}€</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Consommé:</span>
+                              <span className="font-medium">{participantBalance.consomme.toFixed(2)}€</span>
+                            </div>
+                            <div className="flex justify-between border-t pt-1 mt-1">
+                              <span className="text-muted-foreground">Solde dépenses:</span>
+                              <span className="font-medium">
+                                {participantBalance.soldeDepenses >= 0 ? '+' : ''}
+                                {participantBalance.soldeDepenses.toFixed(2)}€
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Versé:</span>
+                              <span className="font-medium">{participantBalance.verse.toFixed(2)}€</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Reçu:</span>
+                              <span className="font-medium">{participantBalance.recu.toFixed(2)}€</span>
+                            </div>
+                            <div className="flex justify-between border-t pt-1 mt-1">
+                              <span className="text-muted-foreground">Solde paiements:</span>
+                              <span className="font-medium">
+                                {participantBalance.soldePaiements >= 0 ? '+' : ''}
+                                {participantBalance.soldePaiements.toFixed(2)}€
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-muted-foreground italic mt-2">
+                            Basé sur dépenses validées + paiements enregistrés
+                          </p>
                         </div>
-                      </>
-                    );
-                  })()}
-                </div>
+                      </div>
+                      
+                      {/* Ancien affichage (conservé pour référence) */}
+                      <div className="p-3 rounded border border-border bg-muted/30">
+                        <h5 className="font-semibold text-sm mb-2 text-muted-foreground">Ancien affichage (référence)</h5>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Montant total dû</span>
+                            <span className="font-semibold">{stats.totalDue.toFixed(2)}€</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Montant payé</span>
+                            <span className="font-semibold text-green-500">{stats.paid.toFixed(2)}€</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Reste à payer</span>
+                            <span className="font-semibold text-destructive">{stats.remaining.toFixed(2)}€</span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}

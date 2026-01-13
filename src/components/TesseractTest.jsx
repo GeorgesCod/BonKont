@@ -143,7 +143,9 @@ const compressImage = (file, maxSizeMB = 2, maxDim = 1600, initialQ = 0.8) => {
 // -----------------------------------------------------------------------------
 // Composant principal
 // -----------------------------------------------------------------------------
-export function TesseractTest({ onDataExtracted, showEventSelection = false }) {
+export function TesseractTest({ onDataExtracted, showEventSelection = false, autoOpenCamera = false }) {
+  console.log('[TesseractTest] Component rendered with autoOpenCamera:', autoOpenCamera);
+  
   // ---------- state ----------
   const [image, setImage] = useState(null);
   const [scannedText, setScannedText] = useState("");
@@ -154,7 +156,7 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false }) {
   const [extractedData, setExtractedData] = useState(null);
   const [ocrResult, setOcrResult] = useState("");
   const [category, setCategory] = useState("");
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(autoOpenCamera);
   
   // États pour l'enregistrement dans un événement
   const [selectedEventId, setSelectedEventId] = useState(null);
@@ -176,6 +178,25 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false }) {
   const videoConstraints = isMobile
     ? { facingMode: { exact: "environment" } }
     : {};
+
+  // ---------------------------------------------------------------------------
+  // Effet : ouvrir automatiquement la caméra si demandé
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    console.log('[TesseractTest] useEffect triggered, autoOpenCamera:', autoOpenCamera, 'current isCameraOpen:', isCameraOpen);
+    if (autoOpenCamera) {
+      console.log('[TesseractTest] ✅ Opening camera automatically');
+      // Utiliser setTimeout pour s'assurer que le DOM est prêt
+      const timer = setTimeout(() => {
+        console.log('[TesseractTest] Setting isCameraOpen to true');
+        setIsCameraOpen(true);
+      }, 200);
+      return () => clearTimeout(timer);
+    } else {
+      console.log('[TesseractTest] ✅ Closing camera because autoOpenCamera is false');
+      setIsCameraOpen(false);
+    }
+  }, [autoOpenCamera]);
 
   // ---------------------------------------------------------------------------
   // Effet : suggestion automatique de catégorie selon l'enseigne déjà mémorisée

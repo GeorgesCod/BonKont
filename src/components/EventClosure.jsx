@@ -1,0 +1,1257 @@
+import { useState, useEffect } from 'react';
+import { useEventStore } from '@/store/eventStore';
+import { useTransactionsStore } from '@/store/transactionsStore';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Textarea } from '@/components/ui/textarea';
+import { 
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { 
+  ArrowLeft, 
+  ArrowRight,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  Users,
+  Euro,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Info,
+  Lock,
+  CheckCircle,
+  Clock,
+  UserCheck,
+  Star,
+  Heart,
+  MessageSquare,
+  Smile
+} from 'lucide-react';
+import { computeBalances, computeTransfers, formatBalance } from '@/utils/bonkontBalances';
+import { useToast } from '@/hooks/use-toast';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
+
+export function EventClosure({ eventId, onBack }) {
+  console.log('[EventClosure] Component mounted:', { eventId });
+  
+  const { toast } = useToast();
+  const allEvents = useEventStore((state) => state.events);
+  const updateEvent = useEventStore((state) => state.updateEvent);
+  const addRating = useEventStore((state) => state.addRating);
+  const event = allEvents.find(e => String(e.id) === String(eventId));
+  const transactions = useTransactionsStore((state) => state.getTransactionsByEvent(eventId));
+  
+  const [showValidationDialog, setShowValidationDialog] = useState(false);
+  const [isValidated, setIsValidated] = useState(event?.closureValidated || false);
+  const [timeRemaining, setTimeRemaining] = useState(null);
+  const [showRatingDialog, setShowRatingDialog] = useState(false);
+  const [currentRating, setCurrentRating] = useState(0);
+  const [currentReview, setCurrentReview] = useState('');
+  const [ratingParticipantId, setRatingParticipantId] = useState(null);
+  
+  // Calculer la date de fin de l'événement (startDate + deadline jours)
+  // Puis H+48 (fin + 48 heures)
+  const calculateClosureDeadline = () => {
+    if (!event?.startDate || !event?.deadline) return null;
+    const startDate = new Date(event.startDate);
+    const endDate = new Date(startDate.getTime() + (event.deadline * 24 * 60 * 60 * 1000));
+    const closureDeadline = new Date(endDate.getTime() + (48 * 60 * 60 * 1000)); // H+48
+    return closureDeadline;
+  };
+  
+  // Calculer le temps restant jusqu'à H+48
+  useEffect(() => {
+    const closureDeadline = calculateClosureDeadline();
+    if (!closureDeadline) return;
+    
+    const updateTimer = () => {
+      const now = new Date();
+      const diff = closureDeadline.getTime() - now.getTime();
+      
+      if (diff <= 0) {
+        setTimeRemaining(null);
+        return;
+      }
+      
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      
+      setTimeRemaining({ hours, minutes, seconds, total: diff });
+    };
+    
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    
+    return () => clearInterval(interval);
+  }, [event?.startDate, event?.deadline]);
+  
+  // Signatures des participants
+  const closureSignatures = event?.closureSignatures || {};
+  const participants = Array.isArray(event.participants) ? event.participants : [];
+  const signedCount = Object.keys(closureSignatures).length;
+  const allSigned = signedCount === participants.length && participants.length > 0;
+  const closureDeadline = calculateClosureDeadline();
+  const canValidate = allSigned && closureDeadline && new Date() >= closureDeadline;
+  
+  // Fonction pour signer
+  const handleSign = (participantId) => {
+    const participant = participants.find(p => p.id === participantId);
+    if (!participant) return;
+    
+    const newSignatures = {
+      ...closureSignatures,
+      [participantId]: {
+        signedAt: new Date(),
+        participantName: participant.name || participant.firstName || participant.email
+      }
+    };
+    
+    updateEvent(eventId, {
+      closureSignatures: newSignatures
+    });
+    
+    toast({
+      title: "🎉 Merci !",
+      description: `Votre signature a été enregistrée. On avance ensemble !`,
+    });
+  };
+  
+  if (!event) {
+    return (
+      <div className="space-y-6">
+        <Button variant="outline" onClick={onBack} className="gap-2">
+          <ArrowLeft className="w-4 h-4" />
+          Retour
+        </Button>
+        <Card className="p-6">
+          <p className="text-muted-foreground">Événement introuvable</p>
+        </Card>
+      </div>
+    );
+  }
+  
+  const balances = computeBalances(event, transactions);
+  const transfers = computeTransfers(balances);
+  
+  const handleExportClosurePDF = () => {
+    console.log('[EventClosure] Exporting closure PDF:', event.title);
+    
+    try {
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 20;
+      let yPosition = margin;
+      
+      const checkNewPage = (requiredSpace = 20) => {
+        if (yPosition + requiredSpace > pageHeight - margin) {
+          doc.addPage();
+          yPosition = margin;
+          return true;
+        }
+        return false;
+      };
+      
+      // ===== EN-TÊTE =====
+      doc.setFontSize(24);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('Clôture Évènementielle', margin, yPosition);
+      yPosition += 12;
+      
+      // Badge "FIGÉ / SIGNÉ"
+      if (isValidated) {
+        doc.setFillColor(34, 197, 94); // Vert
+        doc.roundedRect(margin, yPosition, 50, 8, 2, 2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'bold');
+        doc.text('🟢 CLÔTURE VALIDÉE ET FIGÉE', margin + 2, yPosition + 6);
+        yPosition += 12;
+      }
+      
+      doc.setFontSize(12);
+      doc.setTextColor(0, 0, 0);
+      doc.setFont(undefined, 'normal');
+      doc.text(`Événement: ${event.title}`, margin, yPosition);
+      yPosition += 6;
+      doc.text(`Code: ${event.code}`, margin, yPosition);
+      yPosition += 6;
+      
+      if (event.closureDate) {
+        doc.text(`Date de clôture: ${format(new Date(event.closureDate), 'dd/MM/yyyy à HH:mm', { locale: fr })}`, margin, yPosition);
+      } else {
+        doc.text(`Date de clôture: ${format(new Date(), 'dd/MM/yyyy à HH:mm', { locale: fr })}`, margin, yPosition);
+      }
+      yPosition += 10;
+      
+      // ===== SIGNATURES DE VALIDATION =====
+      if (isValidated && event.closureValidatedBy) {
+        checkNewPage(25);
+        doc.setFontSize(14);
+        doc.setTextColor(99, 102, 241);
+        doc.setFont(undefined, 'bold');
+        doc.text('Validations collectives', margin, yPosition);
+        yPosition += 8;
+        
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 120);
+        doc.setFont(undefined, 'italic');
+        doc.text('Cet événement a été validé et clôturé par tous les participants :', margin, yPosition);
+        yPosition += 8;
+        
+        const signatures = Object.values(event.closureValidatedBy);
+        signatures.forEach((sig, idx) => {
+          checkNewPage(8);
+          doc.setFontSize(10);
+          doc.setTextColor(0, 0, 0);
+          doc.setFont(undefined, 'normal');
+          doc.text(`✓ ${sig.participantName}`, margin + 5, yPosition);
+          if (sig.signedAt) {
+            doc.setFontSize(8);
+            doc.setTextColor(120, 120, 120);
+            doc.text(`   (${format(new Date(sig.signedAt), 'dd/MM/yyyy à HH:mm', { locale: fr })})`, margin + 5, yPosition + 4);
+            yPosition += 8;
+          } else {
+            yPosition += 6;
+          }
+        });
+        yPosition += 5;
+      }
+      
+      // ===== RÉPARTITION FINALE =====
+      checkNewPage(40);
+      doc.setFontSize(16);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('Répartition Finale', margin, yPosition);
+      yPosition += 10;
+      
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.setFont(undefined, 'italic');
+      doc.text('Basée sur toutes les transactions validées', margin, yPosition);
+      yPosition += 10;
+      
+      // Soldes par participant
+      doc.setFontSize(12);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('Soldes finaux par participant', margin, yPosition);
+      yPosition += 8;
+      
+      const balancesTableData = Object.values(balances).map(balance => {
+        const formatted = formatBalance(balance);
+        const soldeText = formatted.status === 'doit_recevoir' 
+          ? `+${balance.soldeFinal.toFixed(2)} € (à recevoir)`
+          : formatted.status === 'doit_verser'
+            ? `${balance.soldeFinal.toFixed(2)} € (à verser)`
+            : '0,00 € (équilibré)';
+        
+        return [
+          balance.participantName,
+          `${balance.avance.toFixed(2)} €`,
+          `${balance.consomme.toFixed(2)} €`,
+          `${balance.soldeDepenses >= 0 ? '+' : ''}${balance.soldeDepenses.toFixed(2)} €`,
+          `${balance.verse.toFixed(2)} €`,
+          `${balance.recu.toFixed(2)} €`,
+          `${balance.soldePaiements >= 0 ? '+' : ''}${balance.soldePaiements.toFixed(2)} €`,
+          soldeText
+        ];
+      });
+      
+      autoTable(doc, {
+        startY: yPosition,
+        head: [['Participant', 'Avancé', 'Consommé', 'Solde dép.', 'Versé', 'Reçu', 'Solde paiem.', 'Solde final']],
+        body: balancesTableData,
+        styles: { fontSize: 7 },
+        headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        margin: { left: margin, right: margin },
+        columnStyles: {
+          0: { cellWidth: 40 },
+          1: { cellWidth: 25 },
+          2: { cellWidth: 25 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 25 },
+          5: { cellWidth: 25 },
+          6: { cellWidth: 25 },
+          7: { cellWidth: 30 }
+        }
+      });
+      
+      yPosition = doc.lastAutoTable.finalY + 10;
+      
+      // Transferts finaux
+      if (transfers.length > 0) {
+        checkNewPage(30);
+        doc.setFontSize(12);
+        doc.setTextColor(99, 102, 241);
+        doc.setFont(undefined, 'bold');
+        doc.text('Transferts finaux à effectuer', margin, yPosition);
+        yPosition += 8;
+        
+        const transfersTableData = transfers.map(t => [
+          t.fromName,
+          t.toName,
+          `${t.amount.toFixed(2)} €`
+        ]);
+        
+        autoTable(doc, {
+          startY: yPosition,
+          head: [['De', 'Vers', 'Montant']],
+          body: transfersTableData,
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [245, 245, 245] },
+          margin: { left: margin, right: margin },
+        });
+        
+        yPosition = doc.lastAutoTable.finalY + 10;
+      } else {
+        checkNewPage(20);
+        doc.setFontSize(12);
+        doc.setTextColor(34, 197, 94);
+        doc.setFont(undefined, 'bold');
+        doc.text('✅ Tout est équilibré', margin, yPosition);
+        yPosition += 6;
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 120);
+        doc.setFont(undefined, 'normal');
+        doc.text('Aucun transfert nécessaire. Les dépenses et paiements enregistrés', margin, yPosition);
+        yPosition += 5;
+        doc.text('permettent un équilibre parfait entre les participants.', margin, yPosition);
+        yPosition += 10;
+      }
+      
+      // ===== AVIS ET NOTES =====
+      if (event.ratings && event.ratings.length > 0) {
+        checkNewPage(30);
+        doc.setFontSize(14);
+        doc.setTextColor(99, 102, 241);
+        doc.setFont(undefined, 'bold');
+        doc.text('Avis et souvenirs partagés', margin, yPosition);
+        yPosition += 8;
+        
+        event.ratings.forEach((rating, idx) => {
+          checkNewPage(25);
+          doc.setFontSize(10);
+          doc.setTextColor(0, 0, 0);
+          doc.setFont(undefined, 'bold');
+          doc.text(`${rating.participantName}`, margin, yPosition);
+          yPosition += 6;
+          
+          // Étoiles
+          doc.setFontSize(8);
+          doc.setTextColor(255, 193, 7);
+          for (let i = 0; i < rating.rating; i++) {
+            doc.text('★', margin + (i * 4), yPosition);
+          }
+          doc.setTextColor(200, 200, 200);
+          for (let i = rating.rating; i < 5; i++) {
+            doc.text('☆', margin + (i * 4), yPosition);
+          }
+          yPosition += 6;
+          
+          if (rating.review) {
+            doc.setFontSize(9);
+            doc.setTextColor(80, 80, 80);
+            doc.setFont(undefined, 'italic');
+            const reviewLines = doc.splitTextToSize(`"${rating.review}"`, pageWidth - 2 * margin);
+            doc.text(reviewLines, margin + 5, yPosition);
+            yPosition += reviewLines.length * 5;
+          }
+          
+          if (rating.createdAt) {
+            doc.setFontSize(7);
+            doc.setTextColor(150, 150, 150);
+            doc.text(`Le ${format(new Date(rating.createdAt), 'dd MMMM yyyy', { locale: fr })}`, margin + 5, yPosition);
+            yPosition += 5;
+          }
+          
+          yPosition += 5;
+        });
+      }
+      
+      // ===== PHRASE DE CLÔTURE MÉMORABLE =====
+      checkNewPage(40);
+      doc.setFillColor(240, 240, 240);
+      doc.roundedRect(margin, yPosition, pageWidth - 2 * margin, 30, 3, 3, 'F');
+      yPosition += 10;
+      
+      doc.setFontSize(14);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('Événement clôturé', margin + 10, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(11);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'italic');
+      doc.text('Les comptes sont clairs, les souvenirs restent.', margin + 10, yPosition);
+      yPosition += 7;
+      doc.text('Bonkont fait les comptes, les amis font le reste.', margin + 10, yPosition);
+      
+      // Numéro de page et mentions
+      const pageCount = doc.internal.pages.length - 1;
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text(`Page ${i} / ${pageCount}`, pageWidth - margin - 20, pageHeight - 10);
+        doc.text(`BONKONT - ${event.code}`, margin, pageHeight - 10);
+        if (isValidated) {
+          doc.setFontSize(7);
+          doc.setTextColor(34, 197, 94);
+          doc.text('Document figé et signé', pageWidth / 2 - 20, pageHeight - 10);
+        }
+        
+        // Mention discrète premium en bas
+        doc.setFontSize(6);
+        doc.setTextColor(180, 180, 180);
+        doc.setFont(undefined, 'italic');
+        const premiumText = 'Document généré par Bonkont — répartition validée collectivement.';
+        const textWidth = doc.getTextWidth(premiumText);
+        doc.text(premiumText, (pageWidth - textWidth) / 2, pageHeight - 3);
+      }
+      
+      const fileName = isValidated 
+        ? `BONKONT-CLOSURE-FINAL-${event.code}-${format(new Date(), 'yyyy-MM-dd')}.pdf`
+        : `BONKONT-CLOSURE-${event.code}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      const pdfBlob = doc.output('blob');
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      window.open(pdfUrl, '_blank');
+      
+      toast({
+        title: isValidated ? "📄 PDF final exporté" : "PDF exporté",
+        description: isValidated 
+          ? `Le document de clôture final (signé et figé) a été généré avec succès.`
+          : `Le document de clôture a été généré avec succès.`,
+      });
+    } catch (error) {
+      console.error('[EventClosure] Error exporting PDF:', error);
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: "Une erreur est survenue lors de l'export du PDF.",
+      });
+    }
+  };
+  
+  return (
+    <div className="space-y-6">
+      {/* Bouton retour */}
+      <Button 
+        variant="outline" 
+        onClick={onBack} 
+        className="gap-2 min-h-[44px] w-full sm:w-auto touch-manipulation"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Retour au tableau de bord
+      </Button>
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+        <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text truncate">
+              Clôture Évènementielle
+            </h1>
+            <p className="text-sm sm:text-base text-muted-foreground truncate">
+              {event.title} - Transparence et répartition finale
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Badge variant="outline" className="text-sm sm:text-lg px-2 sm:px-4 py-1 sm:py-2">
+            Code: {event.code}
+          </Badge>
+          <Button variant="outline" className="gap-2" onClick={handleExportClosurePDF}>
+            <FileText className="w-4 h-4" />
+            {isValidated ? 'Export PDF Final' : 'Export PDF'}
+          </Button>
+        </div>
+      </div>
+
+      {/* État de clôture */}
+      <Card className="p-4 border-2">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {isValidated ? (
+                <>
+                  <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                  <div>
+                    <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
+                      🟢 Clôture validée
+                    </Badge>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Les montants sont figés. Aucune modification n'est possible.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                  <div>
+                    <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300">
+                      🟡 Clôture non validée
+                    </Badge>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Les montants peuvent encore évoluer si de nouvelles transactions sont ajoutées.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          
+          {/* Signatures et délai */}
+          {!isValidated && (
+            <div className="space-y-3 pt-3 border-t">
+              {/* Compteur H+48 */}
+              {closureDeadline && (
+                <div className="flex items-center justify-between p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                      Temps de réflexion (48h après l'événement) :
+                    </span>
+                  </div>
+                  {timeRemaining ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-2 cursor-help">
+                            <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900/50 border-blue-300 dark:border-blue-700">
+                              {(() => {
+                                const days = Math.floor(timeRemaining.hours / 24);
+                                const hours = timeRemaining.hours % 24;
+                                if (days > 0) {
+                                  return `Il reste ${days} jour${days > 1 ? 's' : ''} et ${hours} heure${hours > 1 ? 's' : ''}`;
+                                } else if (hours > 0) {
+                                  return `Il reste ${hours} heure${hours > 1 ? 's' : ''} et ${timeRemaining.minutes} minute${timeRemaining.minutes > 1 ? 's' : ''}`;
+                                } else {
+                                  return `Il reste ${timeRemaining.minutes} minute${timeRemaining.minutes > 1 ? 's' : ''}`;
+                                }
+                              })()}
+                            </Badge>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">
+                            Détail technique : {String(timeRemaining.hours).padStart(2, '0')}h {String(timeRemaining.minutes).padStart(2, '0')}m {String(timeRemaining.seconds).padStart(2, '0')}s
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <Badge variant="outline" className="bg-green-100 dark:bg-green-900/50 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
+                      ✅ Prêt à finaliser
+                    </Badge>
+                  )}
+                </div>
+              )}
+              
+              {/* Signatures */}
+              <div className="p-4 rounded-lg bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 border border-purple-200 dark:border-purple-800">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
+                      ✍️ Validation collective
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Chacun confirme les comptes
+                    </span>
+                  </div>
+                  <Badge variant="outline" className="text-xs border-purple-300 dark:border-purple-700 bg-white dark:bg-gray-900">
+                    {signedCount} / {participants.length}
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {participants.map((participant) => {
+                    const isSigned = closureSignatures[participant.id];
+                    const participantName = participant.name || participant.firstName || participant.email || 'Participant';
+                    return (
+                      <div key={participant.id} className={`flex items-center justify-between p-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-white dark:bg-gray-900 transition-all ${
+                        isSigned 
+                          ? 'opacity-75 bg-gray-50 dark:bg-gray-800/50' 
+                          : 'hover:shadow-sm'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-medium ${isSigned ? 'text-muted-foreground' : ''}`}>{participantName}</span>
+                          {isSigned && (
+                            <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 text-xs ml-2">
+                              Confirmé
+                            </Badge>
+                          )}
+                        </div>
+                        {isSigned ? (
+                          <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 text-xs">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            ✅ Validé {isSigned.signedAt && format(new Date(isSigned.signedAt), 'dd/MM à HH:mm', { locale: fr })}
+                          </Badge>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleSign(participant.id)}
+                            className="text-xs h-8 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 dark:hover:bg-purple-950/50 border-purple-300 dark:border-purple-700"
+                          >
+                            ✍️ Je valide
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {!allSigned && (
+                  <div className="mt-3 p-2 rounded bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
+                    <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                      💬 En attente de {participants.length - signedCount} validation{participants.length - signedCount > 1 ? 's' : ''}... On y est presque !
+                    </p>
+                  </div>
+                )}
+                {allSigned && (
+                  <div className="mt-3 p-2 rounded bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+                    <p className="text-xs text-green-800 dark:text-green-200 font-medium">
+                      🎉 Tous les participants ont validé ! On peut finaliser.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Note importante */}
+      <Card className="p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-1">
+              Répartition finale
+            </h3>
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              Cette répartition est calculée à partir de toutes les dépenses validées et des paiements enregistrés. 
+              Elle détermine les ajustements finaux entre participants.
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Soldes finaux */}
+      <Card className="p-6 neon-border">
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <Users className="w-6 h-6 text-primary" />
+          Soldes finaux par participant
+        </h2>
+        <ScrollArea className="h-[400px]">
+          <div className="space-y-3 pr-4">
+            {Object.values(balances).map((balance) => {
+              const formatted = formatBalance(balance);
+              return (
+                <Card key={balance.participantId} className="p-4 border-2">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h3 className="font-semibold text-lg">{balance.participantName}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {formatted.status === 'doit_recevoir' && 'Doit recevoir'}
+                        {formatted.status === 'doit_verser' && 'Doit verser'}
+                        {formatted.status === 'equilibre' && 'Équilibré'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <Badge 
+                        variant={formatted.status === 'doit_recevoir' ? 'default' : 
+                                 formatted.status === 'doit_verser' ? 'destructive' : 
+                                 'secondary'}
+                        className="text-lg px-3 py-1"
+                      >
+                        {formatted.soldeFinalFormatted}
+                      </Badge>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {formatted.status === 'doit_recevoir' && 'À recevoir pour équilibrer'}
+                        {formatted.status === 'doit_verser' && 'À verser pour équilibrer'}
+                        {formatted.status === 'equilibre' && 'Participation équilibrée'}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Avancé:</span>
+                        <span className="font-medium">{balance.avance.toFixed(2)}€</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Consommé:</span>
+                        <span className="font-medium">{balance.consomme.toFixed(2)}€</span>
+                      </div>
+                      <div className="flex justify-between items-center border-t pt-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Solde dépenses:</span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs max-w-xs">
+                                  Différence entre ce que la personne a avancé et ce qu'elle a consommé.
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <span className={`font-semibold ${
+                          balance.soldeDepenses >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {balance.soldeDepenses >= 0 ? '+' : ''}{balance.soldeDepenses.toFixed(2)}€
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Versé:</span>
+                        <span className="font-medium">{balance.verse.toFixed(2)}€</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Reçu:</span>
+                        <span className="font-medium">{balance.recu.toFixed(2)}€</span>
+                      </div>
+                      <div className="flex justify-between items-center border-t pt-1">
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Solde paiements:</span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs max-w-xs">
+                                  Impact des paiements déjà effectués (CB ou espèces).
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <span className={`font-semibold ${
+                          balance.soldePaiements >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {balance.soldePaiements >= 0 ? '+' : ''}{balance.soldePaiements.toFixed(2)}€
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </ScrollArea>
+      </Card>
+
+      {/* Transferts à effectuer */}
+      <Card className="p-6 neon-border">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <TrendingUp className="w-6 h-6 text-primary" />
+            Liste des transferts : Qui verse à qui ?
+          </h2>
+          <Badge variant="outline" className="text-sm">
+            {transfers.length} transfert{transfers.length > 1 ? 's' : ''}
+          </Badge>
+        </div>
+        
+        {transfers.length > 0 ? (
+          <div className="space-y-3">
+            {transfers.map((transfer, index) => (
+              <Card key={index} className="p-4 border-2 border-primary/20 hover:border-primary/40 transition-colors">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    <div className="p-3 rounded-full bg-primary/10 flex-shrink-0">
+                      <TrendingDown className="w-5 h-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-lg text-destructive">{transfer.fromName}</span>
+                        <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <span className="font-semibold text-lg text-green-600 dark:text-green-400">{transfer.toName}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Transfert #{index + 1} sur {transfers.length}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant="default" className="text-lg px-4 py-2 flex-shrink-0">
+                    {transfer.amount.toFixed(2)}€
+                  </Badge>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold mb-2 text-green-700 dark:text-green-400">
+              ✅ Tout est équilibré
+            </h3>
+            <p className="text-muted-foreground mb-2">
+              Aucun ajustement financier n'est nécessaire.
+            </p>
+            <p className="text-sm text-muted-foreground italic max-w-md mx-auto">
+              Les dépenses et paiements enregistrés permettent un équilibre parfait entre les participants.
+            </p>
+          </div>
+        )}
+      </Card>
+
+      {/* Bouton de validation de clôture */}
+      {!isValidated && (
+        <Card className="p-6 neon-border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-full bg-purple-100 dark:bg-purple-900/50">
+                <Lock className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100">
+                  🎊 Finaliser ensemble
+                </h3>
+                <p className="text-sm text-purple-800 dark:text-purple-200 mt-1">
+                  Une fois validé, les comptes seront figés. C'est le moment de clôturer en beauté !
+                </p>
+              </div>
+            </div>
+            
+            {/* Conditions de validation */}
+            <div className="space-y-2 p-4 rounded-lg bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">✅ Validations collectives</span>
+                {allSigned ? (
+                  <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    {signedCount} / {participants.length} ✨
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300">
+                    {signedCount} / {participants.length}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">⏰ Temps de réflexion</span>
+                {closureDeadline && new Date() >= closureDeadline ? (
+                  <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    Prêt
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300">
+                    En cours
+                  </Badge>
+                )}
+              </div>
+            </div>
+            
+            <Button
+              onClick={() => setShowValidationDialog(true)}
+              disabled={!canValidate}
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg disabled:shadow-none transition-all"
+              size="lg"
+            >
+              {canValidate ? (
+                <>
+                  <span className="text-lg mr-2">🎉</span>
+                  Finaliser la clôture ensemble
+                </>
+              ) : (
+                <>
+                  <Clock className="w-4 h-4 mr-2" />
+                  En attente des conditions
+                </>
+              )}
+            </Button>
+            
+            {!canValidate && (
+              <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
+                <p className="text-xs text-center text-yellow-800 dark:text-yellow-200">
+                  💬 Il manque encore les validations de chacun et le temps de réflexion n'est pas écoulé. Bonkont prend le temps de bien faire.
+                </p>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Message final si validé */}
+      {isValidated && (
+        <Card className="p-8 neon-border border-green-200 dark:border-green-800 bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 dark:from-green-950/20 dark:via-emerald-950/20 dark:to-teal-950/20">
+          <div className="text-center space-y-5">
+            <div className="text-6xl mb-2">🎉</div>
+            <CheckCircle className="w-20 h-20 text-green-600 dark:text-green-400 mx-auto" />
+            <h3 className="text-3xl font-bold text-green-900 dark:text-green-100">
+              Événement clôturé
+            </h3>
+            <p className="text-green-800 dark:text-green-200 text-lg">
+              Les comptes sont clairs, les souvenirs restent.
+            </p>
+            <p className="text-green-700 dark:text-green-300 text-base font-semibold italic">
+              Bonkont fait les comptes, les amis font le reste.
+            </p>
+            
+            {/* Signatures finales */}
+            {event?.closureValidatedBy && (
+              <div className="pt-4 border-t border-green-200 dark:border-green-800">
+                <p className="text-sm text-muted-foreground mb-3 font-medium">✨ Validé collectivement par :</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {Object.values(event.closureValidatedBy).map((sig, idx) => (
+                    <Badge key={idx} variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 text-sm px-3 py-1">
+                      <UserCheck className="w-3 h-3 mr-1" />
+                      {sig.participantName}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <div className="pt-4">
+              <p className="text-base font-semibold text-green-700 dark:text-green-300 italic">
+                Bonkont fait les comptes, les amis gardent les souvenirs.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Section Avis et Notes - Visible après clôture */}
+      {isValidated && (
+        <Card className="p-6 neon-border border-pink-200 dark:border-pink-800 bg-gradient-to-br from-pink-50 via-rose-50 to-orange-50 dark:from-pink-950/20 dark:via-rose-950/20 dark:to-orange-950/20">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-full bg-pink-100 dark:bg-pink-900/50">
+                <Heart className="w-5 h-5 text-pink-600 dark:text-pink-400" />
+              </div>
+              <div>
+                <h3 className="text-xl font-semibold text-pink-900 dark:text-pink-100">
+                  💬 Partagez vos souvenirs
+                </h3>
+                <p className="text-sm text-pink-800 dark:text-pink-200 mt-1">
+                  Laissez un avis et une note pour garder une trace de ce beau moment partagé ensemble !
+                </p>
+              </div>
+            </div>
+
+            {/* Liste des avis existants */}
+            {event?.ratings && event.ratings.length > 0 && (
+              <div className="space-y-3 pt-4 border-t border-pink-200 dark:border-pink-800">
+                <h4 className="text-sm font-semibold text-pink-900 dark:text-pink-100">
+                  ✨ Avis des participants ({event.ratings.length})
+                </h4>
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {event.ratings.map((rating, idx) => {
+                    const participant = participants.find(p => p.id === rating.participantId);
+                    const participantName = participant?.name || participant?.firstName || rating.participantName || 'Participant';
+                    return (
+                      <Card key={idx} className="p-4 bg-white dark:bg-gray-900 border-pink-200 dark:border-pink-800">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="font-semibold text-sm">{participantName}</span>
+                              <div className="flex items-center gap-1">
+                                {Array.from({ length: 5 }).map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    className={`w-4 h-4 ${
+                                      i < rating.rating
+                                        ? 'text-yellow-500 fill-yellow-500'
+                                        : 'text-gray-300 dark:text-gray-600'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                            {rating.review && (
+                              <p className="text-sm text-muted-foreground mt-2 italic">
+                                "{rating.review}"
+                              </p>
+                            )}
+                            {rating.createdAt && (
+                              <p className="text-xs text-muted-foreground mt-2">
+                                {format(new Date(rating.createdAt), 'dd MMMM yyyy', { locale: fr })}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Formulaire pour ajouter un avis */}
+            <div className="pt-4 border-t border-pink-200 dark:border-pink-800">
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-pink-900 dark:text-pink-100">
+                  Votre avis sur cet événement
+                </p>
+                
+                {/* Liste des participants qui peuvent laisser un avis */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {participants.map((participant) => {
+                    const participantName = participant.name || participant.firstName || participant.email || 'Participant';
+                    const hasRated = event?.ratings?.some(r => r.participantId === participant.id);
+                    
+                    return (
+                      <Button
+                        key={participant.id}
+                        variant="outline"
+                        onClick={() => {
+                          if (hasRated) {
+                            toast({
+                              title: "💡 Déjà noté",
+                              description: "Vous avez déjà laissé un avis pour cet événement.",
+                            });
+                            return;
+                          }
+                          setRatingParticipantId(participant.id);
+                          setCurrentRating(0);
+                          setCurrentReview('');
+                          setShowRatingDialog(true);
+                        }}
+                        className={`justify-start h-auto p-3 ${
+                          hasRated
+                            ? 'bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700'
+                            : 'bg-white dark:bg-gray-900 border-pink-200 dark:border-pink-800 hover:bg-pink-50 dark:hover:bg-pink-950/20'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 flex-1">
+                          <Smile className={`w-4 h-4 ${hasRated ? 'text-green-600' : 'text-pink-600'}`} />
+                          <span className="text-sm">{participantName}</span>
+                          {hasRated && (
+                            <Badge variant="outline" className="ml-auto bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 text-xs">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Noté
+                            </Badge>
+                          )}
+                        </div>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Dialog pour laisser un avis */}
+      <AlertDialog open={showRatingDialog} onOpenChange={setShowRatingDialog}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Heart className="w-5 h-5 text-pink-600" />
+              Partagez votre avis
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4 pt-2">
+              <p className="text-sm text-muted-foreground">
+                Votre avis compte ! Partagez ce que vous avez retenu de ce moment ensemble.
+              </p>
+              
+              {/* Note avec étoiles */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Votre note</label>
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setCurrentRating(i + 1)}
+                      className="focus:outline-none transition-transform hover:scale-110"
+                    >
+                      <Star
+                        className={`w-8 h-8 ${
+                          i < currentRating
+                            ? 'text-yellow-500 fill-yellow-500'
+                            : 'text-gray-300 dark:text-gray-600'
+                        }`}
+                      />
+                    </button>
+                  ))}
+                  {currentRating > 0 && (
+                    <span className="text-sm text-muted-foreground ml-2">
+                      {currentRating === 5 && '🌟 Parfait !'}
+                      {currentRating === 4 && '😊 Très bien !'}
+                      {currentRating === 3 && '👍 Bien'}
+                      {currentRating === 2 && '🙂 Correct'}
+                      {currentRating === 1 && '😐 Passable'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Avis textuel */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Votre message (optionnel)</label>
+                <Textarea
+                  value={currentReview}
+                  onChange={(e) => setCurrentReview(e.target.value)}
+                  placeholder="Partagez un souvenir, une anecdote, ce que vous avez aimé..."
+                  className="min-h-[100px] resize-none"
+                  maxLength={500}
+                />
+                <p className="text-xs text-muted-foreground text-right">
+                  {currentReview.length} / 500 caractères
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (currentRating === 0) {
+                  toast({
+                    variant: "destructive",
+                    title: "Note requise",
+                    description: "Veuillez donner une note avant de publier votre avis.",
+                  });
+                  return;
+                }
+
+                const participant = participants.find(p => p.id === ratingParticipantId);
+                const participantName = participant?.name || participant?.firstName || participant?.email || 'Participant';
+
+                addRating(eventId, {
+                  participantId: ratingParticipantId,
+                  participantName,
+                  rating: currentRating,
+                  review: currentReview.trim() || null,
+                  createdAt: new Date(),
+                });
+
+                toast({
+                  title: "🎉 Merci !",
+                  description: "Votre avis a été enregistré. Merci d'avoir partagé ce moment !",
+                });
+
+                setShowRatingDialog(false);
+                setCurrentRating(0);
+                setCurrentReview('');
+                setRatingParticipantId(null);
+              }}
+              className="bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-700 hover:to-rose-700"
+              disabled={currentRating === 0}
+            >
+              <Heart className="w-4 h-4 mr-2" />
+              Publier mon avis
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog de validation */}
+      <AlertDialog open={showValidationDialog} onOpenChange={setShowValidationDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5 text-purple-600" />
+              Valider la clôture de l'événement
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <p className="text-base">
+                Vous allez finaliser la clôture de <strong className="text-purple-600 dark:text-purple-400">{event.title}</strong>.
+              </p>
+              
+              {/* Récapitulatif des signatures */}
+              <div className="p-3 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                  ✨ Validations collectives ({signedCount} / {participants.length})
+                </p>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {participants.map((p) => {
+                    const sig = closureSignatures[p.id];
+                    const name = p.name || p.firstName || p.email || 'Participant';
+                    return (
+                      <div key={p.id} className="flex items-center justify-between text-xs p-1">
+                        <span>{name}</span>
+                        {sig ? (
+                          <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 text-xs h-5">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Validé
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-red-50 dark:bg-red-950/20 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 text-xs h-5">
+                            En attente
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              <div className="p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <p className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-1">
+                  💡 Information
+                </p>
+                <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                  Une fois validé, les comptes seront figés. C'est le moment de finaliser ensemble cette belle aventure !
+                </p>
+              </div>
+              <p className="text-sm text-center font-medium">
+                Prêt à finaliser ? 🎉
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                updateEvent(eventId, {
+                  closureValidated: true,
+                  closureDate: new Date(),
+                  closureValidatedBy: closureSignatures,
+                  status: 'completed'
+                });
+                setIsValidated(true);
+                setShowValidationDialog(false);
+                toast({
+                  title: "🎉 C'est finalisé !",
+                  description: "Les comptes sont clos. Merci d'avoir partagé ce moment ensemble !",
+                });
+              }}
+              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+            >
+              <span className="text-lg mr-2">🎊</span>
+              Finaliser ensemble
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+

@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { TesseractTest } from '@/components/TesseractTest';
 import { useEventStore } from '@/store/eventStore';
+import { useTransactionsStore } from '@/store/transactionsStore';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Scan, CheckCircle2, X, Euro, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { format } from 'date-fns';
 
 export function EventTicketScanner({ eventId, participantId, isOpen, onClose, onPaymentProcessed }) {
   console.log('[EventTicketScanner] Component mounted:', { eventId, participantId, isOpen });
@@ -15,9 +17,23 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   const updateEvent = useEventStore((state) => state.updateEvent);
+  const addTransaction = useTransactionsStore((state) => state.addTransaction);
   
   const [extractedData, setExtractedData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Réinitialiser les données quand le dialog se ferme
+  useEffect(() => {
+    if (!isOpen) {
+      setExtractedData(null);
+      setIsProcessing(false);
+    }
+  }, [isOpen]);
+  
+  // Log pour debug
+  useEffect(() => {
+    console.log('[EventTicketScanner] Dialog state changed:', { isOpen, eventId, participantId });
+  }, [isOpen, eventId, participantId]);
 
   if (!event) {
     console.error('[EventTicketScanner] Event not found:', eventId);
@@ -98,7 +114,34 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
         isFullyPaid
       });
 
-      // Mise à jour du participant
+      // 1. Créer une transaction pour le report
+      const transactionData = {
+        store: extractedData.enseigne || 'Magasin inconnu',
+        date: extractedData.date ? (() => {
+          try {
+            if (extractedData.date.includes('/')) {
+              const [day, month, year] = extractedData.date.split('/');
+              return new Date(`${year}-${month}-${day}`);
+            }
+            return new Date(extractedData.date);
+          } catch (e) {
+            return new Date();
+          }
+        })() : new Date(),
+        time: extractedData.heure || format(new Date(), 'HH:mm'),
+        amount: scannedAmount,
+        currency: extractedData.devise === '$' || extractedData.devise === 'USD' ? 'USD' :
+                  extractedData.devise === '£' || extractedData.devise === 'GBP' ? 'GBP' : 'EUR',
+        participants: [participantId],
+        payerId: participantId, // Le participant qui a scanné est le payeur
+        source: 'scanned_ticket',
+        scannedData: extractedData
+      };
+      
+      console.log('[EventTicketScanner] Creating transaction:', transactionData);
+      addTransaction(eventId, transactionData);
+
+      // 2. Mise à jour du participant
       updateParticipant(eventId, participantId, {
         hasPaid: isFullyPaid,
         paidAmount: newPaidAmount,
@@ -106,7 +149,7 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
         paymentMethod: 'scanned_ticket'
       });
 
-      // Mise à jour de l'événement
+      // 3. Mise à jour de l'événement
       const currentTotalPaid = event.totalPaid || 0;
       const newTotalPaid = currentTotalPaid + scannedAmount;
       const eventRemainingAmount = Math.max(0, event.amount - newTotalPaid);
@@ -198,7 +241,13 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
 
           {/* Scanner */}
           <div className="space-y-4">
-            <TesseractTest onDataExtracted={handleDataExtracted} />
+            {isOpen && (
+              <TesseractTest 
+                key={`scanner-${participantId}-${eventId}`}
+                onDataExtracted={handleDataExtracted} 
+                autoOpenCamera={true} 
+              />
+            )}
           </div>
 
           {/* Données extraites */}

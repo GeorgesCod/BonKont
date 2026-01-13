@@ -64,7 +64,7 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount }) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false);
 
-  // Charger les préférences au montage et forcer le retour en français
+  // Charger les préférences au montage
   useEffect(() => {
     const savedCurrency = localStorage.getItem('bonkont-currency');
     const savedSubscription = localStorage.getItem('bonkont-subscription');
@@ -77,17 +77,20 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount }) {
       localStorage.setItem('bonkont-currency', 'EUR');
     }
     
-    // FORCER LE RETOUR EN FRANÇAIS
-    setLanguage('fr');
-    setI18nLanguage('fr');
-    
     if (savedSubscription) {
       setSubscriptionPlan(savedSubscription);
     } else {
       setSubscriptionPlan('free');
       localStorage.setItem('bonkont-subscription', 'free');
     }
-  }, [currentLanguage, setI18nLanguage]);
+  }, []); // Dépendances vides pour ne s'exécuter qu'au montage
+  
+  // Synchroniser la langue locale avec le store i18n lorsque le dialog s'ouvre
+  useEffect(() => {
+    if (isOpen && currentLanguage?.code) {
+      setLanguage(currentLanguage.code);
+    }
+  }, [isOpen, currentLanguage?.code]);
 
   // Sauvegarder les préférences
   const handleCurrencyChange = (value) => {

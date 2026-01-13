@@ -5,6 +5,7 @@ import { EventStatistics } from '@/components/EventStatistics';
 import { EventManagement } from '@/components/EventManagement';
 import { TransactionManagement } from '@/components/TransactionManagement';
 import { EventHistory } from '@/components/EventHistory';
+import { EventClosure } from '@/components/EventClosure';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { AuthDialog } from '@/components/AuthDialog';
 import { UserProfile } from '@/components/UserProfile';
@@ -27,7 +28,7 @@ export default function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history'
   const [selectedEventId, setSelectedEventId] = useState(null);
-  const [viewMode, setViewMode] = useState('management'); // 'management' or 'transactions'
+  const [viewMode, setViewMode] = useState('management'); // 'management', 'transactions', or 'closure'
 
    useEffect(() => {
   console.log('[App] Component mounted, setting up hash routing');
@@ -142,7 +143,12 @@ export default function App() {
 
     if (hash.startsWith('#event/')) {
       const eventId = hash.replace('#event/', '').split('/')[0];
-      const mode = hash.includes('/transactions') ? 'transactions' : 'management';
+      let mode = 'management';
+      if (hash.includes('/transactions')) {
+        mode = 'transactions';
+      } else if (hash.includes('/closure')) {
+        mode = 'closure';
+      }
       console.log('[App] Navigating to event view:', { eventId, mode, hash });
       
       // Vérifier que l'événement existe
@@ -385,6 +391,17 @@ export default function App() {
                   >
                     <span className="text-sm sm:text-base">Gestion des transactions</span>
                   </Button>
+                  <Button
+                    variant={viewMode === 'closure' ? 'default' : 'outline'}
+                    onClick={() => {
+                      console.log('[App] Switching to closure view');
+                      setViewMode('closure');
+                      window.location.hash = `#event/${selectedEventId}/closure`;
+                    }}
+                    className="gap-2 min-h-[44px] w-full sm:w-auto"
+                  >
+                    <span className="text-sm sm:text-base">Gérer la fin Évènementielle</span>
+                  </Button>
                 </div>
                 {viewMode === 'management' ? (
                   <EventManagement
@@ -403,11 +420,28 @@ export default function App() {
                       }, 50);
                     }}
                   />
-                ) : (
+                ) : viewMode === 'transactions' ? (
                   <TransactionManagement
                     eventId={selectedEventId}
                     onBack={() => {
                       console.log('[App] Back to dashboard from transactions');
+                      setSelectedEventId(null);
+                      setViewMode('management');
+                      setShowHistory(false);
+                      setShowStats(false);
+                      setCurrentView('dashboard');
+                      window.location.hash = '';
+                      // Force le re-render
+                      setTimeout(() => {
+                        window.dispatchEvent(new HashChangeEvent('hashchange'));
+                      }, 50);
+                    }}
+                  />
+                ) : (
+                  <EventClosure
+                    eventId={selectedEventId}
+                    onBack={() => {
+                      console.log('[App] Back to dashboard from closure');
                       setSelectedEventId(null);
                       setViewMode('management');
                       setShowHistory(false);
