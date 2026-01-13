@@ -24,22 +24,33 @@ import {
   Moon,
   Sun,
   Lock,
-  HelpCircle,
-  Shield,
   LogOut,
   Trash2,
   CheckCircle2,
-  XCircle
+  XCircle,
+  FileText,
+  MessageCircle,
+  HelpCircle,
+  Shield,
+  ExternalLink
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { useI18nStore } from '@/lib/i18n';
 
-export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount }) {
+export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onNavigateToPublicPage, defaultTab = 'account' }) {
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
   const { currentLanguage, setLanguage: setI18nLanguage, t } = useI18nStore();
+  const [activeTab, setActiveTab] = useState(defaultTab);
+
+  // Mettre à jour l'onglet actif quand defaultTab change ou quand le dialog s'ouvre
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(defaultTab);
+    }
+  }, [isOpen, defaultTab]);
   
   // État pour les préférences
   const [currency, setCurrency] = useState(() => {
@@ -176,20 +187,14 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount }) {
     });
   };
 
-  const handleHelpCenter = () => {
-    window.open('https://help.bonkont.com', '_blank');
-    toast({
-      title: t('helpCenter'),
-      description: t('helpCenter'),
-    });
-  };
-
-  const handlePrivacyPolicy = () => {
-    window.open('https://bonkont.com/privacy', '_blank');
-    toast({
-      title: t('privacyPolicy'),
-      description: t('privacyPolicy'),
-    });
+  const handleNavigateToPublicPage = (page) => {
+    onClose();
+    if (onNavigateToPublicPage) {
+      onNavigateToPublicPage(page);
+    } else {
+      // Fallback: utiliser window.location.hash
+      window.location.hash = `#/${page}`;
+    }
   };
 
 
@@ -207,8 +212,8 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount }) {
             </DialogDescription>
           </DialogHeader>
 
-          <Tabs defaultValue="account" className="w-full">
-            <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="account" className="text-xs sm:text-sm">
                 <User className="w-4 h-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">{t('account')}</span>
@@ -216,14 +221,6 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount }) {
               <TabsTrigger value="preferences" className="text-xs sm:text-sm">
                 <Globe className="w-4 h-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">{t('preferences')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="privacy" className="text-xs sm:text-sm">
-                <Shield className="w-4 h-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">{t('privacy')}</span>
-              </TabsTrigger>
-              <TabsTrigger value="help" className="text-xs sm:text-sm">
-                <HelpCircle className="w-4 h-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">{t('help')}</span>
               </TabsTrigger>
             </TabsList>
 
@@ -431,43 +428,59 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount }) {
                   </div>
                 </div>
               </div>
-            </TabsContent>
 
-            {/* Onglet Confidentialité */}
-            <TabsContent value="privacy" className="space-y-6 mt-4">
+              <Separator />
+
               <div className="space-y-4">
                 <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2">
-                  <Shield className="w-5 h-5" />
-                  {t('privacySecurity')}
+                  <FileText className="w-5 h-5" />
+                  {t('publicPages')}
                 </h3>
+                <p className="text-sm text-muted-foreground">
+                  {t('publicPagesDescription')}
+                </p>
 
-                <Button
-                  variant="outline"
-                  className="w-full justify-start gap-2"
-                  onClick={handlePrivacyPolicy}
-                >
-                  <Shield className="w-4 h-4" />
-                  {t('privacyPolicy')}
-                </Button>
-              </div>
-            </TabsContent>
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => handleNavigateToPublicPage('privacy')}
+                  >
+                    <Shield className="w-4 h-4" />
+                    {t('privacyPolicy')}
+                    <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+                  </Button>
 
-            {/* Onglet Aide */}
-            <TabsContent value="help" className="space-y-6 mt-4">
-              <div className="space-y-4">
-                <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2">
-                  <HelpCircle className="w-5 h-5" />
-                  {t('support')}
-                </h3>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => handleNavigateToPublicPage('terms')}
+                  >
+                    <FileText className="w-4 h-4" />
+                    {t('termsOfService')}
+                    <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+                  </Button>
 
-                <Button
-                  variant="outline"
-                  className="w-full justify-start gap-2"
-                  onClick={handleHelpCenter}
-                >
-                  <HelpCircle className="w-4 h-4" />
-                  {t('helpCenter')}
-                </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => handleNavigateToPublicPage('faq')}
+                  >
+                    <HelpCircle className="w-4 h-4" />
+                    {t('faq')}
+                    <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => handleNavigateToPublicPage('contact')}
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    {t('contact')}
+                    <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+                  </Button>
+                </div>
               </div>
             </TabsContent>
           </Tabs>

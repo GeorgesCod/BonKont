@@ -13,20 +13,27 @@ import { InviteFriends } from '@/components/InviteFriends';
 import { ScrollToTop } from '@/components/ScrollToTop';
 import { TesseractTest } from '@/components/TesseractTest';
 import { SettingsDialog } from '@/components/SettingsDialog';
+import { PrivacyPolicy } from '@/components/PrivacyPolicy';
+import { TermsOfService } from '@/components/TermsOfService';
+import { FAQ } from '@/components/FAQ';
+import { Contact } from '@/components/Contact';
 import { Wallet2, LogIn, UserCircle, BarChart as ChartBar, ArrowLeft, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
+import { useI18nStore } from '@/lib/i18n';
 
 export default function App() {
   const { toast } = useToast();
+  const { t } = useI18nStore();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState('account');
   const [showStats, setShowStats] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history', 'privacy', 'terms', 'faq', 'contact'
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [viewMode, setViewMode] = useState('management'); // 'management', 'transactions', or 'closure'
 
@@ -140,6 +147,36 @@ export default function App() {
       selectedEventId,
       hash 
     });
+
+    // Gérer les routes publiques
+    if (hash === '#/privacy' || hash === '#privacy') {
+      setCurrentView('privacy');
+      setSelectedEventId(null);
+      setShowHistory(false);
+      setShowStats(false);
+      return;
+    }
+    if (hash === '#/terms' || hash === '#terms') {
+      setCurrentView('terms');
+      setSelectedEventId(null);
+      setShowHistory(false);
+      setShowStats(false);
+      return;
+    }
+    if (hash === '#/faq' || hash === '#faq') {
+      setCurrentView('faq');
+      setSelectedEventId(null);
+      setShowHistory(false);
+      setShowStats(false);
+      return;
+    }
+    if (hash === '#/contact' || hash === '#contact') {
+      setCurrentView('contact');
+      setSelectedEventId(null);
+      setShowHistory(false);
+      setShowStats(false);
+      return;
+    }
 
     if (hash.startsWith('#event/')) {
       const eventId = hash.replace('#event/', '').split('/')[0];
@@ -351,8 +388,36 @@ export default function App() {
 
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full overflow-y-auto" style={{ minHeight: 'calc(100vh - 80px)' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
-          {/* Permettre l'accès à la vue événement même sans connexion (pour liens partagés) */}
-          {currentView === 'event' && selectedEventId ? (
+          {/* Pages publiques */}
+          {currentView === 'privacy' ? (
+            <PrivacyPolicy onBack={() => {
+              setCurrentView('dashboard');
+              window.location.hash = '';
+              setSettingsDefaultTab('preferences');
+              setIsSettingsOpen(true);
+            }} />
+          ) : currentView === 'terms' ? (
+            <TermsOfService onBack={() => {
+              setCurrentView('dashboard');
+              window.location.hash = '';
+              setSettingsDefaultTab('preferences');
+              setIsSettingsOpen(true);
+            }} />
+          ) : currentView === 'faq' ? (
+            <FAQ onBack={() => {
+              setCurrentView('dashboard');
+              window.location.hash = '';
+              setSettingsDefaultTab('preferences');
+              setIsSettingsOpen(true);
+            }} />
+          ) : currentView === 'contact' ? (
+            <Contact onBack={() => {
+              setCurrentView('dashboard');
+              window.location.hash = '';
+              setSettingsDefaultTab('preferences');
+              setIsSettingsOpen(true);
+            }} />
+          ) : currentView === 'event' && selectedEventId ? (
             <div className="space-y-4 animate-fade-in">
               {!isLoggedIn && (
                 <div className="p-4 rounded-lg bg-primary/10 border border-primary/20 mb-4">
@@ -537,12 +602,70 @@ export default function App() {
 
       <SettingsDialog
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={() => {
+          setIsSettingsOpen(false);
+          setSettingsDefaultTab('account'); // Réinitialiser à l'onglet par défaut
+        }}
         onLogout={handleLogout}
         onDeleteAccount={handleDeleteAccount}
+        onNavigateToPublicPage={(page) => {
+          setIsSettingsOpen(false);
+          setCurrentView(page);
+          window.location.hash = `#/${page}`;
+        }}
+        defaultTab={settingsDefaultTab}
       />
 
       <ScrollToTop />
+
+      {/* Footer avec liens vers les pages publiques */}
+      <footer className="border-t border-border/50 mt-12 py-6">
+        <div className="container mx-auto px-3 sm:px-4 max-w-4xl">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
+              <button
+                onClick={() => {
+                  setCurrentView('privacy');
+                  window.location.hash = '#/privacy';
+                }}
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
+              >
+                {t('privacyPolicyShort')}
+              </button>
+              <button
+                onClick={() => {
+                  setCurrentView('terms');
+                  window.location.hash = '#/terms';
+                }}
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
+              >
+                {t('termsOfServiceShort')}
+              </button>
+              <button
+                onClick={() => {
+                  setCurrentView('faq');
+                  window.location.hash = '#/faq';
+                }}
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
+              >
+                {t('faqShort')}
+              </button>
+              <button
+                onClick={() => {
+                  setCurrentView('contact');
+                  window.location.hash = '#/contact';
+                }}
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
+              >
+                {t('contact')}
+              </button>
+            </div>
+            <p className="text-xs italic text-center sm:text-right">
+              {t('taglineFooter')}
+            </p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
