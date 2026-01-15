@@ -132,14 +132,25 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
         amount: scannedAmount,
         currency: extractedData.devise === '$' || extractedData.devise === 'USD' ? 'USD' :
                   extractedData.devise === '£' || extractedData.devise === 'GBP' ? 'GBP' : 'EUR',
-        participants: [participantId],
+        participants: [participantId], // IMPORTANT: Seul le participant qui a scanné est concerné (dépense personnelle)
         payerId: participantId, // Le participant qui a scanné est le payeur
         source: 'scanned_ticket',
         scannedData: extractedData
       };
       
-      console.log('[EventTicketScanner] Creating transaction:', transactionData);
+      console.log('[EventTicketScanner] ⚠️ CRÉATION TRANSACTION SCANNÉE:', {
+        eventId,
+        transactionData,
+        participantId,
+        participantName: participant.name,
+        montant: scannedAmount,
+        participantsConcernes: transactionData.participants,
+        payerId: transactionData.payerId
+      });
+      
       addTransaction(eventId, transactionData);
+      
+      console.log('[EventTicketScanner] ✅ Transaction ajoutée au store');
 
       // 2. Mise à jour du participant
       updateParticipant(eventId, participantId, {

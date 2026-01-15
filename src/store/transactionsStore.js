@@ -8,7 +8,14 @@ export const useTransactionsStore = create()(
       transactions: [],
       
       addTransaction: (eventId, transactionData) => set((state) => {
-        console.log('[TransactionsStore] Adding transaction:', { eventId, transactionData });
+        console.log('[TransactionsStore] ⚠️ ADDING TRANSACTION:', { 
+          eventId, 
+          transactionData,
+          source: transactionData.source,
+          participants: transactionData.participants,
+          payerId: transactionData.payerId,
+          amount: transactionData.amount
+        });
         const newTransaction = {
           id: nanoid(),
           eventId,
@@ -16,6 +23,14 @@ export const useTransactionsStore = create()(
           createdAt: new Date(),
           updatedAt: new Date(),
         };
+        console.log('[TransactionsStore] ✅ Transaction créée:', {
+          id: newTransaction.id,
+          eventId: newTransaction.eventId,
+          source: newTransaction.source,
+          participants: newTransaction.participants,
+          payerId: newTransaction.payerId,
+          amount: newTransaction.amount
+        });
         return { transactions: [newTransaction, ...state.transactions] };
       }),
 

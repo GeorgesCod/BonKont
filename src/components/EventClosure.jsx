@@ -150,9 +150,11 @@ export function EventClosure({ eventId, onBack }) {
     );
   }
   
-  const balances = computeBalances(event, transactions);
-  const transfersResult = computeTransfers(balances);
+  const balancesResult = computeBalances(event, transactions);
+  const { balances, potBalance } = balancesResult;
+  const transfersResult = computeTransfers(balancesResult);
   const transfers = transfersResult.transfers || [];
+  const potTransfers = transfersResult.potTransfers || [];
   
   const handleExportClosurePDF = () => {
     console.log('[EventClosure] Exporting closure PDF:', event.title);
@@ -296,27 +298,26 @@ export function EventClosure({ eventId, onBack }) {
       
       const balancesTableData = Object.values(balances).map(balance => {
         const formatted = formatBalance(balance);
+        const solde = balance.solde || 0;
         const soldeText = formatted.status === 'doit_recevoir' 
-          ? `+${balance.soldeFinal.toFixed(2)} € (à recevoir)`
+          ? `+${solde.toFixed(2)} € (à recevoir)`
           : formatted.status === 'doit_verser'
-            ? `${balance.soldeFinal.toFixed(2)} € (à verser)`
+            ? `${solde.toFixed(2)} € (à verser)`
             : '0,00 € (équilibré)';
         
         return [
           balance.participantName,
-          `${balance.avance.toFixed(2)} €`,
-          `${balance.consomme.toFixed(2)} €`,
-          `${balance.soldeDepenses >= 0 ? '+' : ''}${balance.soldeDepenses.toFixed(2)} €`,
-          `${balance.verse.toFixed(2)} €`,
-          `${balance.recu.toFixed(2)} €`,
-          `${balance.soldePaiements >= 0 ? '+' : ''}${balance.soldePaiements.toFixed(2)} €`,
+          `${(balance.contribution || 0).toFixed(2)} €`,
+          `${(balance.avance || 0).toFixed(2)} €`,
+          `${(balance.consomme || 0).toFixed(2)} €`,
+          `${(balance.mise || 0).toFixed(2)} €`,
           soldeText
         ];
       });
       
       autoTable(doc, {
         startY: yPosition,
-        head: [['Participant', 'Avancé', 'Consommé', 'Solde dép.', 'Versé', 'Reçu', 'Solde paiem.', 'Solde final']],
+        head: [['Participant', 'Contribution', 'Avancé', 'Consommé', 'Mise', 'Solde']],
         body: balancesTableData,
         styles: { fontSize: 7 },
         headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold', fontSize: 8 },
@@ -328,9 +329,7 @@ export function EventClosure({ eventId, onBack }) {
           2: { cellWidth: 25 },
           3: { cellWidth: 25 },
           4: { cellWidth: 25 },
-          5: { cellWidth: 25 },
-          6: { cellWidth: 25 },
-          7: { cellWidth: 30 }
+          5: { cellWidth: 30 }
         }
       });
       
@@ -352,12 +351,12 @@ export function EventClosure({ eventId, onBack }) {
           doc.text(line, margin, yPosition);
           yPosition += 5;
         });
-        if (Math.abs(transfersResult.balanceError) > 0.01) {
+        if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01) {
           yPosition += 2;
           doc.setFontSize(8);
           doc.setTextColor(150, 150, 150);
           doc.setFont(undefined, 'italic');
-          doc.text(`Écart détecté : ${transfersResult.balanceError.toFixed(2)}€`, margin, yPosition);
+          doc.text(`Écart détecté : ${balancesResult.totalSolde.toFixed(2)}€`, margin, yPosition);
           yPosition += 5;
         }
         yPosition += 5;
@@ -379,7 +378,7 @@ export function EventClosure({ eventId, onBack }) {
         
         const transfersTableData = transfers.map(t => [
           `${t.fromName} verse`,
-          `${t.amount.toFixed(2)} €`,
+          `${(t.amount || 0).toFixed(2)} €`,
           `à ${t.toName}`
         ]);
         
@@ -404,7 +403,7 @@ export function EventClosure({ eventId, onBack }) {
         yPosition += 8;
         
         Object.values(balances).forEach((balance) => {
-          const participantTransfers = getParticipantTransfers(balance.participantId, transfers);
+          const participantTransfers = getParticipantTransfers(balance.participantId, transfersResult);
           
           if (!participantTransfers.hasTransfers) {
             checkNewPage(8);
@@ -431,7 +430,7 @@ export function EventClosure({ eventId, onBack }) {
             yPosition += 5;
             
             participantTransfers.toReceive.forEach((transfer) => {
-              doc.text(`    → ${transfer.fromName}: ${transfer.amount.toFixed(2)}€`, margin + 10, yPosition);
+              doc.text(`    → ${transfer.fromName}: ${(transfer.amount || 0).toFixed(2)}€`, margin + 10, yPosition);
               yPosition += 4;
             });
           }
@@ -444,7 +443,7 @@ export function EventClosure({ eventId, onBack }) {
             yPosition += 5;
             
             participantTransfers.toPay.forEach((transfer) => {
-              doc.text(`    → ${transfer.toName}: ${transfer.amount.toFixed(2)}€`, margin + 10, yPosition);
+              doc.text(`    → ${transfer.toName}: ${(transfer.amount || 0).toFixed(2)}€`, margin + 10, yPosition);
               yPosition += 4;
             });
           }
@@ -813,7 +812,7 @@ export function EventClosure({ eventId, onBack }) {
                                  'secondary'}
                         className="text-lg px-3 py-1"
                       >
-                        {formatted.soldeFinalFormatted}
+                        {formatted.soldeFormatted}
                       </Badge>
                       <p className="text-xs text-muted-foreground mt-1">
                         {formatted.status === 'doit_recevoir' && 'À recevoir pour équilibrer'}
@@ -826,48 +825,26 @@ export function EventClosure({ eventId, onBack }) {
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div className="space-y-1">
                       <div className="flex justify-between">
+                        <span className="text-muted-foreground">Contribution:</span>
+                        <span className="font-medium">{(balance.contribution || 0).toFixed(2)}€</span>
+                      </div>
+                      <div className="flex justify-between">
                         <span className="text-muted-foreground">Avancé:</span>
-                        <span className="font-medium">{balance.avance.toFixed(2)}€</span>
+                        <span className="font-medium">{(balance.avance || 0).toFixed(2)}€</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Consommé:</span>
-                        <span className="font-medium">{balance.consomme.toFixed(2)}€</span>
-                      </div>
-                      <div className="flex justify-between items-center border-t pt-1">
-                        <div className="flex items-center gap-1">
-                          <span className="text-muted-foreground">Solde dépenses:</span>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs max-w-xs">
-                                  Différence entre ce que la personne a avancé et ce qu'elle a consommé.
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                        <span className={`font-semibold ${
-                          balance.soldeDepenses >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {balance.soldeDepenses >= 0 ? '+' : ''}{balance.soldeDepenses.toFixed(2)}€
-                        </span>
+                        <span className="font-medium">{(balance.consomme || 0).toFixed(2)}€</span>
                       </div>
                     </div>
                     <div className="space-y-1">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Versé:</span>
-                        <span className="font-medium">{balance.verse.toFixed(2)}€</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Reçu:</span>
-                        <span className="font-medium">{balance.recu.toFixed(2)}€</span>
+                        <span className="text-muted-foreground">Mise totale:</span>
+                        <span className="font-medium">{(balance.mise || 0).toFixed(2)}€</span>
                       </div>
                       <div className="flex justify-between items-center border-t pt-1">
                         <div className="flex items-center gap-1">
-                          <span className="text-muted-foreground">Solde paiements:</span>
+                          <span className="text-muted-foreground">Solde:</span>
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -875,16 +852,16 @@ export function EventClosure({ eventId, onBack }) {
                               </TooltipTrigger>
                               <TooltipContent>
                                 <p className="text-xs max-w-xs">
-                                  Impact des paiements déjà effectués (CB ou espèces).
+                                  Solde = Mise - Consommation. Positif = doit recevoir, Négatif = doit verser.
                                 </p>
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         </div>
                         <span className={`font-semibold ${
-                          balance.soldePaiements >= 0 ? 'text-green-600' : 'text-red-600'
+                          (balance.solde || 0) >= 0 ? 'text-green-600' : 'text-red-600'
                         }`}>
-                          {balance.soldePaiements >= 0 ? '+' : ''}{balance.soldePaiements.toFixed(2)}€
+                          {(balance.solde || 0) >= 0 ? '+' : ''}{(balance.solde || 0).toFixed(2)}€
                         </span>
                       </div>
                     </div>
@@ -936,9 +913,9 @@ export function EventClosure({ eventId, onBack }) {
                 <p className="text-sm text-yellow-800 dark:text-yellow-200">
                   {transfersResult.warning}
                 </p>
-                {Math.abs(transfersResult.balanceError) > 0.01 && (
+                {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01 && (
                   <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-2 italic">
-                    Écart détecté : {transfersResult.balanceError.toFixed(2)}€
+                    Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
                   </p>
                 )}
               </div>
@@ -962,7 +939,7 @@ export function EventClosure({ eventId, onBack }) {
                       <div className="flex items-center gap-2 mb-2">
                         <span className="font-semibold text-lg text-destructive">{transfer.fromName}</span>
                         <span className="text-muted-foreground">verse</span>
-                        <span className="font-semibold text-lg text-primary">{transfer.amount.toFixed(2)}€</span>
+                        <span className="font-semibold text-lg text-primary">{(transfer.amount || 0).toFixed(2)}€</span>
                         <span className="text-muted-foreground">à</span>
                         <span className="font-semibold text-lg text-green-600 dark:text-green-400">{transfer.toName}</span>
                       </div>
@@ -973,7 +950,7 @@ export function EventClosure({ eventId, onBack }) {
                         onClick={() => {
                           toast({
                             title: "Détail du transfert",
-                            description: `Ce transfert provient du solde final de ${transfer.fromName} (${balances[transfer.from]?.soldeFinal >= 0 ? '+' : ''}${balances[transfer.from]?.soldeFinal.toFixed(2)}€) vers ${transfer.toName} (${balances[transfer.to]?.soldeFinal >= 0 ? '+' : ''}${balances[transfer.to]?.soldeFinal.toFixed(2)}€).`,
+                            description: `Ce transfert provient du solde de ${transfer.fromName} (${balances[transfer.from]?.solde >= 0 ? '+' : ''}${balances[transfer.from]?.solde.toFixed(2)}€) vers ${transfer.toName} (${balances[transfer.to]?.solde >= 0 ? '+' : ''}${balances[transfer.to]?.solde.toFixed(2)}€).`,
                           });
                         }}
                       >
@@ -994,7 +971,7 @@ export function EventClosure({ eventId, onBack }) {
               </h3>
               <div className="space-y-3">
                 {Object.values(balances).map((balance) => {
-                  const participantTransfers = getParticipantTransfers(balance.participantId, transfers);
+                  const participantTransfers = getParticipantTransfers(balance.participantId, transfersResult);
                   
                   if (!participantTransfers.hasTransfers) {
                     return (
@@ -1017,7 +994,7 @@ export function EventClosure({ eventId, onBack }) {
                       <div className="mb-3">
                         <h4 className="font-semibold text-base">{balance.participantName}</h4>
                         <p className="text-xs text-muted-foreground">
-                          Solde final : {balance.soldeFinal >= 0 ? '+' : ''}{balance.soldeFinal.toFixed(2)}€
+                          Solde : {(balance.solde || 0) >= 0 ? '+' : ''}{(balance.solde || 0).toFixed(2)}€
                         </p>
                       </div>
                       
@@ -1032,7 +1009,7 @@ export function EventClosure({ eventId, onBack }) {
                                   <span className="text-sm font-medium">{transfer.fromName}</span>
                                 </div>
                                 <span className="text-sm font-bold text-green-600 dark:text-green-400">
-                                  {transfer.amount.toFixed(2)}€
+                                  {(transfer.amount || 0).toFixed(2)}€
                                 </span>
                               </div>
                             ))}
@@ -1051,7 +1028,7 @@ export function EventClosure({ eventId, onBack }) {
                                   <span className="text-sm font-medium">{transfer.toName}</span>
                                 </div>
                                 <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
-                                  {transfer.amount.toFixed(2)}€
+                                  {(transfer.amount || 0).toFixed(2)}€
                                 </span>
                               </div>
                             ))}
@@ -1088,9 +1065,9 @@ export function EventClosure({ eventId, onBack }) {
                 <p className="text-muted-foreground mb-2">
                   {transfersResult.warning || 'Impossible de calculer les transferts.'}
                 </p>
-                {Math.abs(transfersResult.balanceError) > 0.01 && (
+                {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01 && (
                   <p className="text-sm text-muted-foreground italic max-w-md mx-auto">
-                    Écart détecté : {transfersResult.balanceError.toFixed(2)}€
+                    Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
                   </p>
                 )}
               </>

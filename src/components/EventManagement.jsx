@@ -39,7 +39,7 @@ import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers, getExpenseTraceability, getPaymentTraceability } from '@/utils/bonkontBalances';
+import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers, getExpenseTraceability, getPaymentTraceability, getContributionToPot } from '@/utils/bonkontBalances';
 import { FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -56,7 +56,22 @@ export function EventManagement({ eventId, onBack }) {
     return match;
   });
   
-  const transactions = useTransactionsStore((state) => state.getTransactionsByEvent(eventId));
+  const transactions = useTransactionsStore((state) => {
+    const trans = state.getTransactionsByEvent(eventId);
+    console.log('[EventManagement] ⚠️ Transactions récupérées:', {
+      eventId,
+      count: trans.length,
+      transactions: trans.map(t => ({
+        id: t.id,
+        source: t.source,
+        participants: t.participants,
+        payerId: t.payerId,
+        amount: t.amount,
+        type: t.type
+      }))
+    });
+    return trans;
+  });
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerParticipantId, setScannerParticipantId] = useState(null);
@@ -179,17 +194,40 @@ const handleExportPDF = () => {
     };
     
     // ===== EN-TÊTE =====
-    doc.setFontSize(20);
+    doc.setFontSize(24);
     doc.setTextColor(99, 102, 241); // Couleur primary
     doc.setFont(undefined, 'bold');
     doc.text('BILAN ÉVÉNEMENTIEL', margin, yPosition);
-    yPosition += 10;
+    yPosition += 8;
     
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    doc.setFont(undefined, 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(120, 120, 120);
+    doc.setFont(undefined, 'italic');
     doc.text(`Généré le ${format(new Date(), 'dd MMMM yyyy à HH:mm', { locale: fr })}`, margin, yPosition);
-    yPosition += 15;
+    yPosition += 12;
+    
+    // Message d'introduction rassurant
+    doc.setFontSize(10);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    const introText = 'Ce document présente une répartition équitable et transparente de vos dépenses partagées.';
+    const introLines = doc.splitTextToSize(introText, pageWidth - 2 * margin);
+    introLines.forEach((line, idx) => {
+      doc.text(line, margin, yPosition);
+      yPosition += 5;
+    });
+    yPosition += 5;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    doc.setFont(undefined, 'italic');
+    const introSubText = 'Chaque contribution, chaque dépense, chaque remboursement est tracé et équilibré en temps réel.';
+    const introSubLines = doc.splitTextToSize(introSubText, pageWidth - 2 * margin);
+    introSubLines.forEach((line, idx) => {
+      doc.text(line, margin, yPosition);
+      yPosition += 4;
+    });
+    yPosition += 10;
     
     // Ligne de séparation
     doc.setDrawColor(200, 200, 200);
@@ -244,10 +282,10 @@ const handleExportPDF = () => {
     const participantsCount = participants.length || 1;
     const montantParPersonne = totalBudget / participantsCount;
     
-    // Calculer le total payé
+    // Calculer le total payé (utiliser getContributionToPot() comme source unique de vérité)
     let totalPaye = 0;
     participants.forEach(p => {
-      totalPaye += p.paidAmount || 0;
+      totalPaye += getContributionToPot(p.id, event, transactions);
     });
     
     const resteAPayer = Math.max(0, totalBudget - totalPaye);
@@ -297,7 +335,13 @@ const handleExportPDF = () => {
     doc.setTextColor(99, 102, 241);
     doc.setFont(undefined, 'bold');
     doc.text('Participants', margin, yPosition);
-    yPosition += 10;
+    yPosition += 6;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.setFont(undefined, 'italic');
+    doc.text('Un aperçu de la participation de chacun au budget de l\'événement.', margin, yPosition);
+    yPosition += 8;
     
     const participantsTableData = participants.map((p) => {
       const stats = getParticipantStats(p);
@@ -345,6 +389,12 @@ const handleExportPDF = () => {
       doc.setTextColor(99, 102, 241);
       doc.setFont(undefined, 'bold');
       doc.text('Détail des Transactions', margin, yPosition);
+      yPosition += 6;
+      
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.setFont(undefined, 'italic');
+      doc.text('Toutes les transactions validées collectivement, tracées et équilibrées.', margin, yPosition);
       yPosition += 10;
       
       // Grouper les transactions par participant
@@ -435,21 +485,34 @@ const handleExportPDF = () => {
     
     // ===== RÉPARTITION PROVISOIRE (QUI DOIT À QUI) =====
     checkNewPage(40);
-    doc.setFontSize(16);
+    doc.setFontSize(18);
     doc.setTextColor(99, 102, 241);
     doc.setFont(undefined, 'bold');
-    doc.text('Répartition Provisoire', margin, yPosition);
-    yPosition += 5;
+    doc.text('Répartition Équitable', margin, yPosition);
+    yPosition += 8;
     
+    // Message rassurant sur la répartition
     doc.setFontSize(9);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    const repartText = 'Notre logique de répartition en direct : "Que je paie ou dépense, tu me rembourses équitablement, on est quittes".';
+    const repartLines = doc.splitTextToSize(repartText, pageWidth - 2 * margin);
+    repartLines.forEach((line, idx) => {
+      doc.text(line, margin, yPosition);
+      yPosition += 5;
+    });
+    yPosition += 3;
+    
+    doc.setFontSize(8);
     doc.setTextColor(120, 120, 120);
     doc.setFont(undefined, 'italic');
-    doc.text('Basée sur les transactions validées à ce jour', margin, yPosition);
+    doc.text('Basée sur les transactions validées collectivement à ce jour', margin, yPosition);
     yPosition += 10;
     
     // Calculer les soldes
-    const balances = computeBalances(event, transactions);
-    const transfersResult = computeTransfers(balances);
+    const balancesResult = computeBalances(event, transactions);
+    const { balances } = balancesResult;
+    const transfersResult = computeTransfers(balancesResult);
     const transfers = transfersResult.transfers || [];
     
     // Afficher un avertissement si répartition incomplète
@@ -468,105 +531,127 @@ const handleExportPDF = () => {
         doc.text(line, margin, yPosition);
         yPosition += 5;
       });
-      if (Math.abs(transfersResult.balanceError) > 0.01) {
+      if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01) {
         yPosition += 2;
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
         doc.setFont(undefined, 'italic');
-        doc.text(`Écart détecté : ${transfersResult.balanceError.toFixed(2)}€`, margin, yPosition);
+        doc.text(`Écart détecté : ${balancesResult.totalSolde.toFixed(2)}€`, margin, yPosition);
         yPosition += 5;
       }
       yPosition += 5;
     }
     
-    // ===== NOTE IMPORTANTE SUR L'ÉQUILIBRE =====
+    // ===== MESSAGE RASSURANT SUR L'ÉQUILIBRE =====
     if (transfersResult.isBalanced) {
-      checkNewPage(15);
-      doc.setFontSize(9);
+      checkNewPage(20);
+      doc.setFontSize(10);
       doc.setTextColor(34, 197, 94); // Vert
       doc.setFont(undefined, 'bold');
-      doc.text('✅ Répartition équilibrée', margin, yPosition);
-      yPosition += 5;
-      doc.setFontSize(8);
-      doc.setTextColor(120, 120, 120);
-      doc.setFont(undefined, 'normal');
-      doc.text('La somme des soldes finaux est égale à 0€. Toutes les dépenses et transferts', margin, yPosition);
-      yPosition += 4;
-      doc.text('entre participants sont correctement répartis.', margin, yPosition);
-      yPosition += 8;
-    } else {
-      checkNewPage(15);
+      doc.text('✅ Répartition équilibrée et transparente', margin, yPosition);
+      yPosition += 6;
       doc.setFontSize(9);
-      doc.setTextColor(239, 68, 68); // Rouge
-      doc.setFont(undefined, 'bold');
-      doc.text('⚠️ Note sur les calculs', margin, yPosition);
-      yPosition += 5;
-      doc.setFontSize(8);
-      doc.setTextColor(120, 120, 120);
+      doc.setTextColor(60, 60, 60);
       doc.setFont(undefined, 'normal');
-      doc.text('Les paiements vers la cagnotte (contributions au budget) ne sont pas inclus', margin, yPosition);
-      yPosition += 4;
-      doc.text('dans le calcul des soldes finaux. Seuls les transferts entre participants', margin, yPosition);
-      yPosition += 4;
-      doc.text('et les dépenses réelles affectent les soldes finaux.', margin, yPosition);
+      const equilibreText = 'Tous les comptes sont équilibrés. La somme des soldes finaux est égale à 0€, ce qui garantit que chaque euro dépensé est correctement réparti entre tous les participants.';
+      const equilibreLines = doc.splitTextToSize(equilibreText, pageWidth - 2 * margin);
+      equilibreLines.forEach((line, idx) => {
+        doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
+      yPosition += 8;
+    } else if (transfersResult.warning) {
+      checkNewPage(25);
+      doc.setFontSize(10);
+      doc.setTextColor(251, 146, 60); // Orange
+      doc.setFont(undefined, 'bold');
+      doc.text('ℹ️ Information importante', margin, yPosition);
+      yPosition += 6;
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      const infoText = 'Ce bilan est calculé en temps réel à partir des transactions validées. Les contributions vers la cagnotte et les dépenses partagées sont tracées avec précision pour garantir une répartition équitable.';
+      const infoLines = doc.splitTextToSize(infoText, pageWidth - 2 * margin);
+      infoLines.forEach((line, idx) => {
+        doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
       yPosition += 8;
     }
     
-    // ===== LES 3 COUCHES DE VÉRITÉ BONKONT =====
-    checkNewPage(20);
-    doc.setFontSize(14);
+    // ===== COMMENT ÇA MARCHE ? =====
+    checkNewPage(25);
+    doc.setFontSize(16);
     doc.setTextColor(99, 102, 241);
     doc.setFont(undefined, 'bold');
-    doc.text('Les 3 couches de vérité Bonkont', margin, yPosition);
+    doc.text('Comment ça marche ?', margin, yPosition);
     yPosition += 8;
     
     doc.setFontSize(9);
-    doc.setTextColor(120, 120, 120);
-    doc.setFont(undefined, 'italic');
-    doc.text('Couche A: Dépenses validées | Couche B: Paiements enregistrés | Couche C: Solde final', margin, yPosition);
-    yPosition += 8;
-    
-    // Note explicative sur la logique Bonkont
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
+    doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
-    doc.text('Note : Les paiements vers la cagnotte (contributions au budget) ne sont pas inclus', margin + 5, yPosition);
-    yPosition += 4;
-    doc.text('dans le calcul des soldes finaux. Seuls les transferts entre participants', margin + 5, yPosition);
-    yPosition += 4;
-    doc.text('affectent les soldes finaux pour garantir l\'équilibre.', margin + 5, yPosition);
+    const explicationText = 'Bonkont applique une logique de répartition en direct : chaque contribution vers la cagnotte, chaque dépense partagée, chaque remboursement est tracé et équilibré en temps réel.';
+    const explicationLines = doc.splitTextToSize(explicationText, pageWidth - 2 * margin);
+    explicationLines.forEach((line, idx) => {
+      doc.text(line, margin, yPosition);
+      yPosition += 5;
+    });
+    yPosition += 5;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('Les 3 couches de vérité Bonkont :', margin, yPosition);
+    yPosition += 6;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    doc.text('• Contribution : Argent réellement versé dans la cagnotte (espèces, virement, CB)', margin + 5, yPosition);
+    yPosition += 5;
+    doc.text('• Avance : Dépenses payées pour le groupe (courses, frais partagés)', margin + 5, yPosition);
+    yPosition += 5;
+    doc.text('• Consommation : Votre part réelle des dépenses partagées', margin + 5, yPosition);
+    yPosition += 5;
+    doc.text('• Solde : Ce que vous devez recevoir ou verser pour être équitablement quittes', margin + 5, yPosition);
     yPosition += 10;
     
     // Afficher les soldes détaillés par participant avec les 3 couches
-    doc.setFontSize(12);
+    checkNewPage(30);
+    doc.setFontSize(14);
     doc.setTextColor(99, 102, 241);
     doc.setFont(undefined, 'bold');
     doc.text('Soldes détaillés par participant', margin, yPosition);
+    yPosition += 6;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.setFont(undefined, 'italic');
+    doc.text('Chaque participant voit clairement sa contribution, ses avances, sa consommation et son solde équitable.', margin, yPosition);
     yPosition += 8;
     
     const detailedBalancesTableData = Object.values(balances).map(balance => {
       const formatted = formatBalance(balance);
+      const solde = balance.solde || 0;
       const soldeText = formatted.status === 'doit_recevoir' 
-        ? `+${balance.soldeFinal.toFixed(2)} € (à recevoir)`
+        ? `+${solde.toFixed(2)} € (à recevoir)`
         : formatted.status === 'doit_verser'
-          ? `${balance.soldeFinal.toFixed(2)} € (à verser)`
+          ? `${solde.toFixed(2)} € (à verser)`
           : '0,00 € (équilibré)';
       
       return [
         balance.participantName,
-        `${balance.avance.toFixed(2)} €`,
-        `${balance.consomme.toFixed(2)} €`,
-        `${balance.soldeDepenses >= 0 ? '+' : ''}${balance.soldeDepenses.toFixed(2)} €`,
-        `${balance.verse.toFixed(2)} €`,
-        `${balance.recu.toFixed(2)} €`,
-        `${balance.soldePaiements >= 0 ? '+' : ''}${balance.soldePaiements.toFixed(2)} €`,
+        `${(balance.contribution || 0).toFixed(2)} €`,
+        `${(balance.avance || 0).toFixed(2)} €`,
+        `${(balance.consomme || 0).toFixed(2)} €`,
+        `${(balance.mise || 0).toFixed(2)} €`,
         soldeText
       ];
     });
     
     autoTable(doc, {
       startY: yPosition,
-      head: [['Participant', 'Avancé', 'Consommé', 'Solde dép.', 'Versé', 'Reçu', 'Solde paiem.', 'Solde final']],
+      head: [['Participant', 'Contribution', 'Avancé', 'Consommé', 'Mise', 'Solde']],
       body: detailedBalancesTableData,
       styles: { fontSize: 7 },
       headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold', fontSize: 8 },
@@ -574,13 +659,11 @@ const handleExportPDF = () => {
       margin: { left: margin, right: margin },
       columnStyles: {
         0: { cellWidth: 40 },
-        1: { cellWidth: 20 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 20 },
-        4: { cellWidth: 20 },
-        5: { cellWidth: 20 },
-        6: { cellWidth: 20 },
-        7: { cellWidth: 30 }
+        1: { cellWidth: 25 },
+        2: { cellWidth: 25 },
+        3: { cellWidth: 25 },
+        4: { cellWidth: 25 },
+        5: { cellWidth: 30 }
       }
     });
     
@@ -590,21 +673,33 @@ const handleExportPDF = () => {
     // CORRECTION : Afficher même s'il y a des incohérences, mais avec un avertissement
     if (transfers.length > 0 || !transfersResult.isBalanced) {
       checkNewPage(30);
-      doc.setFontSize(12);
+      doc.setFontSize(14);
       doc.setTextColor(99, 102, 241);
       doc.setFont(undefined, 'bold');
       doc.text('Ajustements entre participants', margin, yPosition);
-      yPosition += 5;
+      yPosition += 6;
+      
       doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      const ajustementText = 'Pour équilibrer les comptes de manière juste et transparente, voici les transferts recommandés. Chaque montant est calculé pour garantir une répartition équitable.';
+      const ajustementLines = doc.splitTextToSize(ajustementText, pageWidth - 2 * margin);
+      ajustementLines.forEach((line, idx) => {
+        doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
+      yPosition += 5;
+      
+      doc.setFontSize(8);
       doc.setTextColor(120, 120, 120);
       doc.setFont(undefined, 'italic');
-      doc.text('Basé sur les dépenses validées et les paiements enregistrés.', margin, yPosition);
+      doc.text('Basé sur les dépenses validées collectivement et les paiements enregistrés.', margin, yPosition);
       yPosition += 8;
       
       if (transfers.length > 0) {
         const transfersTableData = transfers.map(t => [
           `${t.fromName} verse`,
-          `${t.amount.toFixed(2)} €`,
+          `${(t.amount || 0).toFixed(2)} €`,
           `à ${t.toName}`
         ]);
         
@@ -620,31 +715,48 @@ const handleExportPDF = () => {
         
         yPosition = doc.lastAutoTable.finalY + 10;
       } else {
-        // Cas où il y a des incohérences mais pas de transferts calculables
+        // Message rassurant même s'il n'y a pas de transferts
+        checkNewPage(15);
         doc.setFontSize(10);
-        doc.setTextColor(239, 68, 68);
+        doc.setTextColor(60, 60, 60);
         doc.setFont(undefined, 'normal');
-        doc.text('Impossible de calculer les transferts : répartition incomplète.', margin, yPosition);
+        const noTransfersText = 'Aucun transfert nécessaire pour le moment. Les comptes sont équilibrés ou en cours d\'équilibrage.';
+        const noTransfersLines = doc.splitTextToSize(noTransfersText, pageWidth - 2 * margin);
+        noTransfersLines.forEach((line, idx) => {
+          doc.text(line, margin, yPosition);
+          yPosition += 5;
+        });
         yPosition += 8;
       }
       
       // Vue par participant - Transparence
-      checkNewPage(20);
-      doc.setFontSize(12);
+      checkNewPage(25);
+      doc.setFontSize(14);
       doc.setTextColor(99, 102, 241);
       doc.setFont(undefined, 'bold');
-      doc.text('Détail par participant : Avec qui régulariser ?', margin, yPosition);
+      doc.text('Détail par participant', margin, yPosition);
+      yPosition += 6;
+      
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      const detailText = 'Pour chaque participant, voici avec qui régulariser et les montants exacts. Tout est transparent et équitable.';
+      const detailLines = doc.splitTextToSize(detailText, pageWidth - 2 * margin);
+      detailLines.forEach((line, idx) => {
+        doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
       yPosition += 8;
       
       Object.values(balances).forEach((balance) => {
-        const participantTransfers = getParticipantTransfers(balance.participantId, transfers);
+        const participantTransfers = getParticipantTransfers(balance.participantId, transfersResult);
         
         if (!participantTransfers.hasTransfers) {
           checkNewPage(8);
           doc.setFontSize(9);
           doc.setTextColor(34, 197, 94);
           doc.setFont(undefined, 'normal');
-          doc.text(`✓ ${balance.participantName}: Participation équilibrée`, margin + 5, yPosition);
+          doc.text(`✓ ${balance.participantName}: Tout est équilibré, aucun transfert nécessaire`, margin + 5, yPosition);
           yPosition += 6;
           return;
         }
@@ -664,7 +776,7 @@ const handleExportPDF = () => {
           yPosition += 5;
           
           participantTransfers.toReceive.forEach((transfer) => {
-            doc.text(`    → ${transfer.fromName}: ${transfer.amount.toFixed(2)}€`, margin + 10, yPosition);
+            doc.text(`    → ${transfer.fromName}: ${(transfer.amount || 0).toFixed(2)}€`, margin + 10, yPosition);
             yPosition += 4;
           });
         }
@@ -677,7 +789,7 @@ const handleExportPDF = () => {
           yPosition += 5;
           
           participantTransfers.toPay.forEach((transfer) => {
-            doc.text(`    → ${transfer.toName}: ${transfer.amount.toFixed(2)}€`, margin + 10, yPosition);
+            doc.text(`    → ${transfer.toName}: ${(transfer.amount || 0).toFixed(2)}€`, margin + 10, yPosition);
             yPosition += 4;
           });
         }
@@ -686,46 +798,78 @@ const handleExportPDF = () => {
       });
       
     } else if (transfersResult.isBalanced) {
-      // Seulement si vraiment équilibré ET pas d'incohérences
-      checkNewPage(10);
-      doc.setFontSize(10);
+      // Message positif si équilibré
+      checkNewPage(15);
+      doc.setFontSize(11);
       doc.setTextColor(34, 197, 94);
       doc.setFont(undefined, 'bold');
-      doc.text('✅ Aucun transfert nécessaire (tous les comptes sont équilibrés)', margin, yPosition);
+      doc.text('✅ Tous les comptes sont équilibrés', margin, yPosition);
+      yPosition += 6;
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      const equilibreMsg = 'Parfait ! Chacun a contribué équitablement et les dépenses sont réparties de manière juste. Aucun transfert supplémentaire n\'est nécessaire.';
+      const equilibreMsgLines = doc.splitTextToSize(equilibreMsg, pageWidth - 2 * margin);
+      equilibreMsgLines.forEach((line, idx) => {
+        doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
       yPosition += 10;
     } else {
-      // Cas d'incohérence : on ne peut pas calculer de transferts
-      checkNewPage(10);
+      // Message informatif si incohérence détectée
+      checkNewPage(20);
       doc.setFontSize(10);
-      doc.setTextColor(239, 68, 68);
-      doc.setFont(undefined, 'normal');
-      doc.text('⚠️ Impossible de calculer les transferts : répartition incomplète.', margin, yPosition);
-      yPosition += 5;
+      doc.setTextColor(251, 146, 60);
+      doc.setFont(undefined, 'bold');
+      doc.text('ℹ️ Répartition en cours', margin, yPosition);
+      yPosition += 6;
       doc.setFontSize(9);
-      doc.setTextColor(120, 120, 120);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      const inProgressText = 'Les calculs sont en cours de mise à jour. Certaines transactions peuvent nécessiter une validation supplémentaire pour garantir une répartition complète et équitable.';
+      const inProgressLines = doc.splitTextToSize(inProgressText, pageWidth - 2 * margin);
+      inProgressLines.forEach((line, idx) => {
+        doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
+      yPosition += 5;
       if (transfersResult.warning) {
+        doc.setFontSize(8);
+        doc.setTextColor(120, 120, 120);
+        doc.setFont(undefined, 'italic');
         const warningLines = doc.splitTextToSize(transfersResult.warning, pageWidth - 2 * margin);
         warningLines.forEach((line, idx) => {
-          doc.text(line, margin, yPosition);
+          doc.text(line, margin + 5, yPosition);
           yPosition += 4;
         });
       }
-      yPosition += 5;
+      yPosition += 8;
     }
     
     // ===== BILAN FINAL =====
     checkNewPage(40);
-    doc.setFontSize(16);
+    doc.setFontSize(18);
     doc.setTextColor(99, 102, 241);
     doc.setFont(undefined, 'bold');
-    doc.text('Bilan Événementiel', margin, yPosition);
-    yPosition += 10;
+    doc.text('Bilan Final', margin, yPosition);
+    yPosition += 8;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    const bilanIntroText = 'Un récapitulatif complet de votre événement, avec toutes les informations nécessaires pour une transparence totale.';
+    const bilanIntroLines = doc.splitTextToSize(bilanIntroText, pageWidth - 2 * margin);
+    bilanIntroLines.forEach((line, idx) => {
+      doc.text(line, margin, yPosition);
+      yPosition += 5;
+    });
+    yPosition += 8;
     
     doc.setFontSize(11);
     doc.setTextColor(0, 0, 0);
     doc.setFont(undefined, 'normal');
     
-    const participantsPayes = participants.filter(p => (p.paidAmount || 0) >= montantParPersonne).length;
+    const participantsPayes = participants.filter(p => getContributionToPot(p.id, event, transactions) >= montantParPersonne).length;
     const participantsEnRetard = participants.filter(p => {
       const stats = getParticipantStats(p);
       return stats.remaining > 0;
@@ -751,14 +895,24 @@ const handleExportPDF = () => {
       yPosition += 7;
     });
     
-    // Numéro de page
+    // ===== MESSAGE FINAL EN BAS DE PAGE =====
     const pageCount = doc.internal.pages.length - 1;
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
+      
+      // Numéro de page
       doc.setFontSize(8);
       doc.setTextColor(150, 150, 150);
       doc.text(`Page ${i} / ${pageCount}`, pageWidth - margin - 20, pageHeight - 10);
       doc.text(`BONKONT - ${event.code}`, margin, pageHeight - 10);
+      
+      // Message rassurant en bas de page
+      doc.setFontSize(9);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'italic');
+      const footerText = 'Bonkont fait les comptes, les amis le reste';
+      const footerWidth = doc.getTextWidth(footerText);
+      doc.text(footerText, (pageWidth - footerWidth) / 2, pageHeight - 10);
     }
     
     // Télécharger le PDF et l'ouvrir dans un nouvel onglet
@@ -799,7 +953,8 @@ const handleExportPDF = () => {
 
   const getParticipantStats = (participant) => {
     const totalDue = event.amount / participants.length;
-    const paid = participant.paidAmount || 0;
+    // Utiliser getContributionToPot() comme source unique de vérité pour les contributions
+    const paid = getContributionToPot(participant.id, event, transactions);
     const remaining = Math.max(0, totalDue - paid);
     const paymentProgress = totalDue > 0 ? (paid / totalDue) * 100 : 0;
     const hasPaid = paid >= totalDue - 0.01;
@@ -960,8 +1115,9 @@ const handleExportPDF = () => {
 
       {/* Transparence totale : Qui verse à qui / Qui reçoit de qui */}
       {(() => {
-        const balances = computeBalances(event, transactions);
-        const transfersResult = computeTransfers(balances);
+        const balancesResult = computeBalances(event, transactions);
+        const { balances } = balancesResult;
+        const transfersResult = computeTransfers(balancesResult);
         const transfers = transfersResult.transfers || [];
         
         return (
@@ -1004,9 +1160,9 @@ const handleExportPDF = () => {
                     <p className="text-sm text-yellow-800 dark:text-yellow-200">
                       {transfersResult.warning}
                     </p>
-                    {Math.abs(transfersResult.balanceError) > 0.01 && (
+                    {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01 && (
                       <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-2 italic">
-                        Écart détecté : {transfersResult.balanceError.toFixed(2)}€
+                        Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
                       </p>
                     )}
                   </div>
@@ -1030,7 +1186,7 @@ const handleExportPDF = () => {
                             <div className="flex items-center gap-2 mb-2">
                               <span className="font-semibold text-lg text-destructive">{transfer.fromName}</span>
                               <span className="text-muted-foreground">verse</span>
-                              <span className="font-semibold text-lg text-primary">{transfer.amount.toFixed(2)}€</span>
+                              <span className="font-semibold text-lg text-primary">{(transfer.amount || 0).toFixed(2)}€</span>
                               <span className="text-muted-foreground">à</span>
                               <span className="font-semibold text-lg text-green-600 dark:text-green-400">{transfer.toName}</span>
                             </div>
@@ -1063,7 +1219,7 @@ const handleExportPDF = () => {
                   </h3>
                   <div className="space-y-3">
                     {Object.values(balances).map((balance) => {
-                      const participantTransfers = getParticipantTransfers(balance.participantId, transfers);
+                      const participantTransfers = getParticipantTransfers(balance.participantId, transfersResult);
                       
                       if (!participantTransfers.hasTransfers) {
                         return (
@@ -1086,7 +1242,7 @@ const handleExportPDF = () => {
                           <div className="mb-3">
                             <h4 className="font-semibold text-base">{balance.participantName}</h4>
                             <p className="text-xs text-muted-foreground">
-                              Solde : {balance.soldeFinal >= 0 ? '+' : ''}{balance.soldeFinal.toFixed(2)}€
+                              Solde : {(balance.solde || 0) >= 0 ? '+' : ''}{(balance.solde || 0).toFixed(2)}€
                             </p>
                           </div>
                           
@@ -1103,7 +1259,7 @@ const handleExportPDF = () => {
                                       <span className="text-sm font-medium">{transfer.fromName}</span>
                                     </div>
                                     <span className="text-sm font-bold text-green-600 dark:text-green-400">
-                                      {transfer.amount.toFixed(2)}€
+                                      {(transfer.amount || 0).toFixed(2)}€
                                     </span>
                                   </div>
                                 ))}
@@ -1124,7 +1280,7 @@ const handleExportPDF = () => {
                                       <span className="text-sm font-medium">{transfer.toName}</span>
                                     </div>
                                     <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
-                                      {transfer.amount.toFixed(2)}€
+                                      {(transfer.amount || 0).toFixed(2)}€
                                     </span>
                                   </div>
                                 ))}
@@ -1363,21 +1519,39 @@ const handleExportPDF = () => {
                   const stats = getParticipantStats(selectedParticipant);
                   
                   // Calculer les soldes Bonkont
-                  const balances = computeBalances(event, transactions);
-                  const transfersResult = computeTransfers(balances);
+                  const balancesResult = computeBalances(event, transactions);
+                  const { balances, potBalance } = balancesResult;
+                  const transfersResult = computeTransfers(balancesResult);
                   const transfers = transfersResult.transfers || [];
+                  const potTransfers = transfersResult.potTransfers || [];
                   const participantBalance = balances[selectedParticipant.id] || {
+                    participantId: selectedParticipant.id,
+                    participantName: selectedParticipant.name || selectedParticipant.firstName || selectedParticipant.email || 'Participant inconnu',
+                    contribution: 0,
                     avance: 0,
                     consomme: 0,
-                    soldeDepenses: 0,
-                    verse: 0,
-                    recu: 0,
-                    soldePaiements: 0,
-                    soldeFinal: 0
+                    mise: 0,
+                    solde: 0,
+                    paidOut: 0,
+                    received: 0,
+                    rembPot: 0
+                  };
+                  
+                  // S'assurer que toutes les propriétés numériques sont définies
+                  const safeBalance = {
+                    ...participantBalance,
+                    contribution: participantBalance.contribution ?? 0,
+                    avance: participantBalance.avance ?? 0,
+                    consomme: participantBalance.consomme ?? 0,
+                    mise: participantBalance.mise ?? 0,
+                    solde: participantBalance.solde ?? 0,
+                    paidOut: participantBalance.paidOut ?? 0,
+                    received: participantBalance.received ?? 0,
+                    rembPot: participantBalance.rembPot ?? 0
                   };
                   
                   // Obtenir les transferts pour ce participant
-                  const participantTransfers = getParticipantTransfers(selectedParticipant.id, transfers);
+                  const participantTransfers = getParticipantTransfers(selectedParticipant.id, transfersResult);
                   
                   // Obtenir la traçabilité des dépenses
                   const expenseTraceability = getExpenseTraceability(selectedParticipant.id, event, transactions);
@@ -1388,18 +1562,12 @@ const handleExportPDF = () => {
                   // Part cible (budget)
                   const partCible = event.amount / event.participants.length;
                   
-                  // Contributions (paiements validés)
-                  const paiements = transactions.filter(t => 
-                    (t.source === 'payment' || t.type === 'payment' || (t.fromId && t.toId)) &&
-                    (t.fromId === selectedParticipant.id || String(t.fromId) === String(selectedParticipant.id))
-                  );
-                  const contributionsFromTransactions = paiements.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-                  const contributions = contributionsFromTransactions > 0 
-                    ? contributionsFromTransactions 
-                    : (selectedParticipant.paidAmount || 0);
+                  // Contributions vers POT (source unique de vérité)
+                  // Utilise la même fonction que dans computeBalances pour garantir la cohérence
+                  const contributions = getContributionToPot(selectedParticipant.id, event, transactions);
                   
                   // Solde provisoire (répartition)
-                  const soldeProvisoire = participantBalance.soldeFinal;
+                  const soldeProvisoire = safeBalance.solde;
                   
                   return (
                     <>
@@ -1452,7 +1620,7 @@ const handleExportPDF = () => {
                                       <span className="text-sm font-medium">{transfer.fromName}</span>
                                     </div>
                                     <span className="text-sm font-bold text-green-600 dark:text-green-400">
-                                      {transfer.amount.toFixed(2)}€
+                                      {(transfer.amount || 0).toFixed(2)}€
                                     </span>
                                   </div>
                                 ))}
@@ -1471,7 +1639,7 @@ const handleExportPDF = () => {
                                       <span className="text-sm font-medium">{transfer.toName}</span>
                                     </div>
                                     <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
-                                      {transfer.amount.toFixed(2)}€
+                                      {(transfer.amount || 0).toFixed(2)}€
                                     </span>
                                   </div>
                                 ))}
@@ -1495,70 +1663,71 @@ const handleExportPDF = () => {
                           📊 Pourquoi mon solde est comme ça
                         </h5>
                         
-                        {/* Couche A : Dépenses */}
+                        {/* Mise de fonds réelle */}
                         <div className="mb-4">
-                          <h6 className="text-xs font-semibold text-muted-foreground mb-2 uppercase">Couche A - Dépenses validées</h6>
+                          <h6 className="text-xs font-semibold text-muted-foreground mb-2 uppercase">Mise de fonds réelle</h6>
                           <div className="space-y-2 text-xs">
                             <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
-                              <span className="text-muted-foreground">Avancé (payé pour les autres):</span>
+                              <span className="text-muted-foreground">Contribution (→ POT):</span>
                               <span className="font-medium text-green-600 dark:text-green-400">
-                                +{participantBalance.avance.toFixed(2)}€
+                                +{getContributionToPot(selectedParticipant.id, event, transactions).toFixed(2)}€
                               </span>
                             </div>
                             <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
-                              <span className="text-muted-foreground">Consommé (ma part):</span>
+                              <span className="text-muted-foreground">Avancé (dépenses payées):</span>
+                              <span className="font-medium text-green-600 dark:text-green-400">
+                                +{safeBalance.avance.toFixed(2)}€
+                              </span>
+                            </div>
+                            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
+                              <span className="text-muted-foreground">Paiements directs versés:</span>
+                              <span className="font-medium text-green-600 dark:text-green-400">
+                                +{safeBalance.paidOut.toFixed(2)}€
+                              </span>
+                            </div>
+                            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
+                              <span className="text-muted-foreground">Paiements directs reçus:</span>
                               <span className="font-medium text-orange-600 dark:text-orange-400">
-                                -{participantBalance.consomme.toFixed(2)}€
+                                -{safeBalance.received.toFixed(2)}€
+                              </span>
+                            </div>
+                            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
+                              <span className="text-muted-foreground">Remboursements POT:</span>
+                              <span className="font-medium text-orange-600 dark:text-orange-400">
+                                -{safeBalance.rembPot.toFixed(2)}€
                               </span>
                             </div>
                             <div className="flex justify-between p-2 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
-                              <span className="font-semibold">Solde dépenses:</span>
+                              <span className="font-semibold">Mise totale:</span>
                               <span className={`font-bold ${
-                                participantBalance.soldeDepenses >= 0 
+                                safeBalance.mise >= 0 
                                   ? 'text-blue-600 dark:text-blue-400' 
                                   : 'text-orange-600 dark:text-orange-400'
                               }`}>
-                                {participantBalance.soldeDepenses >= 0 ? '+' : ''}
-                                {participantBalance.soldeDepenses.toFixed(2)}€
+                                {safeBalance.mise >= 0 ? '+' : ''}
+                                {safeBalance.mise.toFixed(2)}€
                               </span>
                             </div>
                           </div>
                         </div>
                         
-                        {/* Couche B : Paiements */}
+                        {/* Consommation réelle */}
                         <div className="mb-4">
-                          <h6 className="text-xs font-semibold text-muted-foreground mb-2 uppercase">Couche B - Paiements enregistrés</h6>
+                          <h6 className="text-xs font-semibold text-muted-foreground mb-2 uppercase">Consommation réelle</h6>
                           <div className="space-y-2 text-xs">
                             <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
-                              <span className="text-muted-foreground">Versé (règlements):</span>
-                              <span className="font-medium text-green-600 dark:text-green-400">
-                                +{participantBalance.verse.toFixed(2)}€
-                              </span>
-                            </div>
-                            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
-                              <span className="text-muted-foreground">Reçu (règlements):</span>
+                              <span className="text-muted-foreground">Consommé (ma part):</span>
                               <span className="font-medium text-orange-600 dark:text-orange-400">
-                                -{participantBalance.recu.toFixed(2)}€
-                              </span>
-                            </div>
-                            <div className="flex justify-between p-2 bg-purple-50 dark:bg-purple-950/20 rounded border border-purple-200 dark:border-purple-800">
-                              <span className="font-semibold">Solde paiements:</span>
-                              <span className={`font-bold ${
-                                participantBalance.soldePaiements >= 0 
-                                  ? 'text-green-600 dark:text-green-400' 
-                                  : 'text-orange-600 dark:text-orange-400'
-                              }`}>
-                                {participantBalance.soldePaiements >= 0 ? '+' : ''}
-                                {participantBalance.soldePaiements.toFixed(2)}€
+                                -{safeBalance.consomme.toFixed(2)}€
                               </span>
                             </div>
                           </div>
                         </div>
                         
-                        {/* Couche C : Solde final */}
+                        {/* Solde provisoire équitable */}
                         <div className="border-t pt-3">
                           <div className="flex justify-between p-2 bg-primary/10 rounded">
-                            <span className="text-xs font-bold">Solde final (A + B):</span>
+                            <span className="text-xs font-bold">Solde provisoire (Mise - Consommation):</span>
                             <span className={`text-sm font-bold ${
                               soldeProvisoire >= 0 
                                 ? 'text-blue-600 dark:text-blue-400' 
@@ -1596,7 +1765,7 @@ const handleExportPDF = () => {
                                         </span>
                                       </div>
                                       <div className="text-muted-foreground text-xs mt-1">
-                                        Part par personne : {dep.partParPersonne.toFixed(2)}€
+                                        Part par personne : {((dep.partParPersonne || dep.share) || 0).toFixed(2)}€
                                       </div>
                                     </div>
                                   ))}
@@ -1622,7 +1791,7 @@ const handleExportPDF = () => {
                                           )}
                                         </div>
                                         <span className="font-bold text-blue-600 dark:text-blue-400 ml-2">
-                                          {dep.part.toFixed(2)}€
+                                          {(dep.part || 0).toFixed(2)}€
                                         </span>
                                       </div>
                                     </div>
@@ -1656,7 +1825,7 @@ const handleExportPDF = () => {
                                           </span>
                                         </div>
                                         <span className="font-bold text-green-600 dark:text-green-400 ml-2">
-                                          {paiement.amount.toFixed(2)}€
+                                          {(paiement.amount || 0).toFixed(2)}€
                                         </span>
                                       </div>
                                       <div className="text-muted-foreground text-xs mt-1 space-y-1">
@@ -1697,7 +1866,7 @@ const handleExportPDF = () => {
                                           </span>
                                         </div>
                                         <span className="font-bold text-blue-600 dark:text-blue-400 ml-2">
-                                          {paiement.amount.toFixed(2)}€
+                                          {(paiement.amount || 0).toFixed(2)}€
                                         </span>
                                       </div>
                                       <div className="text-muted-foreground text-xs mt-1 space-y-1">
