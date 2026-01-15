@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { QRCode } from '@/components/QRCode';
 import { useToast } from '@/hooks/use-toast';
 import { useEventStore } from '@/store/eventStore';
@@ -224,6 +224,9 @@ export function EventCode({ eventId }) {
         <DialogContent className="sm-w-md">
           <DialogHeader>
             <DialogTitle>Code QR de l'événement</DialogTitle>
+            <DialogDescription>
+              Scannez ce code QR pour rejoindre l'événement
+            </DialogDescription>
           </DialogHeader>
           <div className="flex justify-center p-6">
             <QRCode value={shareUrl} size={200} />

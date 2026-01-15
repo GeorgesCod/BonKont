@@ -89,14 +89,6 @@ export function FAQ({ onBack }) {
           </Accordion>
         </CardContent>
       </Card>
-
-      <Separator />
-
-      <div className="text-center py-6">
-        <p className="text-muted-foreground italic text-lg">
-          {t('taglineFooter')}
-        </p>
-      </div>
     </div>
   );
 }

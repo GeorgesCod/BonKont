@@ -185,7 +185,7 @@ export function EventDashboardScanner({
             Scanner un ticket pour l'événement "{event.title}"
           </DialogTitle>
           <DialogDescription>
-            Scannez le ticket de caisse pour extraire les informations.
+            Scannez un ticket ou une facture pour extraire automatiquement les informations de paiement
           </DialogDescription>
         </DialogHeader>
 

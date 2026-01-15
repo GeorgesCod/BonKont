@@ -24,7 +24,6 @@ import {
   Moon,
   Sun,
   Lock,
-  LogOut,
   Trash2,
   CheckCircle2,
   XCircle,
@@ -32,7 +31,8 @@ import {
   MessageCircle,
   HelpCircle,
   Shield,
-  ExternalLink
+  ExternalLink,
+  Home
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { useToast } from '@/hooks/use-toast';
@@ -49,6 +49,9 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
   useEffect(() => {
     if (isOpen) {
       setActiveTab(defaultTab);
+    } else {
+      // Réinitialiser l'onglet quand le dialog se ferme
+      setActiveTab('account');
     }
   }, [isOpen, defaultTab]);
   
@@ -71,7 +74,6 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
   });
   
   // État pour les dialogs de confirmation
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false);
 
@@ -166,16 +168,6 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
     setShowResetPasswordDialog(false);
   };
 
-  const handleLogout = () => {
-    // Fermer le dialog de confirmation d'abord
-    setShowLogoutDialog(false);
-    // Utiliser setTimeout pour s'assurer que le dialog se ferme avant de déconnecter
-    setTimeout(() => {
-      onClose();
-      onLogout();
-    }, 50);
-  };
-
   const handleDeleteAccount = () => {
     setShowDeleteDialog(false);
     onDeleteAccount();
@@ -201,13 +193,16 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent 
+          className="max-w-4xl max-h-[90vh] overflow-y-auto"
+          aria-describedby="settings-desc"
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl sm:text-2xl">
               <Settings className="w-5 h-5 sm:w-6 sm:h-6" />
               {t('settings')}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription id="settings-desc">
               {t('settingsDescription')}
             </DialogDescription>
           </DialogHeader>
@@ -492,10 +487,17 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
             <Button
               variant="outline"
               className="gap-2 w-full sm:w-auto"
-              onClick={() => setShowLogoutDialog(true)}
+              onClick={() => {
+                console.log("CLICK RETURN HOME");
+                onClose();
+                // Rediriger vers la page d'accueil
+                window.location.hash = '';
+                // Forcer un scroll en haut de page
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
             >
-              <LogOut className="w-4 h-4" />
-              {t('logout')}
+              <Home className="w-4 h-4" />
+              Retour à l'accueil
             </Button>
             <Button
               variant="destructive"
@@ -522,24 +524,6 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction onClick={handleResetPassword}>Envoyer l'email</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Dialog de confirmation - Déconnexion */}
-      <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Déconnexion</AlertDialogTitle>
-            <AlertDialogDescription>
-              Êtes-vous sûr de vouloir vous déconnecter ?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={handleLogout}>
-              Déconnexion
-            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

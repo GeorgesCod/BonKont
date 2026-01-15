@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EventHistory } from '@/components/EventHistory';
 import { AvatarUpload } from '@/components/AvatarUpload';
@@ -68,6 +68,9 @@ export function UserProfile({ isOpen, onClose }) {
       <DialogContent className="sm-w-4xl glass-morphism">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold gradient-text">Profil Utilisateur</DialogTitle>
+          <DialogDescription>
+            Gérez vos informations personnelles et vos préférences
+          </DialogDescription>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>

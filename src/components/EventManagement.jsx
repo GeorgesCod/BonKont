@@ -21,16 +21,25 @@ import {
   TrendingDown,
   ArrowRight,
   Scan,
-  AlertCircle
+  AlertCircle,
+  UserCircle,
+  Bell,
+  CheckCircle2
 } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { EventLocation } from '@/components/EventLocation';
 import { EventTicketScanner } from '@/components/EventTicketScanner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { computeBalances, computeTransfers, formatBalance } from '@/utils/bonkontBalances';
+import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers, getExpenseTraceability, getPaymentTraceability } from '@/utils/bonkontBalances';
 import { FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -440,16 +449,102 @@ const handleExportPDF = () => {
     
     // Calculer les soldes
     const balances = computeBalances(event, transactions);
-    const transfers = computeTransfers(balances);
+    const transfersResult = computeTransfers(balances);
+    const transfers = transfersResult.transfers || [];
     
-    // Afficher les soldes par participant
+    // Afficher un avertissement si répartition incomplète
+    if (transfersResult.warning) {
+      checkNewPage(30);
+      doc.setFontSize(11);
+      doc.setTextColor(239, 68, 68); // Rouge
+      doc.setFont(undefined, 'bold');
+      doc.text('⚠️ Répartition incomplète', margin, yPosition);
+      yPosition += 6;
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.setFont(undefined, 'normal');
+      const warningLines = doc.splitTextToSize(transfersResult.warning, pageWidth - 2 * margin);
+      warningLines.forEach((line, idx) => {
+        doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
+      if (Math.abs(transfersResult.balanceError) > 0.01) {
+        yPosition += 2;
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.setFont(undefined, 'italic');
+        doc.text(`Écart détecté : ${transfersResult.balanceError.toFixed(2)}€`, margin, yPosition);
+        yPosition += 5;
+      }
+      yPosition += 5;
+    }
+    
+    // ===== NOTE IMPORTANTE SUR L'ÉQUILIBRE =====
+    if (transfersResult.isBalanced) {
+      checkNewPage(15);
+      doc.setFontSize(9);
+      doc.setTextColor(34, 197, 94); // Vert
+      doc.setFont(undefined, 'bold');
+      doc.text('✅ Répartition équilibrée', margin, yPosition);
+      yPosition += 5;
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.setFont(undefined, 'normal');
+      doc.text('La somme des soldes finaux est égale à 0€. Toutes les dépenses et transferts', margin, yPosition);
+      yPosition += 4;
+      doc.text('entre participants sont correctement répartis.', margin, yPosition);
+      yPosition += 8;
+    } else {
+      checkNewPage(15);
+      doc.setFontSize(9);
+      doc.setTextColor(239, 68, 68); // Rouge
+      doc.setFont(undefined, 'bold');
+      doc.text('⚠️ Note sur les calculs', margin, yPosition);
+      yPosition += 5;
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.setFont(undefined, 'normal');
+      doc.text('Les paiements vers la cagnotte (contributions au budget) ne sont pas inclus', margin, yPosition);
+      yPosition += 4;
+      doc.text('dans le calcul des soldes finaux. Seuls les transferts entre participants', margin, yPosition);
+      yPosition += 4;
+      doc.text('et les dépenses réelles affectent les soldes finaux.', margin, yPosition);
+      yPosition += 8;
+    }
+    
+    // ===== LES 3 COUCHES DE VÉRITÉ BONKONT =====
+    checkNewPage(20);
+    doc.setFontSize(14);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('Les 3 couches de vérité Bonkont', margin, yPosition);
+    yPosition += 8;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    doc.setFont(undefined, 'italic');
+    doc.text('Couche A: Dépenses validées | Couche B: Paiements enregistrés | Couche C: Solde final', margin, yPosition);
+    yPosition += 8;
+    
+    // Note explicative sur la logique Bonkont
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.setFont(undefined, 'normal');
+    doc.text('Note : Les paiements vers la cagnotte (contributions au budget) ne sont pas inclus', margin + 5, yPosition);
+    yPosition += 4;
+    doc.text('dans le calcul des soldes finaux. Seuls les transferts entre participants', margin + 5, yPosition);
+    yPosition += 4;
+    doc.text('affectent les soldes finaux pour garantir l\'équilibre.', margin + 5, yPosition);
+    yPosition += 10;
+    
+    // Afficher les soldes détaillés par participant avec les 3 couches
     doc.setFontSize(12);
     doc.setTextColor(99, 102, 241);
     doc.setFont(undefined, 'bold');
-    doc.text('Soldes par participant', margin, yPosition);
+    doc.text('Soldes détaillés par participant', margin, yPosition);
     yPosition += 8;
     
-    const balancesTableData = Object.values(balances).map(balance => {
+    const detailedBalancesTableData = Object.values(balances).map(balance => {
       const formatted = formatBalance(balance);
       const soldeText = formatted.status === 'doit_recevoir' 
         ? `+${balance.soldeFinal.toFixed(2)} € (à recevoir)`
@@ -461,55 +556,161 @@ const handleExportPDF = () => {
         balance.participantName,
         `${balance.avance.toFixed(2)} €`,
         `${balance.consomme.toFixed(2)} €`,
+        `${balance.soldeDepenses >= 0 ? '+' : ''}${balance.soldeDepenses.toFixed(2)} €`,
+        `${balance.verse.toFixed(2)} €`,
+        `${balance.recu.toFixed(2)} €`,
+        `${balance.soldePaiements >= 0 ? '+' : ''}${balance.soldePaiements.toFixed(2)} €`,
         soldeText
       ];
     });
     
     autoTable(doc, {
       startY: yPosition,
-      head: [['Participant', 'Avancé', 'Consommé', 'Solde provisoire']],
-      body: balancesTableData,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
+      head: [['Participant', 'Avancé', 'Consommé', 'Solde dép.', 'Versé', 'Reçu', 'Solde paiem.', 'Solde final']],
+      body: detailedBalancesTableData,
+      styles: { fontSize: 7 },
+      headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold', fontSize: 8 },
       alternateRowStyles: { fillColor: [245, 245, 245] },
       margin: { left: margin, right: margin },
+      columnStyles: {
+        0: { cellWidth: 40 },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 20 },
+        4: { cellWidth: 20 },
+        5: { cellWidth: 20 },
+        6: { cellWidth: 20 },
+        7: { cellWidth: 30 }
+      }
     });
     
     yPosition = doc.lastAutoTable.finalY + 10;
     
-    // Afficher les transferts "qui verse à qui"
-    if (transfers.length > 0) {
+    // Afficher les transferts "qui verse à qui" - Vue globale
+    // CORRECTION : Afficher même s'il y a des incohérences, mais avec un avertissement
+    if (transfers.length > 0 || !transfersResult.isBalanced) {
       checkNewPage(30);
       doc.setFontSize(12);
       doc.setTextColor(99, 102, 241);
       doc.setFont(undefined, 'bold');
-      doc.text('Transferts recommandés', margin, yPosition);
+      doc.text('Ajustements entre participants', margin, yPosition);
+      yPosition += 5;
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.setFont(undefined, 'italic');
+      doc.text('Basé sur les dépenses validées et les paiements enregistrés.', margin, yPosition);
       yPosition += 8;
       
-      const transfersTableData = transfers.map(t => [
-        t.fromName,
-        t.toName,
-        `${t.amount.toFixed(2)} €`
-      ]);
+      if (transfers.length > 0) {
+        const transfersTableData = transfers.map(t => [
+          `${t.fromName} verse`,
+          `${t.amount.toFixed(2)} €`,
+          `à ${t.toName}`
+        ]);
+        
+        autoTable(doc, {
+          startY: yPosition,
+          head: [['Qui', 'Montant', 'À qui']],
+          body: transfersTableData,
+          styles: { fontSize: 8 },
+          headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
+          alternateRowStyles: { fillColor: [245, 245, 245] },
+          margin: { left: margin, right: margin },
+        });
+        
+        yPosition = doc.lastAutoTable.finalY + 10;
+      } else {
+        // Cas où il y a des incohérences mais pas de transferts calculables
+        doc.setFontSize(10);
+        doc.setTextColor(239, 68, 68);
+        doc.setFont(undefined, 'normal');
+        doc.text('Impossible de calculer les transferts : répartition incomplète.', margin, yPosition);
+        yPosition += 8;
+      }
       
-      autoTable(doc, {
-        startY: yPosition,
-        head: [['De', 'Vers', 'Montant']],
-        body: transfersTableData,
-        styles: { fontSize: 8 },
-        headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [245, 245, 245] },
-        margin: { left: margin, right: margin },
+      // Vue par participant - Transparence
+      checkNewPage(20);
+      doc.setFontSize(12);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('Détail par participant : Avec qui régulariser ?', margin, yPosition);
+      yPosition += 8;
+      
+      Object.values(balances).forEach((balance) => {
+        const participantTransfers = getParticipantTransfers(balance.participantId, transfers);
+        
+        if (!participantTransfers.hasTransfers) {
+          checkNewPage(8);
+          doc.setFontSize(9);
+          doc.setTextColor(34, 197, 94);
+          doc.setFont(undefined, 'normal');
+          doc.text(`✓ ${balance.participantName}: Participation équilibrée`, margin + 5, yPosition);
+          yPosition += 6;
+          return;
+        }
+        
+        checkNewPage(15);
+        doc.setFontSize(10);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont(undefined, 'bold');
+        doc.text(`${balance.participantName}`, margin + 5, yPosition);
+        yPosition += 6;
+        
+        if (participantTransfers.toReceive.length > 0) {
+          doc.setFontSize(8);
+          doc.setTextColor(34, 197, 94);
+          doc.setFont(undefined, 'normal');
+          doc.text(`  Reçoit de:`, margin + 5, yPosition);
+          yPosition += 5;
+          
+          participantTransfers.toReceive.forEach((transfer) => {
+            doc.text(`    → ${transfer.fromName}: ${transfer.amount.toFixed(2)}€`, margin + 10, yPosition);
+            yPosition += 4;
+          });
+        }
+        
+        if (participantTransfers.toPay.length > 0) {
+          doc.setFontSize(8);
+          doc.setTextColor(239, 68, 68);
+          doc.setFont(undefined, 'normal');
+          doc.text(`  Verse à:`, margin + 5, yPosition);
+          yPosition += 5;
+          
+          participantTransfers.toPay.forEach((transfer) => {
+            doc.text(`    → ${transfer.toName}: ${transfer.amount.toFixed(2)}€`, margin + 10, yPosition);
+            yPosition += 4;
+          });
+        }
+        
+        yPosition += 3;
       });
       
-      yPosition = doc.lastAutoTable.finalY + 10;
-    } else {
+    } else if (transfersResult.isBalanced) {
+      // Seulement si vraiment équilibré ET pas d'incohérences
       checkNewPage(10);
       doc.setFontSize(10);
-      doc.setTextColor(150, 150, 150);
-      doc.setFont(undefined, 'normal');
-      doc.text('Aucun transfert nécessaire (tous les comptes sont équilibrés)', margin, yPosition);
+      doc.setTextColor(34, 197, 94);
+      doc.setFont(undefined, 'bold');
+      doc.text('✅ Aucun transfert nécessaire (tous les comptes sont équilibrés)', margin, yPosition);
       yPosition += 10;
+    } else {
+      // Cas d'incohérence : on ne peut pas calculer de transferts
+      checkNewPage(10);
+      doc.setFontSize(10);
+      doc.setTextColor(239, 68, 68);
+      doc.setFont(undefined, 'normal');
+      doc.text('⚠️ Impossible de calculer les transferts : répartition incomplète.', margin, yPosition);
+      yPosition += 5;
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      if (transfersResult.warning) {
+        const warningLines = doc.splitTextToSize(transfersResult.warning, pageWidth - 2 * margin);
+        warningLines.forEach((line, idx) => {
+          doc.text(line, margin, yPosition);
+          yPosition += 4;
+        });
+      }
+      yPosition += 5;
     }
     
     // ===== BILAN FINAL =====
@@ -757,60 +958,185 @@ const handleExportPDF = () => {
         </ScrollArea>
       </Card>
 
-      {/* Ajustements provisoires - Qui verse à qui */}
+      {/* Transparence totale : Qui verse à qui / Qui reçoit de qui */}
       {(() => {
         const balances = computeBalances(event, transactions);
-        const transfers = computeTransfers(balances);
+        const transfersResult = computeTransfers(balances);
+        const transfers = transfersResult.transfers || [];
         
         return (
-          <Card className="p-6 neon-border border-orange-200 dark:border-orange-800 bg-orange-50/50 dark:bg-orange-950/20">
+          <Card className="p-6 neon-border border-primary/30 bg-primary/5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold flex items-center gap-2">
-                <TrendingUp className="w-6 h-6 text-orange-600 dark:text-orange-400" />
-                Ajustements à effectuer (provisoire)
+                <TrendingUp className="w-6 h-6 text-primary" />
+                Ajustements entre participants
               </h2>
-              <Badge variant="outline" className="text-sm border-orange-300 dark:border-orange-700">
+              <Badge variant="outline" className="text-sm">
                 {transfers.length} transfert{transfers.length > 1 ? 's' : ''}
               </Badge>
             </div>
             
-            <div className="mb-3 p-3 rounded-lg bg-orange-100/50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800">
+            {/* Explication succincte */}
+            <div className="mb-4 p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
               <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-orange-800 dark:text-orange-200">
-                  Cette liste est mise à jour en temps réel selon les transactions validées. 
-                  Les ajustements peuvent être effectués progressivement pendant l'événement.
-                </p>
+                <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                    Comment ça marche ?
+                  </p>
+                  <p className="text-sm text-blue-800 dark:text-blue-200">
+                    Basé sur les dépenses validées et les paiements enregistrés.
+                    Les transferts sont calculés uniquement à partir du <strong>solde final</strong> de chaque participant.
+                  </p>
+                </div>
               </div>
             </div>
             
-            {transfers.length > 0 ? (
-              <div className="space-y-3">
-                {transfers.map((transfer, index) => (
-                  <Card key={index} className="p-4 border-2 border-orange-200 dark:border-orange-800 hover:border-orange-300 dark:hover:border-orange-700 transition-colors">
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                      <div className="flex items-center gap-4 flex-1 min-w-0">
-                        <div className="p-3 rounded-full bg-orange-100 dark:bg-orange-900/50 flex-shrink-0">
-                          <TrendingDown className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-lg text-destructive">{transfer.fromName}</span>
-                            <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                            <span className="font-semibold text-lg text-green-600 dark:text-green-400">{transfer.toName}</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Ajustement #{index + 1} sur {transfers.length}
-                          </p>
-                        </div>
-                      </div>
-                      <Badge variant="default" className="text-lg px-4 py-2 flex-shrink-0 bg-orange-600 hover:bg-orange-700">
-                        {transfer.amount.toFixed(2)}€
-                      </Badge>
-                    </div>
-                  </Card>
-                ))}
+            {/* Avertissement si répartition incomplète */}
+            {transfersResult.warning && (
+              <div className="mb-4 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100 mb-1">
+                      ⚠️ Répartition incomplète
+                    </p>
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                      {transfersResult.warning}
+                    </p>
+                    {Math.abs(transfersResult.balanceError) > 0.01 && (
+                      <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-2 italic">
+                        Écart détecté : {transfersResult.balanceError.toFixed(2)}€
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
+            )}
+            
+            {transfers.length > 0 ? (
+              <>
+                {/* Vue globale des transferts */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <ArrowRight className="w-5 h-5 text-primary" />
+                    Vue globale des transferts
+                  </h3>
+                  <div className="space-y-3">
+                    {transfers.map((transfer, index) => (
+                      <Card key={index} className="p-4 border-2 border-primary/20 hover:border-primary/40 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="font-semibold text-lg text-destructive">{transfer.fromName}</span>
+                              <span className="text-muted-foreground">verse</span>
+                              <span className="font-semibold text-lg text-primary">{transfer.amount.toFixed(2)}€</span>
+                              <span className="text-muted-foreground">à</span>
+                              <span className="font-semibold text-lg text-green-600 dark:text-green-400">{transfer.toName}</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs h-auto p-1 text-muted-foreground hover:text-primary"
+                              onClick={() => {
+                                // Ouvrir le profil du participant pour voir le détail
+                                const participant = event.participants.find(p => p.id === transfer.from);
+                                if (participant) {
+                                  setSelectedParticipant(participant);
+                                }
+                              }}
+                            >
+                              Voir le détail
+                            </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Vue par participant - Transparence totale */}
+                <div className="border-t pt-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-primary" />
+                    Détail par participant : Avec qui régulariser ?
+                  </h3>
+                  <div className="space-y-3">
+                    {Object.values(balances).map((balance) => {
+                      const participantTransfers = getParticipantTransfers(balance.participantId, transfers);
+                      
+                      if (!participantTransfers.hasTransfers) {
+                        return (
+                          <Card key={balance.participantId} className="p-4 border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                                <span className="font-semibold">{balance.participantName}</span>
+                              </div>
+                              <span className="text-sm text-green-700 dark:text-green-400 font-medium">
+                                Participation équilibrée
+                              </span>
+                            </div>
+                          </Card>
+                        );
+                      }
+                      
+                      return (
+                        <Card key={balance.participantId} className="p-4 border-2">
+                          <div className="mb-3">
+                            <h4 className="font-semibold text-base">{balance.participantName}</h4>
+                            <p className="text-xs text-muted-foreground">
+                              Solde : {balance.soldeFinal >= 0 ? '+' : ''}{balance.soldeFinal.toFixed(2)}€
+                            </p>
+                          </div>
+                          
+                          {participantTransfers.toReceive.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                <ArrowRight className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                Reçoit de :
+                              </p>
+                              <div className="space-y-2">
+                                {participantTransfers.toReceive.map((transfer, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium">{transfer.fromName}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                                      {transfer.amount.toFixed(2)}€
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {participantTransfers.toPay.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                <ArrowRight className="w-3 h-3 text-orange-600 dark:text-orange-400 rotate-180" />
+                                Verse à :
+                              </p>
+                              <div className="space-y-2">
+                                {participantTransfers.toPay.map((transfer, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950/20 rounded border border-orange-200 dark:border-orange-800">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium">{transfer.toName}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
+                                      {transfer.amount.toFixed(2)}€
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
             ) : (
               <div className="text-center py-6">
                 <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
@@ -818,7 +1144,7 @@ const handleExportPDF = () => {
                   ✅ Tout est équilibré
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Aucun ajustement financier n'est nécessaire. La liste sera mise à jour automatiquement dès qu'une transaction créera un déséquilibre.
+                  Aucun transfert nécessaire. La liste sera mise à jour automatiquement dès qu'une transaction créera un déséquilibre.
                 </p>
               </div>
             )}
@@ -874,20 +1200,38 @@ const handleExportPDF = () => {
                       <Scan className="w-4 h-4" />
                       Scanner un ticket
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        console.log('[EventManagement] Participant clicked:', {
-                          id: participant.id,
-                          name: participant.name,
-                          stats
-                        });
-                        setSelectedParticipant(participant);
-                      }}
-                    >
-                      Voir détails
-                    </Button>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="relative gap-2 mes-participations-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300"
+                            onClick={() => {
+                              console.log('[EventManagement] Participant clicked:', {
+                                id: participant.id,
+                                name: participant.name,
+                                stats
+                              });
+                              setSelectedParticipant(participant);
+                            }}
+                          >
+                            <div className="relative">
+                              <UserCircle className="w-4 h-4" />
+                              {/* Badge d'alerte animé */}
+                              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+                              </span>
+                            </div>
+                            <span className="font-semibold">Mes Participations</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="bg-primary text-primary-foreground">
+                          <p className="font-medium">Voir tout en détail</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-sm">
@@ -958,6 +1302,9 @@ const handleExportPDF = () => {
         <DialogContent className="w-[95vw] sm:w-full sm:max-w-2xl mx-2 sm:mx-0">
           <DialogHeader>
             <DialogTitle>Profil du participant</DialogTitle>
+            <DialogDescription>
+              Consultez les détails et l'historique des transactions de ce participant
+            </DialogDescription>
           </DialogHeader>
           {selectedParticipant && (
             <div className="space-y-4">
@@ -1017,6 +1364,8 @@ const handleExportPDF = () => {
                   
                   // Calculer les soldes Bonkont
                   const balances = computeBalances(event, transactions);
+                  const transfersResult = computeTransfers(balances);
+                  const transfers = transfersResult.transfers || [];
                   const participantBalance = balances[selectedParticipant.id] || {
                     avance: 0,
                     consomme: 0,
@@ -1027,20 +1376,24 @@ const handleExportPDF = () => {
                     soldeFinal: 0
                   };
                   
+                  // Obtenir les transferts pour ce participant
+                  const participantTransfers = getParticipantTransfers(selectedParticipant.id, transfers);
+                  
+                  // Obtenir la traçabilité des dépenses
+                  const expenseTraceability = getExpenseTraceability(selectedParticipant.id, event, transactions);
+                  
+                  // Obtenir la traçabilité des paiements
+                  const paymentTraceability = getPaymentTraceability(selectedParticipant.id, event, transactions);
+                  
                   // Part cible (budget)
                   const partCible = event.amount / event.participants.length;
                   
                   // Contributions (paiements validés)
-                  // Pour l'instant, on utilise paidAmount comme approximation des contributions
-                  // TODO: Créer des transactions de type "payment" avec fromId/toId lors des paiements CB/espèces
                   const paiements = transactions.filter(t => 
                     (t.source === 'payment' || t.type === 'payment' || (t.fromId && t.toId)) &&
                     (t.fromId === selectedParticipant.id || String(t.fromId) === String(selectedParticipant.id))
                   );
                   const contributionsFromTransactions = paiements.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-                  
-                  // Si pas de transactions de paiement, utiliser paidAmount comme approximation
-                  // paidAmount inclut les paiements CB/espèces validés
                   const contributions = contributionsFromTransactions > 0 
                     ? contributionsFromTransactions 
                     : (selectedParticipant.paidAmount || 0);
@@ -1050,120 +1403,356 @@ const handleExportPDF = () => {
                   
                   return (
                     <>
-                      {/* Bloc 1: Budget (repère) */}
+                      {/* Bloc 1: Résumé du solde */}
+                      <div className={`p-4 rounded-lg border-2 ${
+                        soldeProvisoire > 0.01 
+                          ? 'border-blue-300 bg-blue-50 dark:bg-blue-950/20' 
+                          : soldeProvisoire < -0.01
+                            ? 'border-orange-300 bg-orange-50 dark:bg-orange-950/20'
+                            : 'border-green-300 bg-green-50 dark:bg-green-950/20'
+                      }`}>
+                        <h5 className="font-semibold text-base mb-3">
+                          {soldeProvisoire > 0.01 
+                            ? '💰 Solde : À recevoir' 
+                            : soldeProvisoire < -0.01
+                              ? '💸 Solde : À verser'
+                              : '✅ Solde : Équilibré'}
+                        </h5>
+                        <div className="text-center mb-3">
+                          <span className={`text-3xl font-bold ${
+                            soldeProvisoire > 0.01 
+                              ? 'text-blue-600 dark:text-blue-400' 
+                              : soldeProvisoire < -0.01
+                                ? 'text-orange-600 dark:text-orange-400'
+                                : 'text-green-600 dark:text-green-400'
+                          }`}>
+                            {soldeProvisoire >= 0 ? '+' : ''}{soldeProvisoire.toFixed(2)}€
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground text-center italic">
+                          Basé sur dépenses validées + paiements enregistrés
+                        </p>
+                      </div>
+                      
+                      {/* Bloc 2: Transferts nominatifs - Qui verse à qui */}
+                      {participantTransfers.hasTransfers && (
+                        <div className="p-4 rounded-lg border border-border bg-purple-50 dark:bg-purple-950/20">
+                          <h5 className="font-semibold text-sm mb-3 text-purple-700 dark:text-purple-400">
+                            🔄 Avec qui régulariser
+                          </h5>
+                          
+                          {participantTransfers.toReceive.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-xs font-medium text-muted-foreground mb-2">Tu reçois :</p>
+                              <div className="space-y-2">
+                                {participantTransfers.toReceive.map((transfer, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-green-200 dark:border-green-800">
+                                    <div className="flex items-center gap-2">
+                                      <ArrowRight className="w-4 h-4 text-green-600 dark:text-green-400" />
+                                      <span className="text-sm font-medium">{transfer.fromName}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                                      {transfer.amount.toFixed(2)}€
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {participantTransfers.toPay.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-2">Tu verses :</p>
+                              <div className="space-y-2">
+                                {participantTransfers.toPay.map((transfer, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-orange-200 dark:border-orange-800">
+                                    <div className="flex items-center gap-2">
+                                      <ArrowRight className="w-4 h-4 text-orange-600 dark:text-orange-400 rotate-180" />
+                                      <span className="text-sm font-medium">{transfer.toName}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
+                                      {transfer.amount.toFixed(2)}€
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {!participantTransfers.hasTransfers && Math.abs(soldeProvisoire) < 0.01 && (
+                        <div className="p-4 rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/20">
+                          <p className="text-sm text-center text-green-700 dark:text-green-400">
+                            ✅ Aucun transfert nécessaire - Participation équilibrée
+                          </p>
+                        </div>
+                      )}
+                      
+                      {/* Bloc 3: Justification - Pourquoi mon solde est comme ça */}
+                      <div className="p-4 rounded-lg border border-border bg-gray-50 dark:bg-gray-950/20">
+                        <h5 className="font-semibold text-sm mb-3 text-gray-700 dark:text-gray-300">
+                          📊 Pourquoi mon solde est comme ça
+                        </h5>
+                        
+                        {/* Couche A : Dépenses */}
+                        <div className="mb-4">
+                          <h6 className="text-xs font-semibold text-muted-foreground mb-2 uppercase">Couche A - Dépenses validées</h6>
+                          <div className="space-y-2 text-xs">
+                            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
+                              <span className="text-muted-foreground">Avancé (payé pour les autres):</span>
+                              <span className="font-medium text-green-600 dark:text-green-400">
+                                +{participantBalance.avance.toFixed(2)}€
+                              </span>
+                            </div>
+                            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
+                              <span className="text-muted-foreground">Consommé (ma part):</span>
+                              <span className="font-medium text-orange-600 dark:text-orange-400">
+                                -{participantBalance.consomme.toFixed(2)}€
+                              </span>
+                            </div>
+                            <div className="flex justify-between p-2 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
+                              <span className="font-semibold">Solde dépenses:</span>
+                              <span className={`font-bold ${
+                                participantBalance.soldeDepenses >= 0 
+                                  ? 'text-blue-600 dark:text-blue-400' 
+                                  : 'text-orange-600 dark:text-orange-400'
+                              }`}>
+                                {participantBalance.soldeDepenses >= 0 ? '+' : ''}
+                                {participantBalance.soldeDepenses.toFixed(2)}€
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Couche B : Paiements */}
+                        <div className="mb-4">
+                          <h6 className="text-xs font-semibold text-muted-foreground mb-2 uppercase">Couche B - Paiements enregistrés</h6>
+                          <div className="space-y-2 text-xs">
+                            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
+                              <span className="text-muted-foreground">Versé (règlements):</span>
+                              <span className="font-medium text-green-600 dark:text-green-400">
+                                +{participantBalance.verse.toFixed(2)}€
+                              </span>
+                            </div>
+                            <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
+                              <span className="text-muted-foreground">Reçu (règlements):</span>
+                              <span className="font-medium text-orange-600 dark:text-orange-400">
+                                -{participantBalance.recu.toFixed(2)}€
+                              </span>
+                            </div>
+                            <div className="flex justify-between p-2 bg-purple-50 dark:bg-purple-950/20 rounded border border-purple-200 dark:border-purple-800">
+                              <span className="font-semibold">Solde paiements:</span>
+                              <span className={`font-bold ${
+                                participantBalance.soldePaiements >= 0 
+                                  ? 'text-green-600 dark:text-green-400' 
+                                  : 'text-orange-600 dark:text-orange-400'
+                              }`}>
+                                {participantBalance.soldePaiements >= 0 ? '+' : ''}
+                                {participantBalance.soldePaiements.toFixed(2)}€
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Couche C : Solde final */}
+                        <div className="border-t pt-3">
+                          <div className="flex justify-between p-2 bg-primary/10 rounded">
+                            <span className="text-xs font-bold">Solde final (A + B):</span>
+                            <span className={`text-sm font-bold ${
+                              soldeProvisoire >= 0 
+                                ? 'text-blue-600 dark:text-blue-400' 
+                                : 'text-orange-600 dark:text-orange-400'
+                            }`}>
+                              {soldeProvisoire >= 0 ? '+' : ''}{soldeProvisoire.toFixed(2)}€
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Bloc 4: Traçabilité - Sur quelles dépenses ça se base */}
+                      {(expenseTraceability.depensesAvancees.length > 0 || expenseTraceability.depensesConsommees.length > 0) && (
+                        <div className="p-4 rounded-lg border border-border bg-indigo-50 dark:bg-indigo-950/20">
+                          <h5 className="font-semibold text-sm mb-3 text-indigo-700 dark:text-indigo-400">
+                            📋 Traçabilité des dépenses
+                          </h5>
+                          
+                          {expenseTraceability.depensesAvancees.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-xs font-medium text-muted-foreground mb-2">Dépenses que tu as avancées :</p>
+                              <ScrollArea className="h-32">
+                                <div className="space-y-1">
+                                  {expenseTraceability.depensesAvancees.map((dep, idx) => (
+                                    <div key={idx} className="text-xs p-2 bg-white dark:bg-gray-800 rounded border border-green-200 dark:border-green-800">
+                                      <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                          <span className="font-medium">{dep.description}</span>
+                                          <span className="text-muted-foreground ml-2">
+                                            ({dep.participantsConcerned} participant{dep.participantsConcerned > 1 ? 's' : ''})
+                                          </span>
+                                        </div>
+                                        <span className="font-bold text-green-600 dark:text-green-400 ml-2">
+                                          {dep.amount.toFixed(2)}€
+                                        </span>
+                                      </div>
+                                      <div className="text-muted-foreground text-xs mt-1">
+                                        Part par personne : {dep.partParPersonne.toFixed(2)}€
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </ScrollArea>
+                            </div>
+                          )}
+                          
+                          {expenseTraceability.depensesConsommees.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-2">Dépenses que tu as consommées :</p>
+                              <ScrollArea className="h-32">
+                                <div className="space-y-1">
+                                  {expenseTraceability.depensesConsommees.map((dep, idx) => (
+                                    <div key={idx} className="text-xs p-2 bg-white dark:bg-gray-800 rounded border border-blue-200 dark:border-blue-800">
+                                      <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                          <span className="font-medium">{dep.description}</span>
+                                          {dep.payerName && (
+                                            <span className="text-muted-foreground ml-2">
+                                              (payé par {dep.payerName})
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className="font-bold text-blue-600 dark:text-blue-400 ml-2">
+                                          {dep.part.toFixed(2)}€
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </ScrollArea>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Bloc 4b: Traçabilité des paiements */}
+                      {(paymentTraceability.paiementsVerses.length > 0 || paymentTraceability.paiementsRecus.length > 0) && (
+                        <div className="p-4 rounded-lg border border-border bg-purple-50 dark:bg-purple-950/20">
+                          <h5 className="font-semibold text-sm mb-3 text-purple-700 dark:text-purple-400">
+                            💳 Traçabilité des paiements
+                          </h5>
+                          
+                          {paymentTraceability.paiementsVerses.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-xs font-medium text-muted-foreground mb-2">Paiements que tu as versés :</p>
+                              <ScrollArea className="h-32">
+                                <div className="space-y-1">
+                                  {paymentTraceability.paiementsVerses.map((paiement, idx) => (
+                                    <div key={idx} className="text-xs p-2 bg-white dark:bg-gray-800 rounded border border-green-200 dark:border-green-800">
+                                      <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                          <span className="font-medium">{paiement.description}</span>
+                                          <span className="text-muted-foreground ml-2">
+                                            → {paiement.toName}
+                                          </span>
+                                        </div>
+                                        <span className="font-bold text-green-600 dark:text-green-400 ml-2">
+                                          {paiement.amount.toFixed(2)}€
+                                        </span>
+                                      </div>
+                                      <div className="text-muted-foreground text-xs mt-1 space-y-1">
+                                        <div>Méthode : {paiement.method}</div>
+                                        {paiement.isCollectivelyValidated && (
+                                          <div className="mt-1 p-1.5 bg-green-50 dark:bg-green-950/30 rounded border border-green-200 dark:border-green-800">
+                                            <div className="flex items-center gap-1 text-green-700 dark:text-green-400">
+                                              <CheckCircle2 className="w-3 h-3 flex-shrink-0" />
+                                              <span className="font-medium text-xs">Validé collectivement</span>
+                                            </div>
+                                            {paiement.validators.length > 0 && (
+                                              <div className="text-xs text-muted-foreground mt-0.5 ml-4">
+                                                Par : {paiement.validators.join(', ')}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </ScrollArea>
+                            </div>
+                          )}
+                          
+                          {paymentTraceability.paiementsRecus.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-2">Paiements que tu as reçus :</p>
+                              <ScrollArea className="h-32">
+                                <div className="space-y-1">
+                                  {paymentTraceability.paiementsRecus.map((paiement, idx) => (
+                                    <div key={idx} className="text-xs p-2 bg-white dark:bg-gray-800 rounded border border-blue-200 dark:border-blue-800">
+                                      <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                          <span className="font-medium">{paiement.description}</span>
+                                          <span className="text-muted-foreground ml-2">
+                                            ← {paiement.fromName}
+                                          </span>
+                                        </div>
+                                        <span className="font-bold text-blue-600 dark:text-blue-400 ml-2">
+                                          {paiement.amount.toFixed(2)}€
+                                        </span>
+                                      </div>
+                                      <div className="text-muted-foreground text-xs mt-1 space-y-1">
+                                        <div>Méthode : {paiement.method}</div>
+                                        {paiement.isCollectivelyValidated && (
+                                          <div className="mt-1 p-1.5 bg-green-50 dark:bg-green-950/30 rounded border border-green-200 dark:border-green-800">
+                                            <div className="flex items-center gap-1 text-green-700 dark:text-green-400">
+                                              <CheckCircle2 className="w-3 h-3 flex-shrink-0" />
+                                              <span className="font-medium text-xs">Validé collectivement</span>
+                                            </div>
+                                            {paiement.validators.length > 0 && (
+                                              <div className="text-xs text-muted-foreground mt-0.5 ml-4">
+                                                Par : {paiement.validators.join(', ')}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </ScrollArea>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Bloc 5: Budget (repère) - séparé pour ne pas confondre */}
                       <div className="p-4 rounded-lg border border-border bg-primary/5">
-                        <h5 className="font-semibold text-sm mb-2 text-primary">Budget (repère)</h5>
+                        <h5 className="font-semibold text-sm mb-2 text-primary">📐 Budget (repère)</h5>
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Part cible</span>
                             <span className="font-semibold text-lg">{partCible.toFixed(2)}€</span>
                           </div>
                           <p className="text-xs text-muted-foreground italic">
-                            Budget total / Nombre de participants
+                            Budget total / Nombre de participants (limite théorique)
                           </p>
-                        </div>
-                      </div>
-                      
-                      {/* Bloc 2: Contributions (paiements) */}
-                      <div className="p-4 rounded-lg border border-border bg-green-50 dark:bg-green-950/20">
-                        <h5 className="font-semibold text-sm mb-2 text-green-700 dark:text-green-400">Contributions (paiements)</h5>
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">Total versé</span>
-                            <span className="font-semibold text-lg text-green-600 dark:text-green-400">
-                              {contributions.toFixed(2)}€
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground italic">
-                            Paiements validés (CB/espèces) enregistrés
-                          </p>
-                          {contributions > 0 && (
-                            <div className="mt-2 text-xs">
-                              <span className="text-muted-foreground">Détail: </span>
-                              <span>{paiements.length} paiement(s) enregistré(s)</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Bloc 3: Répartition (provisoire) */}
-                      <div className={`p-4 rounded-lg border ${
-                        soldeProvisoire > 0.01 
-                          ? 'border-blue-300 bg-blue-50 dark:bg-blue-950/20' 
-                          : soldeProvisoire < -0.01
-                            ? 'border-orange-300 bg-orange-50 dark:bg-orange-950/20'
-                            : 'border-gray-300 bg-gray-50 dark:bg-gray-950/20'
-                      }`}>
-                        <h5 className="font-semibold text-sm mb-2 text-blue-700 dark:text-blue-400">Répartition (provisoire)</h5>
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-muted-foreground">Solde provisoire</span>
-                            <span className={`font-semibold text-lg ${
-                              soldeProvisoire > 0.01 
-                                ? 'text-blue-600 dark:text-blue-400' 
-                                : soldeProvisoire < -0.01
-                                  ? 'text-orange-600 dark:text-orange-400'
-                                  : 'text-gray-600 dark:text-gray-400'
-                            }`}>
-                              {soldeProvisoire >= 0 ? '+' : ''}{soldeProvisoire.toFixed(2)}€
-                              {soldeProvisoire > 0.01 && ' (à recevoir)'}
-                              {soldeProvisoire < -0.01 && ' (à verser)'}
-                              {Math.abs(soldeProvisoire) < 0.01 && ' (équilibré)'}
-                            </span>
-                          </div>
-                          <div className="mt-3 space-y-1 text-xs">
+                          <div className="mt-2 p-2 bg-white dark:bg-gray-800 rounded text-xs">
                             <div className="flex justify-between">
-                              <span className="text-muted-foreground">Avancé:</span>
-                              <span className="font-medium">{participantBalance.avance.toFixed(2)}€</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Consommé:</span>
-                              <span className="font-medium">{participantBalance.consomme.toFixed(2)}€</span>
-                            </div>
-                            <div className="flex justify-between border-t pt-1 mt-1">
-                              <span className="text-muted-foreground">Solde dépenses:</span>
-                              <span className="font-medium">
-                                {participantBalance.soldeDepenses >= 0 ? '+' : ''}
-                                {participantBalance.soldeDepenses.toFixed(2)}€
+                              <span className="text-muted-foreground">Contributions versées:</span>
+                              <span className="font-medium text-green-600 dark:text-green-400">
+                                {contributions.toFixed(2)}€
                               </span>
                             </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Versé:</span>
-                              <span className="font-medium">{participantBalance.verse.toFixed(2)}€</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Reçu:</span>
-                              <span className="font-medium">{participantBalance.recu.toFixed(2)}€</span>
-                            </div>
-                            <div className="flex justify-between border-t pt-1 mt-1">
-                              <span className="text-muted-foreground">Solde paiements:</span>
-                              <span className="font-medium">
-                                {participantBalance.soldePaiements >= 0 ? '+' : ''}
-                                {participantBalance.soldePaiements.toFixed(2)}€
+                            <div className="flex justify-between mt-1">
+                              <span className="text-muted-foreground">Écart vs part cible:</span>
+                              <span className={`font-medium ${
+                                contributions >= partCible 
+                                  ? 'text-green-600 dark:text-green-400' 
+                                  : 'text-orange-600 dark:text-orange-400'
+                              }`}>
+                                {contributions >= partCible ? '+' : ''}{(contributions - partCible).toFixed(2)}€
                               </span>
                             </div>
-                          </div>
-                          <p className="text-xs text-muted-foreground italic mt-2">
-                            Basé sur dépenses validées + paiements enregistrés
-                          </p>
-                        </div>
-                      </div>
-                      
-                      {/* Ancien affichage (conservé pour référence) */}
-                      <div className="p-3 rounded border border-border bg-muted/30">
-                        <h5 className="font-semibold text-sm mb-2 text-muted-foreground">Ancien affichage (référence)</h5>
-                        <div className="space-y-1 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Montant total dû</span>
-                            <span className="font-semibold">{stats.totalDue.toFixed(2)}€</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Montant payé</span>
-                            <span className="font-semibold text-green-500">{stats.paid.toFixed(2)}€</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Reste à payer</span>
-                            <span className="font-semibold text-destructive">{stats.remaining.toFixed(2)}€</span>
                           </div>
                         </div>
                       </div>

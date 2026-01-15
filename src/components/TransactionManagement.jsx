@@ -30,7 +30,7 @@ import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -553,6 +553,9 @@ export function TransactionManagement({ eventId, onBack }) {
         <DialogContent className="w-[95vw] sm:w-full sm:max-w-3xl max-h-[90vh] overflow-y-auto mx-2 sm:mx-0">
           <DialogHeader>
             <DialogTitle>{editingTransaction ? 'Modifier la transaction' : 'Nouvelle transaction'}</DialogTitle>
+            <DialogDescription>
+              {editingTransaction ? 'Modifiez les détails de la transaction' : 'Ajoutez une nouvelle transaction à l\'événement'}
+            </DialogDescription>
           </DialogHeader>
 
           <Tabs

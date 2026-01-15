@@ -43,7 +43,7 @@ import {
   MessageSquare,
   Smile
 } from 'lucide-react';
-import { computeBalances, computeTransfers, formatBalance } from '@/utils/bonkontBalances';
+import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers } from '@/utils/bonkontBalances';
 import { useToast } from '@/hooks/use-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -151,7 +151,8 @@ export function EventClosure({ eventId, onBack }) {
   }
   
   const balances = computeBalances(event, transactions);
-  const transfers = computeTransfers(balances);
+  const transfersResult = computeTransfers(balances);
+  const transfers = transfersResult.transfers || [];
   
   const handleExportClosurePDF = () => {
     console.log('[EventClosure] Exporting closure PDF:', event.title);
@@ -239,6 +240,39 @@ export function EventClosure({ eventId, onBack }) {
         yPosition += 5;
       }
       
+      // ===== NOTE IMPORTANTE SUR L'ÉQUILIBRE =====
+      if (transfersResult.isBalanced) {
+        checkNewPage(15);
+        doc.setFontSize(9);
+        doc.setTextColor(34, 197, 94); // Vert
+        doc.setFont(undefined, 'bold');
+        doc.text('✅ Répartition équilibrée', margin, yPosition);
+        yPosition += 5;
+        doc.setFontSize(8);
+        doc.setTextColor(120, 120, 120);
+        doc.setFont(undefined, 'normal');
+        doc.text('La somme des soldes finaux est égale à 0€. Toutes les dépenses et transferts', margin, yPosition);
+        yPosition += 4;
+        doc.text('entre participants sont correctement répartis.', margin, yPosition);
+        yPosition += 8;
+      } else {
+        checkNewPage(15);
+        doc.setFontSize(9);
+        doc.setTextColor(239, 68, 68); // Rouge
+        doc.setFont(undefined, 'bold');
+        doc.text('⚠️ Note sur les calculs', margin, yPosition);
+        yPosition += 5;
+        doc.setFontSize(8);
+        doc.setTextColor(120, 120, 120);
+        doc.setFont(undefined, 'normal');
+        doc.text('Les paiements vers la cagnotte (contributions au budget) ne sont pas inclus', margin, yPosition);
+        yPosition += 4;
+        doc.text('dans le calcul des soldes finaux. Seuls les transferts entre participants', margin, yPosition);
+        yPosition += 4;
+        doc.text('et les dépenses réelles affectent les soldes finaux.', margin, yPosition);
+        yPosition += 8;
+      }
+      
       // ===== RÉPARTITION FINALE =====
       checkNewPage(40);
       doc.setFontSize(16);
@@ -302,24 +336,56 @@ export function EventClosure({ eventId, onBack }) {
       
       yPosition = doc.lastAutoTable.finalY + 10;
       
-      // Transferts finaux
+      // Afficher un avertissement si répartition incomplète
+      if (transfersResult.warning) {
+        checkNewPage(30);
+        doc.setFontSize(11);
+        doc.setTextColor(239, 68, 68); // Rouge
+        doc.setFont(undefined, 'bold');
+        doc.text('⚠️ Répartition incomplète', margin, yPosition);
+        yPosition += 6;
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 120);
+        doc.setFont(undefined, 'normal');
+        const warningLines = doc.splitTextToSize(transfersResult.warning, pageWidth - 2 * margin);
+        warningLines.forEach((line, idx) => {
+          doc.text(line, margin, yPosition);
+          yPosition += 5;
+        });
+        if (Math.abs(transfersResult.balanceError) > 0.01) {
+          yPosition += 2;
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 150);
+          doc.setFont(undefined, 'italic');
+          doc.text(`Écart détecté : ${transfersResult.balanceError.toFixed(2)}€`, margin, yPosition);
+          yPosition += 5;
+        }
+        yPosition += 5;
+      }
+      
+      // Transferts finaux - Vue globale
       if (transfers.length > 0) {
         checkNewPage(30);
         doc.setFontSize(12);
         doc.setTextColor(99, 102, 241);
         doc.setFont(undefined, 'bold');
-        doc.text('Transferts finaux à effectuer', margin, yPosition);
+        doc.text('Ajustements entre participants', margin, yPosition);
+        yPosition += 5;
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 120);
+        doc.setFont(undefined, 'italic');
+        doc.text('Basé sur les dépenses validées et les paiements enregistrés.', margin, yPosition);
         yPosition += 8;
         
         const transfersTableData = transfers.map(t => [
-          t.fromName,
-          t.toName,
-          `${t.amount.toFixed(2)} €`
+          `${t.fromName} verse`,
+          `${t.amount.toFixed(2)} €`,
+          `à ${t.toName}`
         ]);
         
         autoTable(doc, {
           startY: yPosition,
-          head: [['De', 'Vers', 'Montant']],
+          head: [['Qui', 'Montant', 'À qui']],
           body: transfersTableData,
           styles: { fontSize: 9 },
           headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
@@ -328,6 +394,64 @@ export function EventClosure({ eventId, onBack }) {
         });
         
         yPosition = doc.lastAutoTable.finalY + 10;
+        
+        // Vue par participant - Transparence
+        checkNewPage(20);
+        doc.setFontSize(12);
+        doc.setTextColor(99, 102, 241);
+        doc.setFont(undefined, 'bold');
+        doc.text('Détail par participant : Avec qui régulariser ?', margin, yPosition);
+        yPosition += 8;
+        
+        Object.values(balances).forEach((balance) => {
+          const participantTransfers = getParticipantTransfers(balance.participantId, transfers);
+          
+          if (!participantTransfers.hasTransfers) {
+            checkNewPage(8);
+            doc.setFontSize(9);
+            doc.setTextColor(34, 197, 94);
+            doc.setFont(undefined, 'normal');
+            doc.text(`✓ ${balance.participantName}: Participation équilibrée`, margin + 5, yPosition);
+            yPosition += 6;
+            return;
+          }
+          
+          checkNewPage(15);
+          doc.setFontSize(10);
+          doc.setTextColor(0, 0, 0);
+          doc.setFont(undefined, 'bold');
+          doc.text(`${balance.participantName}`, margin + 5, yPosition);
+          yPosition += 6;
+          
+          if (participantTransfers.toReceive.length > 0) {
+            doc.setFontSize(8);
+            doc.setTextColor(34, 197, 94);
+            doc.setFont(undefined, 'normal');
+            doc.text(`  Reçoit de:`, margin + 5, yPosition);
+            yPosition += 5;
+            
+            participantTransfers.toReceive.forEach((transfer) => {
+              doc.text(`    → ${transfer.fromName}: ${transfer.amount.toFixed(2)}€`, margin + 10, yPosition);
+              yPosition += 4;
+            });
+          }
+          
+          if (participantTransfers.toPay.length > 0) {
+            doc.setFontSize(8);
+            doc.setTextColor(239, 68, 68);
+            doc.setFont(undefined, 'normal');
+            doc.text(`  Verse à:`, margin + 5, yPosition);
+            yPosition += 5;
+            
+            participantTransfers.toPay.forEach((transfer) => {
+              doc.text(`    → ${transfer.toName}: ${transfer.amount.toFixed(2)}€`, margin + 10, yPosition);
+              yPosition += 4;
+            });
+          }
+          
+          yPosition += 3;
+        });
+        
       } else {
         checkNewPage(20);
         doc.setFontSize(12);
@@ -777,52 +901,200 @@ export function EventClosure({ eventId, onBack }) {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-primary" />
-            Liste des transferts : Qui verse à qui ?
+            Ajustements entre participants
           </h2>
           <Badge variant="outline" className="text-sm">
             {transfers.length} transfert{transfers.length > 1 ? 's' : ''}
           </Badge>
         </div>
         
+        {/* Explication succincte */}
+        <div className="mb-4 p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                Comment ça marche ?
+              </p>
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                Basé sur les dépenses validées et les paiements enregistrés.
+                Les transferts sont calculés uniquement à partir du <strong>solde final</strong> de chaque participant.
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        {/* Avertissement si répartition incomplète */}
+        {transfersResult.warning && (
+          <div className="mb-4 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100 mb-1">
+                  ⚠️ Répartition incomplète
+                </p>
+                <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                  {transfersResult.warning}
+                </p>
+                {Math.abs(transfersResult.balanceError) > 0.01 && (
+                  <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-2 italic">
+                    Écart détecté : {transfersResult.balanceError.toFixed(2)}€
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        
         {transfers.length > 0 ? (
-          <div className="space-y-3">
-            {transfers.map((transfer, index) => (
-              <Card key={index} className="p-4 border-2 border-primary/20 hover:border-primary/40 transition-colors">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className="p-3 rounded-full bg-primary/10 flex-shrink-0">
-                      <TrendingDown className="w-5 h-5 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
+          <>
+            {/* Vue globale des transferts */}
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                <ArrowRight className="w-5 h-5 text-primary" />
+                Vue globale des transferts
+              </h3>
+              <div className="space-y-3">
+              {transfers.map((transfer, index) => (
+                <Card key={index} className="p-4 border-2 border-primary/20 hover:border-primary/40 transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
                         <span className="font-semibold text-lg text-destructive">{transfer.fromName}</span>
-                        <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <span className="text-muted-foreground">verse</span>
+                        <span className="font-semibold text-lg text-primary">{transfer.amount.toFixed(2)}€</span>
+                        <span className="text-muted-foreground">à</span>
                         <span className="font-semibold text-lg text-green-600 dark:text-green-400">{transfer.toName}</span>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Transfert #{index + 1} sur {transfers.length}
-                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-auto p-1 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          toast({
+                            title: "Détail du transfert",
+                            description: `Ce transfert provient du solde final de ${transfer.fromName} (${balances[transfer.from]?.soldeFinal >= 0 ? '+' : ''}${balances[transfer.from]?.soldeFinal.toFixed(2)}€) vers ${transfer.toName} (${balances[transfer.to]?.soldeFinal >= 0 ? '+' : ''}${balances[transfer.to]?.soldeFinal.toFixed(2)}€).`,
+                          });
+                        }}
+                      >
+                        Voir le détail
+                      </Button>
                     </div>
                   </div>
-                  <Badge variant="default" className="text-lg px-4 py-2 flex-shrink-0">
-                    {transfer.amount.toFixed(2)}€
-                  </Badge>
-                </div>
-              </Card>
-            ))}
-          </div>
+                </Card>
+              ))}
+              </div>
+            </div>
+            
+            {/* Vue par participant - Transparence */}
+            <div className="border-t pt-6">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Users className="w-5 h-5 text-primary" />
+                Détail par participant : Avec qui régulariser ?
+              </h3>
+              <div className="space-y-3">
+                {Object.values(balances).map((balance) => {
+                  const participantTransfers = getParticipantTransfers(balance.participantId, transfers);
+                  
+                  if (!participantTransfers.hasTransfers) {
+                    return (
+                      <Card key={balance.participantId} className="p-4 border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
+                            <span className="font-semibold">{balance.participantName}</span>
+                          </div>
+                          <span className="text-sm text-green-700 dark:text-green-400 font-medium">
+                            Participation équilibrée
+                          </span>
+                        </div>
+                      </Card>
+                    );
+                  }
+                  
+                  return (
+                    <Card key={balance.participantId} className="p-4 border-2">
+                      <div className="mb-3">
+                        <h4 className="font-semibold text-base">{balance.participantName}</h4>
+                        <p className="text-xs text-muted-foreground">
+                          Solde final : {balance.soldeFinal >= 0 ? '+' : ''}{balance.soldeFinal.toFixed(2)}€
+                        </p>
+                      </div>
+                      
+                      {participantTransfers.toReceive.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs font-medium text-muted-foreground mb-2">Reçoit de :</p>
+                          <div className="space-y-2">
+                            {participantTransfers.toReceive.map((transfer, idx) => (
+                              <div key={idx} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800">
+                                <div className="flex items-center gap-2">
+                                  <ArrowRight className="w-4 h-4 text-green-600 dark:text-green-400" />
+                                  <span className="text-sm font-medium">{transfer.fromName}</span>
+                                </div>
+                                <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                                  {transfer.amount.toFixed(2)}€
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {participantTransfers.toPay.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground mb-2">Verse à :</p>
+                          <div className="space-y-2">
+                            {participantTransfers.toPay.map((transfer, idx) => (
+                              <div key={idx} className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950/20 rounded border border-orange-200 dark:border-orange-800">
+                                <div className="flex items-center gap-2">
+                                  <ArrowRight className="w-4 h-4 text-orange-600 dark:text-orange-400 rotate-180" />
+                                  <span className="text-sm font-medium">{transfer.toName}</span>
+                                </div>
+                                <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
+                                  {transfer.amount.toFixed(2)}€
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          </>
         ) : (
           <div className="text-center py-8">
-            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2 text-green-700 dark:text-green-400">
-              ✅ Tout est équilibré
-            </h3>
-            <p className="text-muted-foreground mb-2">
-              Aucun ajustement financier n'est nécessaire.
-            </p>
-            <p className="text-sm text-muted-foreground italic max-w-md mx-auto">
-              Les dépenses et paiements enregistrés permettent un équilibre parfait entre les participants.
-            </p>
+            {transfersResult.isBalanced ? (
+              <>
+                <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold mb-2 text-green-700 dark:text-green-400">
+                  ✅ Tout est équilibré
+                </h3>
+                <p className="text-muted-foreground mb-2">
+                  Aucun ajustement financier n'est nécessaire.
+                </p>
+                <p className="text-sm text-muted-foreground italic max-w-md mx-auto">
+                  Les dépenses et paiements enregistrés permettent un équilibre parfait entre les participants.
+                </p>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
+                <h3 className="text-xl font-semibold mb-2 text-yellow-700 dark:text-yellow-400">
+                  ⚠️ Répartition incomplète
+                </h3>
+                <p className="text-muted-foreground mb-2">
+                  {transfersResult.warning || 'Impossible de calculer les transferts.'}
+                </p>
+                {Math.abs(transfersResult.balanceError) > 0.01 && (
+                  <p className="text-sm text-muted-foreground italic max-w-md mx-auto">
+                    Écart détecté : {transfersResult.balanceError.toFixed(2)}€
+                  </p>
+                )}
+              </>
+            )}
           </div>
         )}
       </Card>
@@ -876,7 +1148,43 @@ export function EventClosure({ eventId, onBack }) {
             </div>
             
             <Button
-              onClick={() => setShowValidationDialog(true)}
+              onClick={() => {
+                // Vérification avant d'ouvrir le dialog
+                const closureDeadline = calculateClosureDeadline();
+                const now = new Date();
+                
+                if (!closureDeadline) {
+                  toast({
+                    variant: "destructive",
+                    title: "Erreur",
+                    description: "Impossible de calculer la date de clôture. Vérifiez les dates de l'événement.",
+                  });
+                  return;
+                }
+                
+                if (now < closureDeadline) {
+                  const diff = closureDeadline.getTime() - now.getTime();
+                  const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
+                  toast({
+                    variant: "destructive",
+                    title: "Temps de réflexion en cours",
+                    description: `Il reste encore ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion avant de pouvoir finaliser la clôture.`,
+                  });
+                  return;
+                }
+                
+                if (!allSigned) {
+                  toast({
+                    variant: "destructive",
+                    title: "Validations manquantes",
+                    description: "Tous les participants doivent valider avant de finaliser.",
+                  });
+                  return;
+                }
+                
+                // Toutes les vérifications sont passées, on peut ouvrir le dialog
+                setShowValidationDialog(true);
+              }}
               disabled={!canValidate}
               className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg disabled:shadow-none transition-all"
               size="lg"
@@ -897,7 +1205,24 @@ export function EventClosure({ eventId, onBack }) {
             {!canValidate && (
               <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
                 <p className="text-xs text-center text-yellow-800 dark:text-yellow-200">
-                  💬 Il manque encore les validations de chacun et le temps de réflexion n'est pas écoulé. Bonkont prend le temps de bien faire.
+                  {(() => {
+                    const closureDeadline = calculateClosureDeadline();
+                    const now = new Date();
+                    const allSignedCheck = allSigned;
+                    
+                    if (!allSignedCheck && closureDeadline && now < closureDeadline) {
+                      const diff = closureDeadline.getTime() - now.getTime();
+                      const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
+                      return `💬 Il manque encore les validations de chacun et il reste ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion. Bonkont prend le temps de bien faire.`;
+                    } else if (!allSignedCheck) {
+                      return `💬 Il manque encore les validations de chacun. Tous les participants doivent valider avant de finaliser.`;
+                    } else if (closureDeadline && now < closureDeadline) {
+                      const diff = closureDeadline.getTime() - now.getTime();
+                      const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
+                      return `⏰ Il reste encore ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion avant de pouvoir finaliser la clôture.`;
+                    }
+                    return `💬 Les conditions ne sont pas encore remplies pour finaliser la clôture.`;
+                  })()}
                 </p>
               </div>
             )}
@@ -1230,6 +1555,40 @@ export function EventClosure({ eventId, onBack }) {
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
+                // Vérification de sécurité : s'assurer que le délai de réflexion est bien écoulé
+                const closureDeadline = calculateClosureDeadline();
+                const now = new Date();
+                
+                if (!closureDeadline) {
+                  toast({
+                    variant: "destructive",
+                    title: "Erreur",
+                    description: "Impossible de calculer la date de clôture. Vérifiez les dates de l'événement.",
+                  });
+                  return;
+                }
+                
+                if (now < closureDeadline) {
+                  const diff = closureDeadline.getTime() - now.getTime();
+                  const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
+                  toast({
+                    variant: "destructive",
+                    title: "Temps de réflexion en cours",
+                    description: `Il reste encore ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion avant de pouvoir finaliser la clôture.`,
+                  });
+                  return;
+                }
+                
+                if (!allSigned) {
+                  toast({
+                    variant: "destructive",
+                    title: "Validations manquantes",
+                    description: "Tous les participants doivent valider avant de finaliser.",
+                  });
+                  return;
+                }
+                
+                // Toutes les vérifications sont passées, on peut finaliser
                 updateEvent(eventId, {
                   closureValidated: true,
                   closureDate: new Date(),

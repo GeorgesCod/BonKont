@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvatarUpload } from '@/components/AvatarUpload';
 import { Mail, Lock, AlertCircle, User } from 'lucide-react';
@@ -29,6 +29,28 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       if (activeTab === 'login') {
+        // Récupérer les données existantes ou créer de nouvelles données
+        const existingUserData = localStorage.getItem('bonkont-user');
+        let userData;
+        
+        if (existingUserData) {
+          // Si des données existent, les récupérer
+          userData = JSON.parse(existingUserData);
+          // Mettre à jour l'email si nécessaire
+          userData.email = email;
+        } else {
+          // Sinon, créer de nouvelles données utilisateur
+          userData = {
+            name: email.split('@')[0], // Utiliser la partie avant @ comme nom par défaut
+            email,
+            avatar: null,
+            createdAt: new Date()
+          };
+        }
+        
+        // Sauvegarder les données utilisateur
+        localStorage.setItem('bonkont-user', JSON.stringify(userData));
+        
         toast({
           title: "Connexion réussie",
           description: "Bienvenue sur BONKONT !",
@@ -84,6 +106,9 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           <DialogTitle className="text-2xl font-bold gradient-text text-center">
             {activeTab === 'login' ? 'Connexion' : 'Inscription'}
           </DialogTitle>
+          <DialogDescription className="text-center">
+            {activeTab === 'login' ? 'Connectez-vous à votre compte' : 'Créez un nouveau compte'}
+          </DialogDescription>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>

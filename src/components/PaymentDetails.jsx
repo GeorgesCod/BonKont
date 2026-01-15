@@ -7,6 +7,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -155,6 +156,9 @@ export function PaymentDetails({ eventId, onClose }) {
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Modifier le montant</DialogTitle>
+                    <DialogDescription>
+                      Modifiez le montant de l'événement
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
                     <div className="space-y-2">

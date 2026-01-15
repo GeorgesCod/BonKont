@@ -1,10 +1,9 @@
 import * as React from 'react';
- from '@radix-ui/react-dialog';
+import * as CommandPrimitive from 'cmdk';
 import { MagnifyingGlassIcon } from '@radix-ui/react-icons';
-import { Command } from 'cmdk';
 
 import { cn } from '@/lib/utils';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 const Command = React.forwardRef(({ className, ...props }, ref) => (
   <CommandPrimitive
@@ -23,6 +22,12 @@ const CommandDialog = ({ children, ...props }) => {
   return (
     <Dialog {...props}>
       <DialogContent className="overflow-hidden p-0">
+        <DialogHeader className="sr-only">
+          <DialogTitle>Command menu</DialogTitle>
+          <DialogDescription>
+            Recherchez et sélectionnez une option
+          </DialogDescription>
+        </DialogHeader>
         <Command className="[&_[cmdk-group-heading]]-2 [&_[cmdk-group-heading]]-medium [&_[cmdk-group-heading]]-muted-foreground [&_[cmdk-group]([hidden])_~[cmdk-group]]-0 [&_[cmdk-group]]-2 [&_[cmdk-input-wrapper]_svg]-5 [&_[cmdk-input-wrapper]_svg]-5 [&_[cmdk-input]]-12 [&_[cmdk-item]]-2 [&_[cmdk-item]]-3 [&_[cmdk-item]_svg]-5 [&_[cmdk-item]_svg]-5">
           {children}
         </Command>

@@ -1,4 +1,4 @@
- import { useState } from 'react';
+ import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
@@ -31,14 +32,15 @@ import {
   Wallet,
   DollarSign,
   Receipt,
-  Calculator
+  Calculator,
+  Sparkles
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { PaymentMethods } from '@/components/PaymentMethods';
 import { CashPayment } from '@/components/CashPayment';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, Lock, Mail, MessageSquare, Send, Scan } from 'lucide-react';
+import { Plus, Lock, Mail, MessageSquare, Send, Scan, X } from 'lucide-react';
 import { EventDashboardScanner } from '@/components/EventDashboardScanner';
 
 export function EventDashboard({ onShowHistory }) {
@@ -47,6 +49,7 @@ export function EventDashboard({ onShowHistory }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [showCodeAlert, setShowCodeAlert] = useState({});
   const [paymentMethod, setPaymentMethod] = useState('card');
   const [savedCards, setSavedCards] = useState([
     { id: 'card1', last4: '4242', brand: 'Visa', expiryMonth: '12', expiryYear: '2025' }
@@ -84,6 +87,35 @@ export function EventDashboard({ onShowHistory }) {
         return true;
     }
   });
+
+  // Afficher automatiquement la bulle d'alerte pour les événements actifs après 2 secondes
+  useEffect(() => {
+    const activeEvents = filteredEvents.filter(e => e.status === 'active');
+    const timers = [];
+    
+    activeEvents.forEach(event => {
+      // Vérifier si l'alerte n'a pas déjà été fermée pour cet événement
+      const alertKey = `code-alert-${event.id}`;
+      const wasDismissed = localStorage.getItem(alertKey) === 'true';
+      
+      if (!wasDismissed && !showCodeAlert[event.id]) {
+        const timer = setTimeout(() => {
+          setShowCodeAlert(prev => ({ ...prev, [event.id]: true }));
+        }, 2000);
+        timers.push(timer);
+      }
+    });
+    
+    return () => {
+      timers.forEach(timer => clearTimeout(timer));
+    };
+  }, [filteredEvents, showCodeAlert]);
+
+  // Sauvegarder l'état de fermeture de l'alerte dans localStorage
+  const handleDismissAlert = (eventId) => {
+    setShowCodeAlert(prev => ({ ...prev, [eventId]: false }));
+    localStorage.setItem(`code-alert-${eventId}`, 'true');
+  };
 
   const handleSendReminder = (eventId) => {
     console.log('[EventDashboard] Opening reminder dialog for event:', eventId);
@@ -498,56 +530,91 @@ setPaymentMethod('card');
               <Card key={event.id} className="p-6 neon-border space-y-6">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-3 mb-2 relative">
                     <h3 className="text-xl font-semibold">{event.title}</h3>
-                      <Badge
-                        variant="outline"
-                        role="button"
-                        tabIndex={0}
-                        className="cursor-pointer select-none hover:bg-primary/10 hover:border-primary transition-colors min-h-[44px] px-3 py-1 touch-manipulation"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          console.log('[EventDashboard] Badge code clicked:', { 
-                            eventId: event?.id, 
-                            eventCode: event?.code,
-                            timestamp: new Date().toISOString()
-                          });
-                          
-                          if (!event?.id) {
-                            console.error('[EventDashboard] Event ID missing');
-                            return;
-                          }
-                          
-                          console.log('[EventDashboard] Navigating to event:', event.id);
-                          
-                          // Navigation avec vérification
-                          const targetHash = `#event/${event.id}`;
-                          console.log('[EventDashboard] Setting hash to:', targetHash);
-                          
-                          window.location.hash = targetHash;
-                          
-                          // Force le re-render après un court délai
-                          requestAnimationFrame(() => {
-                            window.dispatchEvent(new HashChangeEvent('hashchange'));
-                          });
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
+                      <div className="relative">
+                        <Badge
+                          variant="outline"
+                          role="button"
+                          tabIndex={0}
+                          className="cursor-pointer select-none hover:bg-primary/10 hover:border-primary transition-all duration-300 min-h-[44px] px-3 py-1 touch-manipulation event-code-badge animate-pulse-slow hover:animate-none hover:scale-110 hover:shadow-lg hover:shadow-primary/50"
+                          onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            if (!event?.id) return;
-                            window.location.hash = `#event/${event.id}`;
-                            setTimeout(() => {
+                            handleDismissAlert(event.id);
+                            console.log('[EventDashboard] Badge code clicked:', { 
+                              eventId: event?.id, 
+                              eventCode: event?.code,
+                              timestamp: new Date().toISOString()
+                            });
+                            
+                            if (!event?.id) {
+                              console.error('[EventDashboard] Event ID missing');
+                              return;
+                            }
+                            
+                            console.log('[EventDashboard] Navigating to event:', event.id);
+                            
+                            // Navigation avec vérification
+                            const targetHash = `#event/${event.id}`;
+                            console.log('[EventDashboard] Setting hash to:', targetHash);
+                            
+                            window.location.hash = targetHash;
+                            
+                            // Force le re-render après un court délai
+                            requestAnimationFrame(() => {
                               window.dispatchEvent(new HashChangeEvent('hashchange'));
-                            }, 100);
-                          }
-                        }}
-                        title="Cliquez pour gérer l'événement"
-                        style={{ touchAction: 'manipulation' }}
-                      >
-                        {event.code}
-                      </Badge>
+                            });
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (!event?.id) return;
+                              handleDismissAlert(event.id);
+                              window.location.hash = `#event/${event.id}`;
+                              setTimeout(() => {
+                                window.dispatchEvent(new HashChangeEvent('hashchange'));
+                              }, 100);
+                            }
+                          }}
+                          title="Cliquez pour gérer l'événement"
+                          style={{ touchAction: 'manipulation' }}
+                        >
+                          <span className="flex items-center gap-2">
+                            <Sparkles className="w-3 h-3 animate-spin-slow" />
+                            <span className="font-mono font-bold tracking-wider">{event.code}</span>
+                          </span>
+                        </Badge>
+                        
+                        {/* Bulle d'alerte incitant à cliquer */}
+                        {showCodeAlert[event.id] !== false && (
+                          <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 z-50 animate-fade-in-up">
+                            <div className="bg-primary text-primary-foreground px-4 py-2 rounded-lg shadow-lg border border-primary/20 relative min-w-[200px] max-w-[280px] animate-bounce-gentle">
+                              <div className="flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 animate-pulse" />
+                                <p className="text-sm font-medium">
+                                  Cliquez pour accéder aux fonctionnalités
+                                </p>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDismissAlert(event.id);
+                                  }}
+                                  className="ml-auto hover:bg-primary-foreground/20 rounded p-1 transition-colors"
+                                  aria-label="Fermer"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                              {/* Flèche pointant vers le badge */}
+                              <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
+                                <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-primary"></div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
 
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -724,6 +791,9 @@ setPaymentMethod('card');
             <DialogTitle className="text-2xl font-bold gradient-text">
               Enregistrer un paiement
             </DialogTitle>
+            <DialogDescription>
+              Enregistrez un paiement effectué entre participants
+            </DialogDescription>
           </DialogHeader>
           
           {selectedEvent && (() => {
@@ -1262,6 +1332,9 @@ setPaymentMethod('card');
               <Bell className="w-5 h-5" />
               Envoyer un rappel
             </DialogTitle>
+            <DialogDescription>
+              Envoyez un rappel de paiement aux participants
+            </DialogDescription>
           </DialogHeader>
 
           {reminderEvent && (

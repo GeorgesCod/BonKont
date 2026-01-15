@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useEventStore } from '@/store/eventStore';
+import { useTransactionsStore } from '@/store/transactionsStore';
 import { AlertCircle, Check, Euro, Receipt, UserCheck, Users, Calculator, AlertTriangle } from 'lucide-react';
 
 
@@ -13,6 +14,7 @@ export function CashPayment({ eventId, participantId, amount, onValidated }) {
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   const updateEvent = useEventStore((state) => state.updateEvent);
+  const addTransaction = useTransactionsStore((state) => state.addTransaction);
   
   const [declaredAmount, setDeclaredAmount] = useState(amount.toString());
   const [validations, setValidations] = useState(new Set());
@@ -80,6 +82,30 @@ export function CashPayment({ eventId, participantId, amount, onValidated }) {
       remainingTotal,
       paymentPercentage
     });
+
+    // Créer une transaction de paiement pour le bilan Bonkont
+    // fromId = participant qui paie, toId = eventId (cagnotte) ou null
+    // validatedBy contient les IDs des participants qui ont validé ce paiement collectivement
+    const paymentTransaction = {
+      eventId,
+      fromId: participantId,
+      toId: eventId, // Paiement vers la cagnotte de l'événement
+      amount: paidAmount,
+      currency: 'EUR',
+      source: 'payment',
+      type: 'payment',
+      description: `Paiement en espèces - ${paymentPercentage.toFixed(1)}%`,
+      date: new Date(),
+      time: new Date().toTimeString().slice(0, 5),
+      store: 'Paiement en espèces',
+      paymentMethod: 'cash',
+      validatedBy: Array.from(validations), // Liste des IDs des validateurs
+      validationCount: validations.size,
+      totalValidators: otherParticipants.length
+    };
+    
+    console.log('[CashPayment] Creating payment transaction:', paymentTransaction);
+    addTransaction(eventId, paymentTransaction);
 
     // Mise à jour du participant qui paie
     updateParticipant(eventId, participantId, {

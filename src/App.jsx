@@ -37,7 +37,30 @@ export default function App() {
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [viewMode, setViewMode] = useState('management'); // 'management', 'transactions', or 'closure'
 
-   useEffect(() => {
+   // Vérifier l'état d'authentification au chargement (PATCH 2)
+  useEffect(() => {
+    const checkAuthState = () => {
+      const userData = localStorage.getItem('bonkont-user');
+      const shouldBeLoggedIn = !!userData;
+      
+      console.log('[App] Checking auth state:', shouldBeLoggedIn ? 'LOGGED IN' : 'LOGGED OUT');
+      
+      if (shouldBeLoggedIn !== isLoggedIn) {
+        console.log('[App] Auth state mismatch, correcting:', shouldBeLoggedIn);
+        setIsLoggedIn(shouldBeLoggedIn);
+      }
+    };
+    
+    // Vérifier immédiatement
+    checkAuthState();
+    
+    // Vérifier périodiquement (fallback)
+    const interval = setInterval(checkAuthState, 1000);
+    
+    return () => clearInterval(interval);
+  }, [isLoggedIn]);
+
+  useEffect(() => {
   console.log('[App] Component mounted, setting up hash routing');
   const logScreenInfo = () => {
     const width = window.innerWidth;
@@ -256,23 +279,105 @@ export default function App() {
     window.location.hash = '';
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setIsProfileOpen(false);
-    setIsSettingsOpen(false);
-    // Nettoyer les données utilisateur
-    localStorage.removeItem('bonkont-user');
-    setCurrentView('dashboard');
-    setSelectedEventId(null);
-    setShowStats(false);
-    setShowHistory(false);
-    window.location.hash = '';
-    // Afficher un toast de confirmation
-    toast({
-      title: "Déconnexion réussie",
-      description: "Vous avez été déconnecté avec succès.",
-      duration: 3000,
-    });
+  const handleLogout = async () => {
+    console.log('[App] handleLogout called');
+    
+    try {
+      // 1) Fermer tous les dialogs de manière synchrone et immédiate (PATCH 1)
+      setIsProfileOpen(false);
+      setIsSettingsOpen(false);
+      console.log('[App] Dialogs closed');
+      
+      // 2) Laisser React appliquer le state (mini "yield")
+      await new Promise(resolve => setTimeout(resolve, 0));
+      
+      // 3) Nettoyer les données utilisateur
+      try {
+        localStorage.removeItem('bonkont-user');
+        console.log('[App] User data cleared');
+      } catch (e) {
+        console.warn('Erreur lors du nettoyage localStorage:', e);
+      }
+      
+      // 4) Réinitialiser l'état de l'application (PATCH 2 - source de vérité)
+      setIsLoggedIn(false); // CRITIQUE : doit être fait APRÈS la fermeture des dialogs
+      setCurrentView('dashboard');
+      setSelectedEventId(null);
+      setShowStats(false);
+      setShowHistory(false);
+      setSettingsDefaultTab('account');
+      console.log('[App] State reset, isLoggedIn = false');
+      
+      // 5) Réinitialiser le hash et rediriger (PATCH 3)
+      try {
+        window.location.hash = '';
+        console.log('[App] Hash reset');
+      } catch (e) {
+        console.warn('Erreur lors de la réinitialisation du hash:', e);
+      }
+      
+      // 6) Forcer un re-render complet en utilisant requestAnimationFrame
+      requestAnimationFrame(() => {
+        // S'assurer que tous les overlays sont supprimés
+        const overlays = document.querySelectorAll('[data-radix-dialog-overlay], [data-radix-alert-dialog-overlay]');
+        overlays.forEach(overlay => {
+          try {
+            overlay.remove();
+          } catch (e) {
+            console.warn('Erreur lors de la suppression d\'overlay:', e);
+          }
+        });
+        
+        // Afficher un toast de confirmation après un délai
+        setTimeout(() => {
+          try {
+            toast({
+              title: "Déconnexion réussie",
+              description: "Vous avez été déconnecté avec succès.",
+              duration: 3000,
+            });
+          } catch (e) {
+            console.warn('Erreur lors de l\'affichage du toast:', e);
+          }
+        }, 100);
+      });
+    } catch (error) {
+      console.error('[App] Erreur lors de la déconnexion:', error);
+      
+      // En cas d'erreur, forcer une réinitialisation complète
+      try {
+        // Nettoyer localStorage même en cas d'erreur
+        localStorage.removeItem('bonkont-user');
+        
+        // Forcer isLoggedIn à false (PATCH 2)
+        setIsLoggedIn(false);
+        setIsProfileOpen(false);
+        setIsSettingsOpen(false);
+        setCurrentView('dashboard');
+        setSelectedEventId(null);
+        setShowStats(false);
+        setShowHistory(false);
+        
+        // Supprimer tous les overlays bloquants
+        const overlays = document.querySelectorAll('[data-radix-dialog-overlay], [data-radix-alert-dialog-overlay]');
+        overlays.forEach(overlay => overlay.remove());
+        
+        // Réinitialiser le hash
+        window.location.hash = '';
+        
+        // Si vraiment bloqué, forcer un rechargement après 500ms
+        setTimeout(() => {
+          if (document.querySelector('[data-radix-dialog-overlay], [data-radix-alert-dialog-overlay]')) {
+            console.warn('[App] Overlays still present, forcing reload');
+            window.location.reload();
+          }
+        }, 500);
+      } catch (e) {
+        console.error('[App] Erreur critique lors de la réinitialisation:', e);
+        // Dernier recours : recharger la page
+        setTimeout(() => window.location.reload(), 300);
+      }
+    }
   };
 
   const handleDeleteAccount = () => {

@@ -8,6 +8,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
@@ -63,6 +64,9 @@ export function InviteFriends() {
       <DialogContent className="sm-w-md glass-morphism">
         <DialogHeader>
           <DialogTitle className="gradient-text">Inviter des amis</DialogTitle>
+          <DialogDescription>
+            Partagez le code de l'événement avec vos amis pour qu'ils puissent rejoindre
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

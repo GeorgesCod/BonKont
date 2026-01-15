@@ -92,6 +92,9 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }) {
       <DialogContent className="sm-w-md glass-morphism">
         <DialogHeader>
           <DialogTitle>Modifier votre avatar</DialogTitle>
+          <DialogDescription>
+            Sélectionnez ou téléchargez une image pour votre avatar
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

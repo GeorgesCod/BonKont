@@ -436,4 +436,145 @@
   .scrollarea-thumb {
     @apply relative flex-1 rounded-full bg-border hover:bg-primary/50 transition-colors duration-150 ease-out;
   }
+
+  /* Animations pour le code événement */
+  @keyframes pulse-slow {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.8;
+      transform: scale(1.02);
+    }
+  }
+
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -10px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
+
+  @keyframes bounce-gentle {
+    0%, 100% {
+      transform: translate(-50%, 0);
+    }
+    50% {
+      transform: translate(-50%, -5px);
+    }
+  }
+
+  .animate-pulse-slow {
+    animation: pulse-slow 3s ease-in-out infinite;
+  }
+
+  .animate-spin-slow {
+    animation: spin-slow 3s linear infinite;
+  }
+
+  .animate-fade-in-up {
+    animation: fade-in-up 0.5s ease-out forwards;
+  }
+
+  .animate-bounce-gentle {
+    animation: bounce-gentle 2s ease-in-out infinite;
+  }
+
+  /* Style pour le badge du code événement */
+  .event-code-badge {
+    position: relative;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.1), hsl(var(--primary) / 0.05));
+    border-color: hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 15px hsl(var(--primary) / 0.2),
+                0 0 30px hsl(var(--primary) / 0.1),
+                inset 0 0 20px hsl(var(--primary) / 0.05);
+  }
+
+  .event-code-badge:hover {
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.2), hsl(var(--primary) / 0.1));
+    border-color: hsl(var(--primary) / 0.6);
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.4),
+                0 0 40px hsl(var(--primary) / 0.2),
+                inset 0 0 30px hsl(var(--primary) / 0.1);
+  }
+
+  .event-code-badge::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg, 
+      hsl(var(--primary) / 0.5),
+      hsl(var(--secondary) / 0.5),
+      hsl(var(--primary) / 0.5)
+    );
+    border-radius: inherit;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    animation: pulse-slow 3s ease-in-out infinite;
+  }
+
+  .event-code-badge:hover::before {
+    opacity: 0.3;
+  }
+
+  /* Styles pour le bouton "Mes Participations" */
+  .mes-participations-btn {
+    position: relative;
+    overflow: visible;
+    background: linear-gradient(135deg, hsl(var(--primary) / 0.9), hsl(var(--primary) / 0.7));
+    border: 2px solid hsl(var(--primary) / 0.5);
+    box-shadow: 0 0 15px hsl(var(--primary) / 0.3),
+                0 0 30px hsl(var(--primary) / 0.2),
+                inset 0 0 20px hsl(var(--primary) / 0.1);
+  }
+
+  .mes-participations-btn:hover {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.9));
+    border-color: hsl(var(--primary) / 0.8);
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.5),
+                0 0 40px hsl(var(--primary) / 0.3),
+                inset 0 0 30px hsl(var(--primary) / 0.2);
+    transform: scale(1.05);
+  }
+
+  .mes-participations-btn::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: linear-gradient(45deg, 
+      hsl(var(--primary) / 0.6),
+      hsl(var(--secondary) / 0.6),
+      hsl(var(--primary) / 0.6)
+    );
+    border-radius: inherit;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    animation: pulse-slow 2s ease-in-out infinite;
+  }
+
+  .mes-participations-btn:hover::before {
+    opacity: 0.4;
+  }
 }
