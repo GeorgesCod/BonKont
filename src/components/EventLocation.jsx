@@ -101,72 +101,123 @@ export function EventLocation({ initialLocation, onLocationChange = () => {}, is
       : `https://www.google.com/maps?q=${encoded}`;
   };
 
-  // Fonction pour récupérer les points d'intérêt via Google Places API
-  const fetchPointsOfInterest = async (coords, placeId) => {
-    if (!googleMapsApiKey || !isSejour) return [];
+  // Fonction pour calculer la distance entre deux points GPS (formule de Haversine)
+  const calculateDistanceKm = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  // Fonction pour récupérer les points d'intérêt majeurs via Google Places API
+  const fetchPointsOfInterest = async (coords, placeId, address) => {
+    if (!googleMapsApiKey || !coords) return [];
     
     setIsLoadingPOI(true);
     try {
-      // Utiliser Nearby Search pour trouver les points d'intérêt
-      const url = placeId 
-        ? `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,rating,user_ratings_total,types,geometry&key=${googleMapsApiKey}`
-        : `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${coords.lat},${coords.lng}&radius=5000&type=tourist_attraction|point_of_interest&key=${googleMapsApiKey}`;
+      // Types de lieux prioritaires pour les sites majeurs
+      const majorTypes = [
+        'tourist_attraction',
+        'museum',
+        'art_gallery',
+        'church',
+        'mosque',
+        'synagogue',
+        'temple',
+        'park',
+        'zoo',
+        'aquarium',
+        'stadium',
+        'amusement_park',
+        'shopping_mall',
+        'landmark'
+      ];
       
-      const response = await fetch(url);
-      const data = await response.json();
+      let allPOI = [];
       
-      if (data.status === 'OK' && data.results) {
-        // Trier par rating et prendre les 5 meilleurs
-        const poi = data.results
-          .filter(place => place.rating && place.user_ratings_total >= 2) // Au moins 2 avis
-          .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-          .slice(0, 5)
-          .map(place => ({
-            name: place.name,
-            rating: place.rating || 0,
-            totalReviews: place.user_ratings_total || 0,
-            types: place.types || [],
-            placeId: place.place_id,
-            coordinates: place.geometry?.location ? {
-              lat: place.geometry.location.lat,
-              lng: place.geometry.location.lng
-            } : null
-          }));
-        
-        setPointsOfInterest(poi);
-        return poi;
+      // Recherche principale: Nearby Search basée UNIQUEMENT sur les coordonnées
+      // Utiliser un rayon de 5km pour s'assurer de rester dans la zone
+      const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${coords.lat},${coords.lng}&radius=5000&type=tourist_attraction&key=${googleMapsApiKey}`;
+      const nearbyResponse = await fetch(nearbyUrl);
+      const nearbyData = await nearbyResponse.json();
+      
+      if (nearbyData.status === 'OK' && nearbyData.results) {
+        allPOI = [...allPOI, ...nearbyData.results];
       }
       
-      // Si Nearby Search ne fonctionne pas, essayer Text Search
-      if (data.status !== 'OK' && coords) {
-        const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=points+of+interest+near+${coords.lat},${coords.lng}&key=${googleMapsApiKey}`;
-        const textResponse = await fetch(textSearchUrl);
-        const textData = await textResponse.json();
-        
-        if (textData.status === 'OK' && textData.results) {
-          const poi = textData.results
-            .filter(place => place.rating && place.user_ratings_total >= 2)
-            .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-            .slice(0, 5)
-            .map(place => ({
-              name: place.name,
-              rating: place.rating || 0,
-              totalReviews: place.user_ratings_total || 0,
-              types: place.types || [],
-              placeId: place.place_id,
-              coordinates: place.geometry?.location ? {
-                lat: place.geometry.location.lat,
-                lng: place.geometry.location.lng
-              } : null
-            }));
-          
-          setPointsOfInterest(poi);
-          return poi;
+      // Recherche supplémentaire: Autres types majeurs dans un rayon plus large mais filtré strictement
+      const additionalTypes = ['museum', 'art_gallery', 'church', 'park', 'landmark'];
+      for (const type of additionalTypes.slice(0, 2)) { // Limiter à 2 types pour éviter trop d'appels
+        const typeUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${coords.lat},${coords.lng}&radius=5000&type=${type}&key=${googleMapsApiKey}`;
+        try {
+          const typeResponse = await fetch(typeUrl);
+          const typeData = await typeResponse.json();
+          if (typeData.status === 'OK' && typeData.results) {
+            allPOI = [...allPOI, ...typeData.results];
+          }
+        } catch (err) {
+          console.warn(`[EventLocation] Error fetching ${type}:`, err);
         }
       }
       
-      setPointsOfInterest([]);
-      return [];
+      // Filtrer strictement par distance réelle (max 5km) et dédupliquer
+      const uniquePOI = [];
+      const seenIds = new Set();
+      
+      for (const place of allPOI) {
+        if (!place.place_id || !place.geometry?.location) continue;
+        if (seenIds.has(place.place_id)) continue;
+        
+        // Calculer la distance réelle avec Haversine
+        const placeLat = place.geometry.location.lat;
+        const placeLng = place.geometry.location.lng;
+        const distanceKm = calculateDistanceKm(coords.lat, coords.lng, placeLat, placeLng);
+        
+        // Filtrer strictement : max 5km
+        if (distanceKm > 5) continue;
+        
+        // Prioriser les sites avec de bons ratings et plusieurs avis
+        const hasGoodRating = place.rating && place.rating >= 4.0;
+        const hasEnoughReviews = place.user_ratings_total && place.user_ratings_total >= 5;
+        const isMajorType = place.types && place.types.some(type => majorTypes.includes(type));
+        
+        // Accepter si : bon rating + avis OU type majeur
+        if ((hasGoodRating && hasEnoughReviews) || isMajorType) {
+          seenIds.add(place.place_id);
+          uniquePOI.push({
+            ...place,
+            distanceKm // Garder la distance pour le tri
+          });
+        }
+      }
+      
+      // Trier par popularité (rating * nombre d'avis) et distance (plus proche = mieux)
+      // Prendre les 3 meilleurs
+      const poi = uniquePOI
+        .map(place => ({
+          place,
+          score: (place.rating || 0) * (place.user_ratings_total || 0) * (1 / (1 + place.distanceKm)) // Pénaliser la distance
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map(({ place }) => ({
+          name: place.name,
+          rating: place.rating || 0,
+          totalReviews: place.user_ratings_total || 0,
+          types: place.types || [],
+          placeId: place.place_id,
+          coordinates: {
+            lat: place.geometry.location.lat,
+            lng: place.geometry.location.lng
+          }
+        }));
+      
+      setPointsOfInterest(poi);
+      return poi;
     } catch (error) {
       console.error('[EventLocation] Error fetching POI:', error);
       setPointsOfInterest([]);
@@ -215,10 +266,10 @@ export function EventLocation({ initialLocation, onLocationChange = () => {}, is
       if (result?.coordinates) {
         setCoordinates(result.coordinates);
 
-        // Si c'est un séjour, récupérer les points d'intérêt
+        // Toujours récupérer les 3 sites d'intérêt majeurs pour tous les événements
         let poi = [];
-        if (isSejour && result.coordinates) {
-          poi = await fetchPointsOfInterest(result.coordinates, result.placeId);
+        if (result.coordinates) {
+          poi = await fetchPointsOfInterest(result.coordinates, result.placeId, result.address || trimmed);
         } else {
           setPointsOfInterest([]);
         }
@@ -269,10 +320,10 @@ export function EventLocation({ initialLocation, onLocationChange = () => {}, is
       if (result?.coordinates) {
         setCoordinates(result.coordinates);
 
-        // Si c'est un séjour, récupérer les points d'intérêt
+        // Toujours récupérer les 3 sites d'intérêt majeurs pour tous les événements
         let poi = [];
-        if (isSejour && result.coordinates) {
-          poi = await fetchPointsOfInterest(result.coordinates, result.placeId);
+        if (result.coordinates) {
+          poi = await fetchPointsOfInterest(result.coordinates, result.placeId, result.address || trimmed);
         }
 
         const newLocation = {
@@ -620,13 +671,13 @@ export function EventLocation({ initialLocation, onLocationChange = () => {}, is
         </Card>
       )}
 
-      {/* Points d'intérêt pour les séjours */}
-      {isSejour && coordinates && (
+      {/* Points d'intérêt majeurs - toujours affichés si disponibles */}
+      {coordinates && (
         <Card className="p-4 neon-border">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <MapPinned className="w-5 h-5 text-primary" />
-              <h3 className="font-semibold text-base sm:text-lg">Points d'intérêt à proximité</h3>
+              <h3 className="font-semibold text-base sm:text-lg">Meilleurs spots à visiter</h3>
             </div>
             
             {isLoadingPOI ? (

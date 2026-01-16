@@ -41,7 +41,10 @@ import {
   Star,
   Heart,
   MessageSquare,
-  Smile
+  Smile,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers } from '@/utils/bonkontBalances';
 import { useToast } from '@/hooks/use-toast';
@@ -59,6 +62,7 @@ export function EventClosure({ eventId, onBack }) {
   const addRating = useEventStore((state) => state.addRating);
   const event = allEvents.find(e => String(e.id) === String(eventId));
   const transactions = useTransactionsStore((state) => state.getTransactionsByEvent(eventId));
+  const addTransaction = useTransactionsStore((state) => state.addTransaction);
   
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [isValidated, setIsValidated] = useState(event?.closureValidated || false);
@@ -167,12 +171,38 @@ export function EventClosure({ eventId, onBack }) {
       let yPosition = margin;
       
       const checkNewPage = (requiredSpace = 20) => {
-        if (yPosition + requiredSpace > pageHeight - margin) {
+        if (yPosition + requiredSpace > pageHeight - margin - 15) { // Réserver 15px pour le footer
           doc.addPage();
-          yPosition = margin;
+          yPosition = margin + 10; // Espacement en haut de page
           return true;
         }
         return false;
+      };
+      
+      // Fonction pour ajouter le footer sur chaque page
+      const addFooter = () => {
+        const pageCount = doc.internal.pages.length - 1;
+        for (let i = 1; i <= pageCount; i++) {
+          doc.setPage(i);
+          doc.setFontSize(7);
+          doc.setTextColor(150, 150, 150);
+          doc.setFont(undefined, 'normal');
+          
+          // Numéro de page
+          doc.text(`Page ${i} / ${pageCount}`, pageWidth - margin - 20, pageHeight - 8);
+          
+        // Tagline Bonkont centré en bas
+        const tagline = 'Bonkont fait les comptes, les Amis font le reste';
+        const taglineWidth = doc.getTextWidth(tagline);
+        doc.text(tagline, (pageWidth - taglineWidth) / 2, pageHeight - 8);
+          
+          // Code événement à gauche
+          doc.text(`BONKONT - ${event.code}`, margin, pageHeight - 8);
+          
+          // Ligne de séparation fine
+          doc.setDrawColor(220, 220, 220);
+          doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+        }
       };
       
       // ===== EN-TÊTE =====
@@ -248,7 +278,7 @@ export function EventClosure({ eventId, onBack }) {
         doc.setFontSize(9);
         doc.setTextColor(34, 197, 94); // Vert
         doc.setFont(undefined, 'bold');
-        doc.text('✅ Répartition équilibrée', margin, yPosition);
+        doc.text('[EQUILIBRE] Répartition équilibrée', margin, yPosition);
         yPosition += 5;
         doc.setFontSize(8);
         doc.setTextColor(120, 120, 120);
@@ -262,7 +292,7 @@ export function EventClosure({ eventId, onBack }) {
         doc.setFontSize(9);
         doc.setTextColor(239, 68, 68); // Rouge
         doc.setFont(undefined, 'bold');
-        doc.text('⚠️ Note sur les calculs', margin, yPosition);
+        doc.text('[NOTE] Calculs et équilibrage', margin, yPosition);
         yPosition += 5;
         doc.setFontSize(8);
         doc.setTextColor(120, 120, 120);
@@ -341,17 +371,43 @@ export function EventClosure({ eventId, onBack }) {
         doc.setFontSize(11);
         doc.setTextColor(239, 68, 68); // Rouge
         doc.setFont(undefined, 'bold');
-        doc.text('⚠️ Répartition incomplète', margin, yPosition);
+        doc.text('[ATTENTION] Répartition incomplète', margin, yPosition);
         yPosition += 6;
         doc.setFontSize(9);
         doc.setTextColor(120, 120, 120);
         doc.setFont(undefined, 'normal');
         const warningLines = doc.splitTextToSize(transfersResult.warning, pageWidth - 2 * margin);
         warningLines.forEach((line, idx) => {
+          checkNewPage(5);
           doc.text(line, margin, yPosition);
           yPosition += 5;
         });
+        
+        // Message informatif sur les contributions réelles vs théoriques
+        if (transfersResult.warning && transfersResult.warning.includes('contribution réelle')) {
+          checkNewPage(15);
+          yPosition += 5;
+          doc.setFontSize(10);
+          doc.setTextColor(59, 130, 246); // Bleu
+          doc.setFont(undefined, 'bold');
+          doc.text('[INFORMATION IMPORTANTE]', margin, yPosition);
+          yPosition += 6;
+          doc.setFontSize(9);
+          doc.setTextColor(59, 130, 246);
+          doc.setFont(undefined, 'normal');
+          const infoText = `Le budget théorique fixé au départ est UNIQUEMENT un repère indicatif à ne pas dépasser. ` +
+                          `Seules les contributions RÉELLES (paiements en espèces, virements, etc.) doivent être enregistrées et prises en compte. ` +
+                          `Un déséquilibre temporaire est normal tant que les contributions réelles n'ont pas encore été enregistrées.`;
+          const infoLines = doc.splitTextToSize(infoText, pageWidth - 2 * margin);
+          infoLines.forEach((line, idx) => {
+            checkNewPage(5);
+            doc.text(line, margin, yPosition);
+            yPosition += 5;
+          });
+        }
+        
         if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01) {
+          checkNewPage(8);
           yPosition += 2;
           doc.setFontSize(8);
           doc.setTextColor(150, 150, 150);
@@ -359,8 +415,104 @@ export function EventClosure({ eventId, onBack }) {
           doc.text(`Écart détecté : ${balancesResult.totalSolde.toFixed(2)}€`, margin, yPosition);
           yPosition += 5;
         }
+        checkNewPage(10);
         yPosition += 5;
       }
+      
+      // ===== LA RÈGLE BONKONT =====
+      checkNewPage(35);
+      doc.setFontSize(16);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('La Règle Bonkont', margin, yPosition);
+      yPosition += 8;
+      
+      // Phrase principale
+      doc.setFontSize(11);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      const ruleText = '"Tu Valides, Tu consommes, Tu reçois ou Tu verses, Tu es Quittes"';
+      const ruleLines = doc.splitTextToSize(ruleText, pageWidth - 2 * margin);
+      ruleLines.forEach((line, idx) => {
+        checkNewPage(6);
+        doc.text(line, margin, yPosition);
+        yPosition += 6;
+      });
+      
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 100);
+      doc.setFont(undefined, 'italic');
+      checkNewPage(5);
+      doc.text('C\'est Transparent, c\'est Equitable, c\'est Bonkont', margin, yPosition);
+      yPosition += 8;
+      
+      // Explication
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      const explicationText = 'La règle Bonkont est simple et équitable : seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata. La validation (complète ou partielle) détermine la répartition et les transferts.';
+      const explicationLines = doc.splitTextToSize(explicationText, pageWidth - 2 * margin);
+      explicationLines.forEach((line, idx) => {
+        checkNewPage(5);
+        doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
+      checkNewPage(15);
+      yPosition += 5;
+      
+      // Exemple concret
+      doc.setFontSize(10);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('Exemple concret :', margin, yPosition);
+      yPosition += 6;
+      
+      doc.setFontSize(8);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      checkNewPage(5);
+      doc.text('Scénario : 10 personnes participent à un événement. Alice effectue une dépense de 30€', margin + 5, yPosition);
+      yPosition += 5;
+      checkNewPage(5);
+      doc.text('pour un repas en ville. Alice, Bob et Charlie valident cette dépense. Les 7 autres', margin + 5, yPosition);
+      yPosition += 5;
+      checkNewPage(5);
+      doc.text('participants ne valident pas (ils sont restés sur site).', margin + 5, yPosition);
+      yPosition += 6;
+      
+      doc.setFontSize(8);
+      doc.setTextColor(34, 197, 94); // Vert
+      doc.setFont(undefined, 'bold');
+      checkNewPage(5);
+      doc.text('Résultat selon la règle Bonkont :', margin + 5, yPosition);
+      yPosition += 5;
+      
+      doc.setFontSize(8);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      checkNewPage(5);
+      doc.text('• Seuls Alice, Bob et Charlie sont concernés par cette dépense', margin + 10, yPosition);
+      yPosition += 5;
+      checkNewPage(5);
+      doc.text('• Chacun consomme 10€ (30€ ÷ 3 personnes)', margin + 10, yPosition);
+      yPosition += 5;
+      checkNewPage(5);
+      doc.text('• Alice a avancé 30€, elle consomme 10€ → elle doit recevoir 20€', margin + 10, yPosition);
+      yPosition += 5;
+      checkNewPage(5);
+      doc.text('• Bob et Charlie doivent chacun 10€ à Alice', margin + 10, yPosition);
+      yPosition += 5;
+      checkNewPage(5);
+      doc.text('• Les 7 autres participants sont exemptés (ils n\'ont pas validé)', margin + 10, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.setFont(undefined, 'italic');
+      checkNewPage(5);
+      doc.text('La validation détermine qui consomme et qui doit rembourser. C\'est transparent, équitable, et tout le monde est quitte !', margin, yPosition);
+      checkNewPage(15);
+      yPosition += 10;
       
       // Transferts finaux - Vue globale
       if (transfers.length > 0) {
@@ -410,7 +562,7 @@ export function EventClosure({ eventId, onBack }) {
             doc.setFontSize(9);
             doc.setTextColor(34, 197, 94);
             doc.setFont(undefined, 'normal');
-            doc.text(`✓ ${balance.participantName}: Participation équilibrée`, margin + 5, yPosition);
+            doc.text(`[OK] ${balance.participantName}: Participation équilibrée`, margin + 5, yPosition);
             yPosition += 6;
             return;
           }
@@ -456,7 +608,7 @@ export function EventClosure({ eventId, onBack }) {
         doc.setFontSize(12);
         doc.setTextColor(34, 197, 94);
         doc.setFont(undefined, 'bold');
-        doc.text('✅ Tout est équilibré', margin, yPosition);
+        doc.text('[EQUILIBRE] Tout est équilibré', margin, yPosition);
         yPosition += 6;
         doc.setFontSize(9);
         doc.setTextColor(120, 120, 120);
@@ -533,29 +685,23 @@ export function EventClosure({ eventId, onBack }) {
       doc.setFont(undefined, 'italic');
       doc.text('Les comptes sont clairs, les souvenirs restent.', margin + 10, yPosition);
       yPosition += 7;
-      doc.text('Bonkont fait les comptes, les amis font le reste.', margin + 10, yPosition);
+      doc.text('Bonkont fait les comptes, les Amis font le reste.', margin + 10, yPosition);
       
-      // Numéro de page et mentions
-      const pageCount = doc.internal.pages.length - 1;
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(150, 150, 150);
-        doc.text(`Page ${i} / ${pageCount}`, pageWidth - margin - 20, pageHeight - 10);
-        doc.text(`BONKONT - ${event.code}`, margin, pageHeight - 10);
-        if (isValidated) {
+      // Ajouter le footer sur toutes les pages
+      addFooter();
+      
+      // Ajouter mention de validation si applicable
+      if (isValidated) {
+        const pageCount = doc.internal.pages.length - 1;
+        for (let i = 1; i <= pageCount; i++) {
+          doc.setPage(i);
           doc.setFontSize(7);
           doc.setTextColor(34, 197, 94);
-          doc.text('Document figé et signé', pageWidth / 2 - 20, pageHeight - 10);
+          doc.setFont(undefined, 'bold');
+          const validationText = 'Document figé et signé';
+          const validationWidth = doc.getTextWidth(validationText);
+          doc.text(validationText, (pageWidth - validationWidth) / 2, pageHeight - 15);
         }
-        
-        // Mention discrète premium en bas
-        doc.setFontSize(6);
-        doc.setTextColor(180, 180, 180);
-        doc.setFont(undefined, 'italic');
-        const premiumText = 'Document généré par Bonkont — répartition validée collectivement.';
-        const textWidth = doc.getTextWidth(premiumText);
-        doc.text(premiumText, (pageWidth - textWidth) / 2, pageHeight - 3);
       }
       
       const fileName = isValidated 
@@ -906,17 +1052,84 @@ export function EventClosure({ eventId, onBack }) {
           <div className="mb-4 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
             <div className="flex items-start gap-2">
               <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100 mb-1">
-                  ⚠️ Répartition incomplète
-                </p>
-                <p className="text-sm text-yellow-800 dark:text-yellow-200">
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
+                    ⚠️ Répartition incomplète
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-yellow-700 dark:text-yellow-300 hover:text-yellow-900 dark:hover:text-yellow-100"
+                    onClick={() => setShowHelpIncompleteDistribution(!showHelpIncompleteDistribution)}
+                  >
+                    <HelpCircle className="w-4 h-4 mr-1" />
+                    {showHelpIncompleteDistribution ? (
+                      <>
+                        <span className="text-xs">Masquer l'aide</span>
+                        <ChevronUp className="w-3 h-3 ml-1" />
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-xs">Comment corriger ?</span>
+                        <ChevronDown className="w-3 h-3 ml-1" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
                   {transfersResult.warning}
                 </p>
                 {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01 && (
-                  <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-2 italic">
+                  <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-2 italic">
                     Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
                   </p>
+                )}
+                
+                {/* Section d'aide détaillée */}
+                {showHelpIncompleteDistribution && (
+                  <div className="mt-4 p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg border border-yellow-300 dark:border-yellow-700">
+                    <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2">
+                      📚 Qu'est-ce qu'une répartition incomplète ?
+                    </h4>
+                    <p className="text-xs text-yellow-800 dark:text-yellow-200 mb-3">
+                      Une répartition incomplète signifie que la somme des soldes de tous les participants et de la cagnotte n'est pas égale à 0€. 
+                      En comptabilité, cette équation doit toujours être vraie : <strong>Σ soldes participants + solde POT = 0€</strong>
+                    </p>
+                    <div className="text-xs text-yellow-800 dark:text-yellow-200 mb-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded">
+                      <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". 
+                      Si toutes les transactions sont <strong>validées collectivement</strong> et équilibrées, alors la répartition devrait être équilibrée automatiquement.
+                    </div>
+                    
+                    <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
+                      🔍 Causes possibles :
+                    </h4>
+                    <ul className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-3 list-disc list-inside">
+                      <li><strong>Dépenses partagées mal enregistrées</strong> : Si une dépense de 100€ est partagée entre 4 personnes mais que seule la personne qui a payé est dans la liste "participants", alors cette personne consomme 100€ au lieu de 25€ (100/4).</li>
+                      <li><strong>Contributions manquantes</strong> : Si la cagnotte est déficitaire, il manque des contributions pour équilibrer les comptes.</li>
+                      <li><strong>Transactions incomplètes</strong> : Certaines transactions peuvent avoir des informations manquantes (montant, participants, payeur).</li>
+                    </ul>
+                    
+                    <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
+                      ✅ Solutions pour corriger :
+                    </h4>
+                    <ol className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-2 list-decimal list-inside">
+                      <li><strong>Vérifier les dépenses partagées</strong> : Pour chaque dépense partagée, ouvrez la transaction et assurez-vous que <strong>tous les participants concernés</strong> sont dans la liste "participants". Par exemple, si A paie 100€ pour A, B, C, D, la liste doit contenir [A, B, C, D], pas seulement [A].</li>
+                      <li><strong>Ajouter des contributions</strong> : Si la cagnotte est déficitaire, enregistrez des contributions supplémentaires pour combler le déficit.</li>
+                      <li><strong>Corriger les transactions suspectes</strong> : Bonkont détecte automatiquement les transactions où seul le payeur est dans la liste. Ouvrez ces transactions et ajoutez tous les participants concernés.</li>
+                      <li><strong>Vérifier les montants</strong> : Assurez-vous que tous les montants sont corrects et que les devises sont cohérentes.</li>
+                    </ol>
+                    
+                    <div className="mt-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded text-xs text-yellow-900 dark:text-yellow-100">
+                      <strong>💡 Astuce</strong> : Bonkont applique automatiquement une correction pour les dépenses où seul le payeur est dans la liste, mais il est préférable de corriger manuellement les transactions pour garantir la précision des calculs.
+                    </div>
+                    
+                    <div className="mt-3 p-2 bg-blue-100 dark:bg-blue-900/30 rounded text-xs text-blue-900 dark:text-blue-100">
+                      <strong>📌 Important</strong> : Le budget théorique fixé au départ de l'événement est UNIQUEMENT un repère indicatif à ne pas dépasser. 
+                      Seules les contributions RÉELLES (paiements en espèces, virements, etc.) doivent être enregistrées et prises en compte dans les calculs. 
+                      Si un déséquilibre apparaît, c'est normal tant que les contributions réelles n'ont pas encore été enregistrées.
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -1220,7 +1433,7 @@ export function EventClosure({ eventId, onBack }) {
               Les comptes sont clairs, les souvenirs restent.
             </p>
             <p className="text-green-700 dark:text-green-300 text-base font-semibold italic">
-              Bonkont fait les comptes, les amis font le reste.
+              Bonkont fait les comptes, les Amis font le reste.
             </p>
             
             {/* Signatures finales */}

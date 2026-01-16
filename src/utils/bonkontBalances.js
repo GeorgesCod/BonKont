@@ -172,6 +172,133 @@ function isPaidByPot(transaction) {
 }
 
 /**
+ * Identifie si une transaction est validée collectivement par tous les participants
+ * 
+ * RÈGLE BONKONT : "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes"
+ * 
+ * Si une transaction est validée collectivement, elle est automatiquement équilibrée :
+ * - Tous les participants concernés consomment au prorata
+ * - Le payeur avance le montant total mais consomme seulement sa part
+ * - Les autres participants doivent rembourser leur part au payeur
+ * 
+ * @param {Object} transaction - Transaction à vérifier
+ * @param {Object} event - Événement contenant la liste des participants
+ * @returns {boolean} True si la transaction est validée collectivement
+ */
+function isCollectivelyValidated(transaction, event) {
+  // Vérifier les champs de validation collective
+  const validatedBy = transaction.validatedBy || [];
+  const validationCount = transaction.validationCount || 0;
+  const totalValidators = transaction.totalValidators || 0;
+  const eventParticipants = event?.participants || [];
+  const otherParticipantsCount = Math.max(0, eventParticipants.length - 1); // Exclure le payeur
+  
+  // Une transaction est validée collectivement si :
+  // 1. Elle a un champ validatedBy avec tous les autres participants
+  // 2. OU validationCount >= totalValidators (tous ont validé)
+  // 3. OU validationCount >= otherParticipantsCount (tous les autres ont validé)
+  
+  const isFullyValidated = validationCount > 0 && (
+    (totalValidators > 0 && validationCount >= totalValidators) ||
+    (otherParticipantsCount > 0 && validationCount >= otherParticipantsCount) ||
+    (validatedBy.length > 0 && validatedBy.length >= otherParticipantsCount)
+  );
+  
+  if (isFullyValidated) {
+    console.log('[isCollectivelyValidated] ✅ Transaction validée collectivement:', {
+      transactionId: transaction.id,
+      validatedBy,
+      validationCount,
+      totalValidators,
+      otherParticipantsCount,
+      eventParticipantsCount: eventParticipants.length
+    });
+  }
+  
+  return isFullyValidated;
+}
+
+/**
+ * Détermine les participants concernés par une dépense selon la règle Bonkont
+ * 
+ * RÈGLE BONKONT : Seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata.
+ * La validation (complète ou partielle) détermine la règle de répartition et de transferts.
+ * 
+ * Exemple : 10 personnes dans un événement, A fait une dépense validée par B et C seulement
+ * → Seuls A, B et C sont concernés par la répartition équitable
+ * 
+ * @param {Object} transaction - Transaction à analyser
+ * @param {Object} event - Événement contenant la liste des participants
+ * @returns {Array<string>} Liste des IDs des participants concernés par la dépense
+ */
+function getParticipantsConcernedByExpense(transaction, event) {
+  const payerId = transaction.payerId || transaction.payer || transaction.selectedPayerId || null;
+  const validatedBy = transaction.validatedBy || [];
+  const paidByPot = isPaidByPot(transaction);
+  const eventParticipants = event?.participants || [];
+  const allParticipantIds = eventParticipants.map(p => String(p.id));
+  
+  // Si dépense payée par POT ou sans payeur, utiliser les participants de la transaction
+  if (paidByPot || !payerId) {
+    const transactionParticipants = transaction.participants || [];
+    const participantsConcerned = transactionParticipants.map(p => String(p)).filter(pId => allParticipantIds.includes(pId));
+    
+    // Si validée collectivement, tous les participants sont concernés
+    if (isCollectivelyValidated(transaction, event)) {
+      return allParticipantIds;
+    }
+    
+    // Sinon, utiliser les participants de la transaction + les validateurs
+    const result = new Set(participantsConcerned);
+    validatedBy.forEach(validatorId => {
+      const validatorIdStr = String(validatorId);
+      if (allParticipantIds.includes(validatorIdStr)) {
+        result.add(validatorIdStr);
+      }
+    });
+    
+    return Array.from(result);
+  }
+  
+  // RÈGLE BONKONT : Le payeur est toujours inclus (il consomme aussi sa part)
+  const participantsConcerned = new Set([String(payerId)]);
+  
+  // Si la transaction est validée collectivement (tous les participants), tous sont concernés
+  if (isCollectivelyValidated(transaction, event)) {
+    allParticipantIds.forEach(id => participantsConcerned.add(id));
+  } else if (validatedBy.length > 0) {
+    // Sinon, seuls le payeur + les validateurs sont concernés
+    validatedBy.forEach(validatorId => {
+      const validatorIdStr = String(validatorId);
+      if (allParticipantIds.includes(validatorIdStr)) {
+        participantsConcerned.add(validatorIdStr);
+      }
+    });
+  } else {
+    // Si aucune validation, utiliser les participants de la transaction (compatibilité avec anciennes données)
+    const transactionParticipants = transaction.participants || [];
+    transactionParticipants.forEach(pId => {
+      const pIdStr = String(pId);
+      if (allParticipantIds.includes(pIdStr)) {
+        participantsConcerned.add(pIdStr);
+      }
+    });
+    
+    // Si le payeur est seul dans la transaction, inclure tous les participants (correction automatique)
+    if (participantsConcerned.size === 1 && participantsConcerned.has(String(payerId))) {
+      allParticipantIds.forEach(id => participantsConcerned.add(id));
+      console.log('[getParticipantsConcernedByExpense] ⚠️ CORRECTION: Payeur seul sans validation, ajout de tous les participants:', {
+        transactionId: transaction.id,
+        payerId,
+        message: 'Transaction sans validation détectée. Correction automatique: ajout de tous les participants.'
+      });
+    }
+  }
+  
+  return Array.from(participantsConcerned);
+}
+
+/**
  * Identifie si une transaction est une dépense (vs paiement)
  */
 function isExpense(transaction) {
@@ -484,69 +611,56 @@ export function computeBalances(event, transactions) {
   
   expenses.forEach(transaction => {
     const amount = parseFloat(transaction.amount) || 0;
-    let participantsConcerned = transaction.participants || [];
     
-    if (participantsConcerned.length === 0 || amount === 0) {
-      console.warn('[computeBalances] Dépense ignorée (pas de participants ou montant 0):', {
+    if (amount === 0) {
+      console.warn('[computeBalances] Dépense ignorée (montant 0):', {
         transactionId: transaction.id,
-        participantsCount: participantsConcerned.length,
         amount
       });
       return;
     }
     
-    // Identifier le payeur AVANT de filtrer les participants
+    // Identifier le payeur AVANT de déterminer les participants concernés
     let payerId = transaction.payerId || transaction.payer || transaction.selectedPayerId || null;
     
     // Si pas de payeur identifié et ticket scanné, prendre le premier participant
-    if (!payerId && transaction.source === 'scanned_ticket' && participantsConcerned.length > 0) {
-      payerId = participantsConcerned[0];
+    if (!payerId && transaction.source === 'scanned_ticket' && transaction.participants && transaction.participants.length > 0) {
+      payerId = transaction.participants[0];
       console.log('[computeBalances] Payeur auto-assigné pour ticket scanné:', {
         transactionId: transaction.id,
         payerId,
-        participantsConcerned
+        participants: transaction.participants
       });
     }
     
-    // CORRECTION CRITIQUE: Détecter les transactions mal formatées
-    // Cas 1: Payeur pas dans la liste des participants → l'ajouter
-    // Cas 2: Payeur seul dans la liste mais dépense probablement partagée → détecter et logger
-    if (payerId && !participantsConcerned.includes(payerId)) {
-      console.warn('[computeBalances] ⚠️ CORRECTION: Payeur pas dans la liste des participants, ajout automatique:', {
+    // RÈGLE BONKONT : Seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata.
+    // La validation (complète ou partielle) détermine la règle de répartition et de transferts.
+    // Exemple : 10 personnes dans un événement, A fait une dépense validée par B et C seulement
+    // → Seuls A, B et C sont concernés par la répartition équitable
+    const participantsConcerned = getParticipantsConcernedByExpense(transaction, { participants });
+    
+    if (participantsConcerned.length === 0) {
+      console.warn('[computeBalances] Dépense ignorée (aucun participant concerné):', {
         transactionId: transaction.id,
         payerId,
-        participantsConcernedAvant: [...participantsConcerned],
-        participantsConcernedApres: [...participantsConcerned, payerId]
+        validatedBy: transaction.validatedBy || [],
+        participants: transaction.participants || []
       });
-      // Ajouter le payeur à la liste des participants concernés
-      participantsConcerned = [...participantsConcerned, payerId];
+      return;
     }
     
-    // CORRECTION AUTOMATIQUE: Si le payeur est seul dans participants, c'est probablement une dépense partagée mal enregistrée
-    // RÈGLE: "Que tu paies ou dépense, on doit te rembourser au prorata"
-    // Si le payeur est seul dans participants, on suppose que c'est une dépense partagée entre TOUS les participants de l'événement
-    if (payerId && participantsConcerned.length === 1 && participantsConcerned[0] === payerId && amount > 0.01) {
-      console.warn('[computeBalances] ⚠️ CORRECTION AUTOMATIQUE: Payeur seul dans participants, ajout de tous les participants de l\'événement:', {
-        transactionId: transaction.id,
-        payerId,
-        amount,
-        participantsConcernedAvant: [...participantsConcerned],
-        message: 'Cette transaction semble être une dépense partagée mais seul le payeur est dans la liste. ' +
-                 'Correction automatique: ajout de tous les participants de l\'événement pour appliquer la règle "je paie, tu me rembourses au prorata".'
-      });
-      
-      // Ajouter TOUS les participants de l'événement à la liste des participants concernés
-      const allParticipantIds = participants.map(p => p.id);
-      participantsConcerned = [...new Set([...participantsConcerned, ...allParticipantIds])]; // Utiliser Set pour éviter les doublons
-      
-      console.log('[computeBalances] ✅ Correction appliquée:', {
-        transactionId: transaction.id,
-        participantsConcernedApres: participantsConcerned,
-        nombreParticipants: participantsConcerned.length,
-        nouvellePartParPersonne: (amount / participantsConcerned.length).toFixed(2) + '€',
-        soldeAttenduPayeur: (amount - amount / participantsConcerned.length).toFixed(2) + '€'
-      });
-    }
+    console.log('[computeBalances] ✅ RÈGLE BONKONT APPLIQUÉE: Participants concernés déterminés par validation:', {
+      transactionId: transaction.id,
+      payerId,
+      amount,
+      validatedBy: transaction.validatedBy || [],
+      validationCount: transaction.validationCount || 0,
+      participantsConcerned,
+      nombreParticipants: participantsConcerned.length,
+      partParPersonne: (amount / participantsConcerned.length).toFixed(2) + '€',
+      soldeAttenduPayeur: payerId ? (amount - amount / participantsConcerned.length).toFixed(2) + '€' : 'N/A',
+      message: `RÈGLE BONKONT: Seuls les participants qui valident sont redevables. Payeur avance ${amount}€, chaque participant concerné (y compris le payeur) consomme ${(amount / participantsConcerned.length).toFixed(2)}€`
+    });
     
     // Filtrer les participants valides
     const validParticipants = participantsConcerned.filter(pId => balances[pId]);
@@ -564,8 +678,34 @@ export function computeBalances(event, transactions) {
     const share = amount / validParticipants.length;
     totalConsommation += amount; // La consommation totale = montant de la dépense
     
+    // LOG DÉTAILLÉ POUR DIAGNOSTIC: Vérifier si c'est une transaction de 12.20€ entre 2 personnes
+    if (Math.abs(amount - 12.20) < 0.01 && participants.length === 2) {
+      console.warn('[computeBalances] 🔍 DIAGNOSTIC TRANSACTION 12.20€:', {
+        transactionId: transaction.id,
+        amount,
+        participantsConcerned,
+        validParticipants,
+        validParticipantsCount: validParticipants.length,
+        totalParticipantsEvent: participants.length,
+        share,
+        shareExpected: amount / 2,
+        payerId,
+        balancesBefore: validParticipants.map(pId => ({
+          participantId: pId,
+          consommeAvant: balances[pId].consomme,
+          avanceAvant: balances[pId].avance
+        }))
+      });
+    }
+    
     // Vérifier si payé par POT
     const paidByPot = isPaidByPot(transaction);
+    
+    // VÉRIFICATION CRITIQUE: Si le payeur est dans la liste mais que le nombre de participants ne correspond pas
+    // à ce qui est attendu pour une répartition équitable, logger un avertissement
+    const payerIsInParticipants = payerId ? validParticipants.includes(payerId) : null;
+    const expectedShareForTwo = amount / 2; // Si 2 participants dans l'événement
+    const isShareIncorrect = payerIsInParticipants && validParticipants.length !== participants.length && Math.abs(share - expectedShareForTwo) > 0.01;
     
     console.log('[computeBalances] Traitement dépense:', {
       transactionId: transaction.id,
@@ -573,15 +713,21 @@ export function computeBalances(event, transactions) {
       amount,
       participantsConcerned,
       validParticipants,
+      validParticipantsCount: validParticipants.length,
+      totalParticipantsEvent: participants.length,
       payerId,
       paidByPot,
       share,
-      payerIsInParticipants: payerId ? validParticipants.includes(payerId) : null,
+      shareFormatted: share.toFixed(2) + '€',
+      payerIsInParticipants,
       calculSoldeAttendu: payerId && validParticipants.includes(payerId) 
-        ? `Payeur avance ${amount}€, consomme ${share}€, solde attendu = ${amount - share}€`
+        ? `Payeur avance ${amount}€, consomme ${share.toFixed(2)}€, solde attendu = ${(amount - share).toFixed(2)}€`
         : payerId 
           ? `⚠️ PROBLÈME: Payeur ${payerId} pas dans participants ${validParticipants.join(', ')}`
-          : 'Pas de payeur identifié'
+          : 'Pas de payeur identifié',
+      verificationEquite: payerIsInParticipants && participants.length === 2
+        ? `Pour 2 participants: part attendue = ${expectedShareForTwo.toFixed(2)}€, part calculée = ${share.toFixed(2)}€, ${isShareIncorrect ? '⚠️ INCOHÉRENT' : '✅ COHÉRENT'}`
+        : null
     });
     
     if (paidByPot) {
@@ -609,9 +755,25 @@ export function computeBalances(event, transactions) {
       
       // Chaque participant concerné consomme sa part (y compris le payeur s'il est dans la liste)
       validParticipants.forEach(participantId => {
+        const consommeAvant = balances[participantId].consomme;
         balances[participantId].consomme += share;
+        const consommeApres = balances[participantId].consomme;
+        
+        // LOG DÉTAILLÉ POUR DIAGNOSTIC: Vérifier si c'est une transaction de 12.20€ entre 2 personnes
+        if (Math.abs(amount - 12.20) < 0.01 && participants.length === 2) {
+          console.warn(`[computeBalances] 🔍 DIAGNOSTIC: Ajout consommation pour participant ${participantId}:`, {
+            transactionId: transaction.id,
+            participantId,
+            consommeAvant,
+            share,
+            consommeApres,
+            difference: consommeApres - consommeAvant,
+            expectedShare: amount / 2,
+            isValid: Math.abs(share - (amount / 2)) < 0.01
       });
-      
+    }
+  });
+  
       // Si le payeur n'est PAS dans la liste des participants, c'est un problème de données
       // Mais on ne peut pas le corriger ici, on doit juste logger
       if (!payerIsInParticipants) {
@@ -725,6 +887,58 @@ export function computeBalances(event, transactions) {
   const totalReceived = Object.values(balances).reduce((sum, b) => sum + b.received, 0);
   const totalRembPot = Object.values(balances).reduce((sum, b) => sum + b.rembPot, 0);
   
+  // DÉTECTION AUTOMATIQUE : Cas "avances sans contributions"
+  // Si des avances existent mais aucune contribution au POT, c'est probablement le cas où
+  // les participants ont fait des dépenses sans avoir contribué au POT au préalable
+  const hasAdvancesWithoutContributions = totalAvance > 0.01 && potBalance.contributions < 0.01 && !isBalanced;
+  const theoreticalContributionPerParticipant = event.amount ? (event.amount / participants.length) : 0;
+  const totalTheoreticalContributions = theoreticalContributionPerParticipant * participants.length;
+  
+  console.log('[computeBalances] Détection cas "avances sans contributions":', {
+    hasAdvancesWithoutContributions,
+    totalAvance,
+    potBalanceContributions: potBalance.contributions,
+    isBalanced,
+    theoreticalContributionPerParticipant,
+    totalTheoreticalContributions,
+    eventAmount: event.amount,
+    participantsCount: participants.length
+  });
+  
+  // LOG DÉTAILLÉ POUR DIAGNOSTIC: Afficher la consommation finale de chaque participant
+  // Particulièrement utile pour diagnostiquer les problèmes de calcul avec 2 participants
+  if (participants.length === 2) {
+    const participantsDetails = participants.map(p => ({
+      id: p.id,
+      name: p.name,
+      avance: balances[p.id]?.avance || 0,
+      consomme: balances[p.id]?.consomme || 0,
+      mise: balances[p.id]?.mise || 0,
+      solde: balances[p.id]?.solde || 0,
+      contribution: balances[p.id]?.contribution || 0
+    }));
+    
+    console.warn('[computeBalances] 🔍 DIAGNOSTIC FINAL - Événement à 2 participants:', {
+      participants: participantsDetails,
+      totalAvance,
+      totalConsomme,
+      verification: `Total avances (${totalAvance.toFixed(2)}€) devrait égaler total consommation (${totalConsomme.toFixed(2)}€) si équilibré`
+    });
+    
+    // Afficher chaque participant individuellement pour faciliter le diagnostic
+    participantsDetails.forEach((p, index) => {
+      console.warn(`[computeBalances] 🔍 Participant ${index + 1} - ${p.name}:`, {
+        id: p.id,
+        avance: `${p.avance.toFixed(2)}€`,
+        consomme: `${p.consomme.toFixed(2)}€`,
+        mise: `${p.mise.toFixed(2)}€`,
+        solde: `${p.solde.toFixed(2)}€`,
+        contribution: `${p.contribution.toFixed(2)}€`,
+        calculSolde: `mise (${p.mise.toFixed(2)}€) - consomme (${p.consomme.toFixed(2)}€) = solde (${p.solde.toFixed(2)}€)`
+      });
+    });
+  }
+  
   console.log('[computeBalances] Totaux calculés:', {
     totalMise,
     totalConsomme,
@@ -742,45 +956,18 @@ export function computeBalances(event, transactions) {
     isBalanced
   });
   
-  // Détecter les transactions suspectes (payeur seul dans participants)
-  const suspectTransactions = expenses.filter(t => {
-    const payerId = t.payerId || t.payer || t.selectedPayerId;
-    const participantsConcerned = t.participants || [];
-    return payerId && participantsConcerned.length === 1 && participantsConcerned[0] === payerId && parseFloat(t.amount) > 10;
-  });
-  
-  if (suspectTransactions.length > 0) {
-    console.warn('[computeBalances] ⚠️⚠️⚠️ TRANSACTIONS SUSPECTES DÉTECTÉES:', {
-      count: suspectTransactions.length,
-      transactions: suspectTransactions.map(t => ({
-        id: t.id,
-        payerId: t.payerId || t.payer,
-        amount: t.amount,
-        participants: t.participants,
-        message: `Transaction ${t.id}: Le payeur ${t.payerId || t.payer} est seul dans participants. ` +
-                 `Si c'est une dépense partagée, il faut ajouter tous les participants concernés. ` +
-                 `Actuellement: payeur avance ${t.amount}€ et consomme ${t.amount}€ (solde = 0€).`
-      })),
-      message: `⚠️ ${suspectTransactions.length} transaction(s) suspecte(s) détectée(s). ` +
-               `Ces transactions ont été créées avec seulement le payeur dans la liste des participants. ` +
-               `Si ce sont des dépenses partagées, il faut les corriger en ajoutant tous les participants concernés. ` +
-               `Sinon, les calculs de répartition seront incorrects et les transferts ne seront pas calculés correctement.`
-    });
-  }
+  // Avec la règle Bonkont simple, toutes les dépenses avec un payeur sont automatiquement partagées
+  // entre tous les participants. Il n'y a plus besoin de détecter des transactions suspectes.
   
   // Ajouter les diagnostics
   Object.keys(balances).forEach(participantId => {
     balances[participantId]._isBalanced = isBalanced;
     balances[participantId]._totalSolde = totalSolde;
     balances[participantId]._potBalance = potBalance.solde;
-    balances[participantId]._hasSuspectTransactions = suspectTransactions.some(t => 
-      (t.payerId || t.payer) === participantId
-    );
   });
   
   potBalance._isBalanced = isBalanced;
   potBalance._totalSolde = totalSolde;
-  potBalance._suspectTransactionsCount = suspectTransactions.length;
   
   // Log de diagnostic si déséquilibré
   if (!isBalanced) {
@@ -845,41 +1032,41 @@ export function computeTransfers(balancesResult, mode = 'use_pot_priority') {
   
   if (mode === 'participants_only') {
     // Mode 1 : Ignorer POT, seulement transferts entre participants
-    const creanciers = balancesArray
+  const creanciers = balancesArray
       .filter(b => b.solde > 0.01)
       .map(b => ({ ...b, solde: b.solde }))
       .sort((a, b) => b.solde - a.solde);
-    
-    const debiteurs = balancesArray
+  
+  const debiteurs = balancesArray
       .filter(b => b.solde < -0.01)
       .map(b => ({ ...b, solde: b.solde }))
       .sort((a, b) => a.solde - b.solde);
     
     // Algorithme greedy
-    let creancierIndex = 0;
-    let debiteurIndex = 0;
+  let creancierIndex = 0;
+  let debiteurIndex = 0;
+  
+  while (creancierIndex < creanciers.length && debiteurIndex < debiteurs.length) {
+    const creancier = creanciers[creancierIndex];
+    const debiteur = debiteurs[debiteurIndex];
     
-    while (creancierIndex < creanciers.length && debiteurIndex < debiteurs.length) {
-      const creancier = creanciers[creancierIndex];
-      const debiteur = debiteurs[debiteurIndex];
-      
       if (creancier.solde < 0.01) {
-        creancierIndex++;
-        continue;
-      }
-      
+      creancierIndex++;
+      continue;
+    }
+    
       if (Math.abs(debiteur.solde) < 0.01) {
-        debiteurIndex++;
-        continue;
-      }
-      
+      debiteurIndex++;
+      continue;
+    }
+    
       const transferAmount = Math.min(creancier.solde, Math.abs(debiteur.solde));
-      
-      transfers.push({
-        from: debiteur.participantId,
-        fromName: debiteur.participantName,
-        to: creancier.participantId,
-        toName: creancier.participantName,
+    
+    transfers.push({
+      from: debiteur.participantId,
+      fromName: debiteur.participantName,
+      to: creancier.participantId,
+      toName: creancier.participantName,
         amount: Math.round(transferAmount * 100) / 100,
         type: 'participant_to_participant'
       });
@@ -947,12 +1134,12 @@ export function computeTransfers(balancesResult, mode = 'use_pot_priority') {
       const debiteur = debiteurs[debiteurIndex];
       
       if (creancier.solde < 0.01) {
-        creancierIndex++;
+      creancierIndex++;
         continue;
-      }
+    }
       
       if (Math.abs(debiteur.solde) < 0.01) {
-        debiteurIndex++;
+      debiteurIndex++;
         continue;
       }
       
@@ -974,32 +1161,34 @@ export function computeTransfers(balancesResult, mode = 'use_pot_priority') {
       if (Math.abs(debiteur.solde) < 0.01) debiteurIndex++;
     }
     
-    // Détecter si tous les soldes sont à 0€ (suspect si des avances existent)
+    // Détecter si tous les soldes sont à 0€
     const totalAvances = balancesArray.reduce((sum, b) => sum + (b.avance || 0), 0);
     const allBalancesZero = balancesArray.every(b => Math.abs(b.solde) < 0.01);
-    const hasSuspectTransactions = potBalance._suspectTransactionsCount > 0;
     
     // Si POT a un solde négatif (déficitaire), afficher un avertissement
     let warning = null;
-    if (allBalancesZero && totalAvances > 0 && hasSuspectTransactions) {
-      warning = `⚠️ PROBLÈME: Tous les soldes sont à 0€ alors que des avances existent (${totalAvances.toFixed(2)}€). ` +
-                `Cela indique que les transactions ont été créées avec seulement le payeur dans la liste des participants. ` +
-                `Les transferts ne peuvent pas être calculés correctement. ` +
-                `Il faut corriger les transactions en ajoutant tous les participants concernés. ` +
-                `(${potBalance._suspectTransactionsCount} transaction(s) suspecte(s) détectée(s))`;
-    } else if (potBalance.solde < -0.01) {
-      warning = `Cagnotte déficitaire : il manque ${Math.abs(potBalance.solde).toFixed(2)}€. Des contributions supplémentaires sont nécessaires.`;
-    } else if (!globalBalanced) {
-      warning = `Déséquilibre détecté : ${balancesResult.totalSolde.toFixed(2)}€`;
-    }
     
-    return {
-      transfers,
+    if (potBalance.solde < -0.01) {
+      const manque = Math.abs(potBalance.solde).toFixed(2);
+      warning = `Cagnotte déficitaire : il manque ${manque}€. ` +
+                `Des contributions supplémentaires sont nécessaires pour équilibrer les comptes. ` +
+                `L'écart de ${balancesResult.totalSolde ? balancesResult.totalSolde.toFixed(2) : manque}€ doit être comblé par des contributions au POT.`;
+    } else if (!globalBalanced) {
+      const ecart = Math.abs(balancesResult.totalSolde).toFixed(2);
+      const signe = balancesResult.totalSolde > 0 ? 'excédent' : 'déficit';
+      warning = `Déséquilibre détecté : ${signe} de ${ecart}€. ` +
+                `RÈGLE BONKONT : "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". ` +
+                `Si toutes les transactions sont validées collectivement et équilibrées, la somme des soldes des participants et de la cagnotte devrait être égale à 0€. ` +
+                `Cet écart peut être dû à : (1) des transactions non validées collectivement avec des participants manquants, ` +
+                `(2) des contributions manquantes au POT, ou (3) des transactions incomplètes. ` +
+                `Vérifiez que toutes les dépenses partagées incluent tous les participants concernés dans la liste "participants".`;
+  }
+  
+  return {
+    transfers,
       potTransfers,
       isBalanced: globalBalanced,
-      warning,
-      hasSuspectTransactions,
-      allBalancesZero: allBalancesZero && totalAvances > 0
+      warning
     };
   }
 }
@@ -1175,13 +1364,22 @@ export function getExpenseTraceability(participantId, event, transactions) {
   
   expenses.forEach(transaction => {
     const amount = parseFloat(transaction.amount) || 0;
-    const participantsConcerned = transaction.participants || [];
     
-    if (participantsConcerned.length === 0 || amount === 0) return;
+    if (amount === 0) return;
     
-    const share = amount / participantsConcerned.length;
     const payerId = transaction.payerId || transaction.payer || transaction.selectedPayerId || null;
     const paidByPot = isPaidByPot(transaction);
+    
+    // RÈGLE BONKONT : Seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata.
+    // La validation (complète ou partielle) détermine la règle de répartition et de transferts.
+    // C'est la même logique que dans computeBalances()
+    const participantsConcerned = getParticipantsConcernedByExpense(transaction, event);
+    
+    // Si aucun participant concerné, on ne peut pas calculer
+    if (participantsConcerned.length === 0) return;
+    
+    // Calcul de la part réelle : montant total / nombre de participants concernés
+    const share = amount / participantsConcerned.length;
     
     // Dépense avancée par ce participant
     if (payerId === participantId && !paidByPot) {
@@ -1206,7 +1404,7 @@ export function getExpenseTraceability(participantId, event, transactions) {
         payerId: paidByPot ? POT_ID : payerId,
         payerName: paidByPot ? POT_NAME : (payerId ? (event.participants?.find(p => p.id === payerId)?.name || 'Inconnu') : 'Équitable'),
         share,
-        part: share // Alias pour compatibilité
+        part: share // Alias pour compatibilité - C'EST LA PART RÉELLE (montant / nombre de participants)
       });
     }
   });

@@ -24,7 +24,10 @@ import {
   AlertCircle,
   UserCircle,
   Bell,
-  CheckCircle2
+  CheckCircle2,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import {
   Tooltip,
@@ -56,25 +59,27 @@ export function EventManagement({ eventId, onBack }) {
     return match;
   });
   
-  const transactions = useTransactionsStore((state) => {
-    const trans = state.getTransactionsByEvent(eventId);
-    console.log('[EventManagement] ⚠️ Transactions récupérées:', {
-      eventId,
-      count: trans.length,
-      transactions: trans.map(t => ({
-        id: t.id,
-        source: t.source,
-        participants: t.participants,
-        payerId: t.payerId,
-        amount: t.amount,
-        type: t.type
-      }))
-    });
-    return trans;
+  const transactionsStore = useTransactionsStore();
+  const transactions = transactionsStore.getTransactionsByEvent(eventId);
+  const addTransaction = transactionsStore.addTransaction;
+  
+  console.log('[EventManagement] ⚠️ Transactions récupérées:', {
+    eventId,
+    count: transactions.length,
+    transactions: transactions.map(t => ({
+      id: t.id,
+      source: t.source,
+      participants: t.participants,
+      payerId: t.payerId,
+      amount: t.amount,
+      type: t.type
+    }))
   });
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerParticipantId, setScannerParticipantId] = useState(null);
+  const [showHelpIncompleteDistribution, setShowHelpIncompleteDistribution] = useState(false);
+  const [showBonkontRule, setShowBonkontRule] = useState(true);
 
   if (!event) {
     console.error('[EventManagement] Event not found:', { 
@@ -143,16 +148,64 @@ const locationLower = normalizeText(getLocationText(event.location));
     ];
   };
 
+  // Calculer la distance entre deux points GPS (formule de Haversine)
+  const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
   // Utiliser les points d'intérêt sauvegardés dans l'événement, sinon utiliser la fonction de fallback
   const locationPOI = event.location?.pointsOfInterest || [];
+  const eventCoords = event.location?.coordinates;
+  
   const spots = locationPOI.length > 0 
-    ? locationPOI.map(poi => ({
-        name: poi.name,
-        rating: poi.rating,
-        category: poi.types?.[0] || 'Général',
-        distance: poi.coordinates ? 'Proche' : 'N/A',
-        totalReviews: poi.totalReviews || 0
-      }))
+    ? locationPOI.map(poi => {
+        let distance = 'N/A';
+        if (poi.coordinates && eventCoords) {
+          const dist = calculateDistance(
+            eventCoords.lat,
+            eventCoords.lng,
+            poi.coordinates.lat,
+            poi.coordinates.lng
+          );
+          distance = dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)} km`;
+        }
+        
+        // Déterminer la catégorie depuis les types
+        let category = 'Général';
+        if (poi.types && poi.types.length > 0) {
+          const typeMap = {
+            'museum': 'Musée',
+            'art_gallery': 'Art',
+            'church': 'Religieux',
+            'mosque': 'Religieux',
+            'temple': 'Religieux',
+            'park': 'Nature',
+            'tourist_attraction': 'Tourisme',
+            'landmark': 'Monument',
+            'shopping_mall': 'Shopping',
+            'zoo': 'Nature',
+            'aquarium': 'Nature',
+            'stadium': 'Sport',
+            'amusement_park': 'Divertissement'
+          };
+          category = typeMap[poi.types[0]] || poi.types[0].replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Général';
+        }
+        
+        return {
+          name: poi.name,
+          rating: poi.rating,
+          category: category,
+          distance: distance,
+          totalReviews: poi.totalReviews || 0
+        };
+      })
     : getSpotsForLocation(event.location);
   const participants = Array.isArray(event.participants) ? event.participants : [];
 
@@ -185,12 +238,38 @@ const handleExportPDF = () => {
     
     // Fonction pour vérifier si nouvelle page nécessaire
     const checkNewPage = (requiredSpace = 20) => {
-      if (yPosition + requiredSpace > pageHeight - margin) {
+      if (yPosition + requiredSpace > pageHeight - margin - 15) { // Réserver 15px pour le footer
         doc.addPage();
-        yPosition = margin;
+        yPosition = margin + 10; // Espacement en haut de page
         return true;
       }
       return false;
+    };
+    
+    // Fonction pour ajouter le footer sur chaque page
+    const addFooter = () => {
+      const pageCount = doc.internal.pages.length - 1;
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(150, 150, 150);
+        doc.setFont(undefined, 'normal');
+        
+        // Numéro de page
+        doc.text(`Page ${i} / ${pageCount}`, pageWidth - margin - 20, pageHeight - 8);
+        
+        // Tagline Bonkont centré en bas
+        const tagline = 'Bonkont fait les comptes, les Amis font le reste';
+        const taglineWidth = doc.getTextWidth(tagline);
+        doc.text(tagline, (pageWidth - taglineWidth) / 2, pageHeight - 8);
+        
+        // Code événement à gauche
+        doc.text(`BONKONT - ${event.code}`, margin, pageHeight - 8);
+        
+        // Ligne de séparation fine
+        doc.setDrawColor(220, 220, 220);
+        doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+      }
     };
     
     // ===== EN-TÊTE =====
@@ -521,17 +600,43 @@ const handleExportPDF = () => {
       doc.setFontSize(11);
       doc.setTextColor(239, 68, 68); // Rouge
       doc.setFont(undefined, 'bold');
-      doc.text('⚠️ Répartition incomplète', margin, yPosition);
+      doc.text('[ATTENTION] Répartition incomplète', margin, yPosition);
       yPosition += 6;
       doc.setFontSize(9);
       doc.setTextColor(120, 120, 120);
       doc.setFont(undefined, 'normal');
       const warningLines = doc.splitTextToSize(transfersResult.warning, pageWidth - 2 * margin);
       warningLines.forEach((line, idx) => {
+        checkNewPage(5);
         doc.text(line, margin, yPosition);
         yPosition += 5;
       });
+      
+      // Message informatif sur les contributions réelles vs théoriques
+      if (transfersResult.warning && transfersResult.warning.includes('contribution réelle')) {
+        checkNewPage(15);
+        yPosition += 5;
+        doc.setFontSize(10);
+        doc.setTextColor(59, 130, 246); // Bleu
+        doc.setFont(undefined, 'bold');
+        doc.text('[INFORMATION IMPORTANTE]', margin, yPosition);
+        yPosition += 6;
+        doc.setFontSize(9);
+        doc.setTextColor(59, 130, 246);
+        doc.setFont(undefined, 'normal');
+        const infoText = `Le budget théorique fixé au départ est UNIQUEMENT un repère indicatif à ne pas dépasser. ` +
+                        `Seules les contributions RÉELLES (paiements en espèces, virements, etc.) doivent être enregistrées et prises en compte. ` +
+                        `Un déséquilibre temporaire est normal tant que les contributions réelles n'ont pas encore été enregistrées.`;
+        const infoLines = doc.splitTextToSize(infoText, pageWidth - 2 * margin);
+        infoLines.forEach((line, idx) => {
+          checkNewPage(5);
+          doc.text(line, margin, yPosition);
+          yPosition += 5;
+        });
+      }
+      
       if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01) {
+        checkNewPage(8);
         yPosition += 2;
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
@@ -539,6 +644,7 @@ const handleExportPDF = () => {
         doc.text(`Écart détecté : ${balancesResult.totalSolde.toFixed(2)}€`, margin, yPosition);
         yPosition += 5;
       }
+      checkNewPage(10);
       yPosition += 5;
     }
     
@@ -548,7 +654,7 @@ const handleExportPDF = () => {
       doc.setFontSize(10);
       doc.setTextColor(34, 197, 94); // Vert
       doc.setFont(undefined, 'bold');
-      doc.text('✅ Répartition équilibrée et transparente', margin, yPosition);
+      doc.text('[EQUILIBRE] Répartition équilibrée et transparente', margin, yPosition);
       yPosition += 6;
       doc.setFontSize(9);
       doc.setTextColor(60, 60, 60);
@@ -565,7 +671,7 @@ const handleExportPDF = () => {
       doc.setFontSize(10);
       doc.setTextColor(251, 146, 60); // Orange
       doc.setFont(undefined, 'bold');
-      doc.text('ℹ️ Information importante', margin, yPosition);
+      doc.text('[INFORMATION] Information importante', margin, yPosition);
       yPosition += 6;
       doc.setFontSize(9);
       doc.setTextColor(60, 60, 60);
@@ -573,32 +679,111 @@ const handleExportPDF = () => {
       const infoText = 'Ce bilan est calculé en temps réel à partir des transactions validées. Les contributions vers la cagnotte et les dépenses partagées sont tracées avec précision pour garantir une répartition équitable.';
       const infoLines = doc.splitTextToSize(infoText, pageWidth - 2 * margin);
       infoLines.forEach((line, idx) => {
+        checkNewPage(5);
         doc.text(line, margin, yPosition);
         yPosition += 5;
       });
+      checkNewPage(10);
       yPosition += 8;
     }
     
-    // ===== COMMENT ÇA MARCHE ? =====
-    checkNewPage(25);
+    // ===== LA RÈGLE BONKONT =====
+    checkNewPage(35);
     doc.setFontSize(16);
     doc.setTextColor(99, 102, 241);
     doc.setFont(undefined, 'bold');
-    doc.text('Comment ça marche ?', margin, yPosition);
+    doc.text('La Règle Bonkont', margin, yPosition);
     yPosition += 8;
     
+    // Phrase principale
+    doc.setFontSize(11);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    const ruleText = '"Tu Valides, Tu consommes, Tu reçois ou Tu verses, Tu es Quittes"';
+    const ruleLines = doc.splitTextToSize(ruleText, pageWidth - 2 * margin);
+    ruleLines.forEach((line, idx) => {
+      checkNewPage(6);
+      doc.text(line, margin, yPosition);
+      yPosition += 6;
+    });
+    
+    doc.setFontSize(9);
+    doc.setTextColor(100, 100, 100);
+    doc.setFont(undefined, 'italic');
+    checkNewPage(5);
+    doc.text('C\'est Transparent, c\'est Equitable, c\'est Bonkont', margin, yPosition);
+    yPosition += 8;
+    
+    // Explication
     doc.setFontSize(9);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
-    const explicationText = 'Bonkont applique une logique de répartition en direct : chaque contribution vers la cagnotte, chaque dépense partagée, chaque remboursement est tracé et équilibré en temps réel.';
+    const explicationText = 'La règle Bonkont est simple et équitable : seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata. La validation (complète ou partielle) détermine la répartition et les transferts.';
     const explicationLines = doc.splitTextToSize(explicationText, pageWidth - 2 * margin);
     explicationLines.forEach((line, idx) => {
+      checkNewPage(5);
       doc.text(line, margin, yPosition);
       yPosition += 5;
     });
+    checkNewPage(15);
     yPosition += 5;
     
-    doc.setFontSize(9);
+    // Exemple concret
+    doc.setFontSize(10);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('Exemple concret :', margin, yPosition);
+    yPosition += 6;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    checkNewPage(5);
+    doc.text('Scénario : 10 personnes participent à un événement. Alice effectue une dépense de 30€', margin + 5, yPosition);
+    yPosition += 5;
+    checkNewPage(5);
+    doc.text('pour un repas en ville. Alice, Bob et Charlie valident cette dépense. Les 7 autres', margin + 5, yPosition);
+    yPosition += 5;
+    checkNewPage(5);
+    doc.text('participants ne valident pas (ils sont restés sur site).', margin + 5, yPosition);
+    yPosition += 6;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(34, 197, 94); // Vert
+    doc.setFont(undefined, 'bold');
+    checkNewPage(5);
+    doc.text('Résultat selon la règle Bonkont :', margin + 5, yPosition);
+    yPosition += 5;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    checkNewPage(5);
+    doc.text('• Seuls Alice, Bob et Charlie sont concernés par cette dépense', margin + 10, yPosition);
+    yPosition += 5;
+    checkNewPage(5);
+    doc.text('• Chacun consomme 10€ (30€ ÷ 3 personnes)', margin + 10, yPosition);
+    yPosition += 5;
+    checkNewPage(5);
+    doc.text('• Alice a avancé 30€, elle consomme 10€ → elle doit recevoir 20€', margin + 10, yPosition);
+    yPosition += 5;
+    checkNewPage(5);
+    doc.text('• Bob et Charlie doivent chacun 10€ à Alice', margin + 10, yPosition);
+    yPosition += 5;
+    checkNewPage(5);
+    doc.text('• Les 7 autres participants sont exemptés (ils n\'ont pas validé)', margin + 10, yPosition);
+    yPosition += 8;
+    
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.setFont(undefined, 'italic');
+      checkNewPage(5);
+      doc.text('La validation détermine qui consomme et qui doit rembourser. C\'est transparent, équitable, et tout le monde est quitte !', margin, yPosition);
+    checkNewPage(15);
+    yPosition += 10;
+    
+    // Les 3 couches de vérité
+    doc.setFontSize(10);
     doc.setTextColor(99, 102, 241);
     doc.setFont(undefined, 'bold');
     doc.text('Les 3 couches de vérité Bonkont :', margin, yPosition);
@@ -607,13 +792,18 @@ const handleExportPDF = () => {
     doc.setFontSize(8);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
+    checkNewPage(5);
     doc.text('• Contribution : Argent réellement versé dans la cagnotte (espèces, virement, CB)', margin + 5, yPosition);
     yPosition += 5;
+    checkNewPage(5);
     doc.text('• Avance : Dépenses payées pour le groupe (courses, frais partagés)', margin + 5, yPosition);
     yPosition += 5;
-    doc.text('• Consommation : Votre part réelle des dépenses partagées', margin + 5, yPosition);
+    checkNewPage(5);
+    doc.text('• Consommation : Votre part réelle des dépenses partagées (selon la validation)', margin + 5, yPosition);
     yPosition += 5;
+    checkNewPage(5);
     doc.text('• Solde : Ce que vous devez recevoir ou verser pour être équitablement quittes', margin + 5, yPosition);
+    checkNewPage(12);
     yPosition += 10;
     
     // Afficher les soldes détaillés par participant avec les 3 couches
@@ -697,20 +887,32 @@ const handleExportPDF = () => {
       yPosition += 8;
       
       if (transfers.length > 0) {
+        // Titre de la section des transferts
+        doc.setFontSize(10);
+        doc.setTextColor(99, 102, 241);
+        doc.setFont(undefined, 'bold');
+        doc.text('Qui verse à qui ?', margin, yPosition);
+        yPosition += 8;
+        
         const transfersTableData = transfers.map(t => [
-          `${t.fromName} verse`,
+          `${t.fromName}`,
           `${(t.amount || 0).toFixed(2)} €`,
-          `à ${t.toName}`
+          `${t.toName}`
         ]);
         
         autoTable(doc, {
           startY: yPosition,
-          head: [['Qui', 'Montant', 'À qui']],
+          head: [['Qui verse', 'Montant', 'À qui']],
           body: transfersTableData,
-          styles: { fontSize: 8 },
-          headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold' },
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: 'bold', fontSize: 10 },
           alternateRowStyles: { fillColor: [245, 245, 245] },
           margin: { left: margin, right: margin },
+          columnStyles: {
+            0: { cellWidth: 60, fontStyle: 'bold', textColor: [239, 68, 68] }, // Qui verse en rouge gras
+            1: { cellWidth: 30, halign: 'center' },
+            2: { cellWidth: 60, fontStyle: 'bold', textColor: [34, 197, 94] } // À qui en vert gras
+          }
         });
         
         yPosition = doc.lastAutoTable.finalY + 10;
@@ -750,50 +952,161 @@ const handleExportPDF = () => {
       
       Object.values(balances).forEach((balance) => {
         const participantTransfers = getParticipantTransfers(balance.participantId, transfersResult);
+        const solde = balance.solde || 0;
+        const hasTransfers = participantTransfers.toReceive.length > 0 || participantTransfers.toPay.length > 0;
         
-        if (!participantTransfers.hasTransfers) {
-          checkNewPage(8);
-          doc.setFontSize(9);
-          doc.setTextColor(34, 197, 94);
+        // Toujours afficher le détail pour chaque participant
+        checkNewPage(hasTransfers ? 25 : 20);
+        doc.setFontSize(10);
+        doc.setTextColor(99, 102, 241);
+        doc.setFont(undefined, 'bold');
+        doc.text(balance.participantName, margin, yPosition);
+        yPosition += 6;
+        
+        // Détail financier
+        doc.setFontSize(8);
+        doc.setTextColor(60, 60, 60);
+        doc.setFont(undefined, 'normal');
+        doc.text(`Contribution: ${((balance.contribution || 0)).toFixed(2)}€ | Avancé: ${((balance.avance || 0)).toFixed(2)}€ | Consommé: ${((balance.consomme || 0)).toFixed(2)}€ | Mise: ${((balance.mise || 0)).toFixed(2)}€`, margin + 5, yPosition);
+        yPosition += 5;
+        
+        // Solde avec explication
+        doc.setFontSize(9);
+        if (solde > 0.01) {
+          doc.setTextColor(34, 197, 94); // Vert
+          doc.setFont(undefined, 'bold');
+          doc.text(`Solde: +${solde.toFixed(2)}€ (à recevoir)`, margin + 5, yPosition);
+          yPosition += 5;
+          doc.setFontSize(8);
+          doc.setTextColor(60, 60, 60);
           doc.setFont(undefined, 'normal');
-          doc.text(`✓ ${balance.participantName}: Tout est équilibré, aucun transfert nécessaire`, margin + 5, yPosition);
-          yPosition += 6;
+          doc.text(`Explication: Vous avez mis ${((balance.mise || 0)).toFixed(2)}€ et consommé ${((balance.consomme || 0)).toFixed(2)}€.`, margin + 5, yPosition);
+          yPosition += 4;
+          doc.text(`Vous devez donc recevoir ${solde.toFixed(2)}€ pour équilibrer votre compte.`, margin + 5, yPosition);
+        } else if (solde < -0.01) {
+          doc.setTextColor(239, 68, 68); // Rouge
+          doc.setFont(undefined, 'bold');
+          doc.text(`Solde: ${solde.toFixed(2)}€ (à verser)`, margin + 5, yPosition);
+          yPosition += 5;
+          doc.setFontSize(8);
+          doc.setTextColor(60, 60, 60);
+          doc.setFont(undefined, 'normal');
+          doc.text(`Explication: Vous avez consommé ${((balance.consomme || 0)).toFixed(2)}€ alors que vous n'avez mis que ${((balance.mise || 0)).toFixed(2)}€.`, margin + 5, yPosition);
+          yPosition += 4;
+          doc.text(`Vous devez donc verser ${Math.abs(solde).toFixed(2)}€ pour équilibrer votre compte.`, margin + 5, yPosition);
+        } else {
+          doc.setTextColor(34, 197, 94); // Vert
+          doc.setFont(undefined, 'bold');
+          doc.text(`Solde: 0,00€ (équilibré)`, margin + 5, yPosition);
+          yPosition += 5;
+          doc.setFontSize(8);
+          doc.setTextColor(60, 60, 60);
+          doc.setFont(undefined, 'normal');
+          doc.text(`Explication: Vous avez consommé exactement ce que vous avez mis (${((balance.mise || 0)).toFixed(2)}€).`, margin + 5, yPosition);
+          yPosition += 4;
+          doc.text(`Votre compte est équilibré, aucun ajustement n'est nécessaire.`, margin + 5, yPosition);
+        }
+        yPosition += 3;
+        
+        if (!hasTransfers) {
+          yPosition += 3;
           return;
         }
         
-        checkNewPage(15);
-        doc.setFontSize(10);
-        doc.setTextColor(0, 0, 0);
-        doc.setFont(undefined, 'bold');
-        doc.text(`${balance.participantName}`, margin + 5, yPosition);
-        yPosition += 6;
+        // Afficher les transferts de manière claire et visible avec "De Qui vers Qui"
+        // IMPORTANT: Si le solde est négatif mais qu'il n'y a pas de transfert direct, 
+        // il faut quand même indiquer à qui verser (redistribution équitable)
+        if (participantTransfers.toReceive.length > 0 || participantTransfers.toPay.length > 0 || solde < -0.01) {
+          checkNewPage(10);
+          yPosition += 3;
+        }
         
         if (participantTransfers.toReceive.length > 0) {
-          doc.setFontSize(8);
+          checkNewPage(5 + participantTransfers.toReceive.length * 7);
+          doc.setFontSize(9);
           doc.setTextColor(34, 197, 94);
-          doc.setFont(undefined, 'normal');
-          doc.text(`  Reçoit de:`, margin + 5, yPosition);
-          yPosition += 5;
+          doc.setFont(undefined, 'bold');
+          doc.text(`Reçoit de:`, margin + 5, yPosition);
+          yPosition += 7;
           
           participantTransfers.toReceive.forEach((transfer) => {
-            doc.text(`    → ${transfer.fromName}: ${(transfer.amount || 0).toFixed(2)}€`, margin + 10, yPosition);
-            yPosition += 4;
+            checkNewPage(7);
+            doc.setFontSize(9);
+            doc.setTextColor(60, 60, 60);
+            doc.setFont(undefined, 'normal');
+            // Format: "De [nom]" à gauche, montant aligné à droite pour éviter le chevauchement
+            const fromName = transfer.fromName;
+            const amount = (transfer.amount || 0).toFixed(2);
+            const amountText = `${amount}€`;
+            const amountWidth = doc.getTextWidth(amountText);
+            // Aligner le montant à droite avec une marge suffisante
+            const amountX = pageWidth - margin - amountWidth - 5;
+            // Texte "De [nom]" à gauche
+            doc.text(`De ${fromName}`, margin + 10, yPosition);
+            // Montant aligné à droite
+            doc.setFontSize(10);
+            doc.setTextColor(34, 197, 94);
+            doc.setFont(undefined, 'bold');
+            doc.text(amountText, amountX, yPosition);
+            yPosition += 7;
           });
         }
         
+        // Afficher les versements à faire
         if (participantTransfers.toPay.length > 0) {
-          doc.setFontSize(8);
+          checkNewPage(5 + participantTransfers.toPay.length * 7);
+          doc.setFontSize(9);
           doc.setTextColor(239, 68, 68);
-          doc.setFont(undefined, 'normal');
-          doc.text(`  Verse à:`, margin + 5, yPosition);
-          yPosition += 5;
+          doc.setFont(undefined, 'bold');
+          doc.text(`Verse à:`, margin + 5, yPosition);
+          yPosition += 7;
           
           participantTransfers.toPay.forEach((transfer) => {
-            doc.text(`    → ${transfer.toName}: ${(transfer.amount || 0).toFixed(2)}€`, margin + 10, yPosition);
-            yPosition += 4;
+            checkNewPage(7);
+            doc.setFontSize(9);
+            doc.setTextColor(60, 60, 60);
+            doc.setFont(undefined, 'normal');
+            // Format: "Vers [nom]" à gauche, montant aligné à droite pour éviter le chevauchement
+            const toName = transfer.toName;
+            const amount = (transfer.amount || 0).toFixed(2);
+            const amountText = `${amount}€`;
+            const amountWidth = doc.getTextWidth(amountText);
+            // Aligner le montant à droite avec une marge suffisante
+            const amountX = pageWidth - margin - amountWidth - 5;
+            // Texte "Vers [nom]" à gauche
+            doc.text(`Vers ${toName}`, margin + 10, yPosition);
+            // Montant aligné à droite
+            doc.setFontSize(10);
+            doc.setTextColor(239, 68, 68);
+            doc.setFont(undefined, 'bold');
+            doc.text(amountText, amountX, yPosition);
+            yPosition += 7;
+          });
+        } else if (solde < -0.01) {
+          // Si solde négatif mais pas de transfert direct calculé, 
+          // cela signifie que le système n'est pas équilibré ou que les transferts ne sont pas encore calculés
+          // Dans ce cas, indiquer qu'il faut consulter la section globale
+          checkNewPage(15);
+          doc.setFontSize(9);
+          doc.setTextColor(239, 68, 68);
+          doc.setFont(undefined, 'bold');
+          doc.text(`⚠️ Versement à effectuer:`, margin + 5, yPosition);
+          yPosition += 6;
+          doc.setFontSize(8);
+          doc.setTextColor(60, 60, 60);
+          doc.setFont(undefined, 'normal');
+          const paymentText = `Vous devez verser ${Math.abs(solde).toFixed(2)}€ pour équilibrer votre compte. ` +
+                             `Consultez la section "Ajustements entre participants" ci-dessus pour voir ` +
+                             `à qui vous devez verser cette somme de manière nominative et équitable.`;
+          const paymentLines = doc.splitTextToSize(paymentText, pageWidth - 2 * margin - 10);
+          paymentLines.forEach((line, idx) => {
+            checkNewPage(5);
+            doc.text(line, margin + 10, yPosition);
+            yPosition += 5;
           });
         }
         
+        checkNewPage(5);
         yPosition += 3;
       });
       
@@ -803,7 +1116,7 @@ const handleExportPDF = () => {
       doc.setFontSize(11);
       doc.setTextColor(34, 197, 94);
       doc.setFont(undefined, 'bold');
-      doc.text('✅ Tous les comptes sont équilibrés', margin, yPosition);
+      doc.text('[EQUILIBRE] Tous les comptes sont équilibrés', margin, yPosition);
       yPosition += 6;
       doc.setFontSize(9);
       doc.setTextColor(60, 60, 60);
@@ -821,7 +1134,7 @@ const handleExportPDF = () => {
       doc.setFontSize(10);
       doc.setTextColor(251, 146, 60);
       doc.setFont(undefined, 'bold');
-      doc.text('ℹ️ Répartition en cours', margin, yPosition);
+      doc.text('[EN COURS] Répartition en cours', margin, yPosition);
       yPosition += 6;
       doc.setFontSize(9);
       doc.setTextColor(60, 60, 60);
@@ -829,9 +1142,11 @@ const handleExportPDF = () => {
       const inProgressText = 'Les calculs sont en cours de mise à jour. Certaines transactions peuvent nécessiter une validation supplémentaire pour garantir une répartition complète et équitable.';
       const inProgressLines = doc.splitTextToSize(inProgressText, pageWidth - 2 * margin);
       inProgressLines.forEach((line, idx) => {
+        checkNewPage(5);
         doc.text(line, margin, yPosition);
         yPosition += 5;
       });
+      checkNewPage(10);
       yPosition += 5;
       if (transfersResult.warning) {
         doc.setFontSize(8);
@@ -895,25 +1210,8 @@ const handleExportPDF = () => {
       yPosition += 7;
     });
     
-    // ===== MESSAGE FINAL EN BAS DE PAGE =====
-    const pageCount = doc.internal.pages.length - 1;
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      
-      // Numéro de page
-      doc.setFontSize(8);
-      doc.setTextColor(150, 150, 150);
-      doc.text(`Page ${i} / ${pageCount}`, pageWidth - margin - 20, pageHeight - 10);
-      doc.text(`BONKONT - ${event.code}`, margin, pageHeight - 10);
-      
-      // Message rassurant en bas de page
-      doc.setFontSize(9);
-      doc.setTextColor(99, 102, 241);
-      doc.setFont(undefined, 'italic');
-      const footerText = 'Bonkont fait les comptes, les amis le reste';
-      const footerWidth = doc.getTextWidth(footerText);
-      doc.text(footerText, (pageWidth - footerWidth) / 2, pageHeight - 10);
-    }
+    // Ajouter le footer sur toutes les pages
+    addFooter();
     
     // Télécharger le PDF et l'ouvrir dans un nouvel onglet
     const fileName = `BONKONT-${event.code}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
@@ -1113,6 +1411,105 @@ const handleExportPDF = () => {
         </ScrollArea>
       </Card>
 
+      {/* Règle Bonkont - Section principale */}
+      <Card className="p-6 neon-border border-primary/30 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <CheckCircle2 className="w-6 h-6 text-primary" />
+            La Règle Bonkont
+          </h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2"
+            onClick={() => setShowBonkontRule(!showBonkontRule)}
+          >
+            {showBonkontRule ? (
+              <>
+                <ChevronUp className="w-4 h-4 mr-1" />
+                <span className="text-xs">Masquer</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4 mr-1" />
+                <span className="text-xs">Afficher</span>
+              </>
+            )}
+          </Button>
+        </div>
+        
+        {showBonkontRule && (
+          <div className="space-y-4">
+            {/* Phrase principale */}
+            <div className="p-5 rounded-lg bg-primary/20 dark:bg-primary/10 border-2 border-primary/30">
+              <p className="text-lg font-bold text-center text-primary dark:text-primary-foreground mb-2">
+                "Tu Valides, Tu consommes, Tu reçois ou Tu verses, Tu es Quittes"
+              </p>
+              <p className="text-sm text-center text-muted-foreground">
+                C'est Transparent, c'est Equitable, c'est Bonkont
+              </p>
+            </div>
+            
+            {/* Explication détaillée */}
+            <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+              <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
+                <HelpCircle className="w-4 h-4" />
+                Comment ça fonctionne ?
+              </h3>
+              <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
+                La règle Bonkont est simple et équitable : <strong>seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata</strong>. 
+                La validation (complète ou partielle) détermine la répartition et les transferts.
+              </p>
+              
+              {/* Exemple concret */}
+              <div className="mt-4 p-4 bg-white dark:bg-gray-900 rounded-lg border border-blue-300 dark:border-blue-700">
+                <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2 flex items-center gap-2">
+                  <UserCircle className="w-4 h-4" />
+                  Exemple concret :
+                </h4>
+                <div className="space-y-2 text-sm text-blue-800 dark:text-blue-200">
+                  <p>
+                    <strong>Scénario :</strong> 10 personnes participent à un événement validé collectivement.
+                  </p>
+                  <p>
+                    <strong>Situation :</strong> Alice effectue une dépense de <strong>30€</strong> pour un repas en ville.
+                  </p>
+                  <div className="ml-4 space-y-1">
+                    <p className="flex items-start gap-2">
+                      <span className="text-primary font-bold">→</span>
+                      <span>Alice valide sa dépense</span>
+                    </p>
+                    <p className="flex items-start gap-2">
+                      <span className="text-primary font-bold">→</span>
+                      <span>Bob et Charlie valident aussi cette dépense</span>
+                    </p>
+                    <p className="flex items-start gap-2">
+                      <span className="text-primary font-bold">→</span>
+                      <span>Les 7 autres participants ne valident pas (ils sont restés sur site)</span>
+                    </p>
+                  </div>
+                  <div className="mt-3 p-3 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800">
+                    <p className="font-semibold text-green-900 dark:text-green-100 mb-1">
+                      Résultat selon la règle Bonkont :
+                    </p>
+                    <ul className="text-xs text-green-800 dark:text-green-200 space-y-1 ml-4 list-disc">
+                      <li>Seuls <strong>Alice, Bob et Charlie</strong> sont concernés par cette dépense</li>
+                      <li>Chacun consomme <strong>10€</strong> (30€ ÷ 3 personnes)</li>
+                      <li>Alice a avancé 30€, elle consomme 10€ → elle doit recevoir <strong>20€</strong></li>
+                      <li>Bob et Charlie doivent chacun <strong>10€</strong> à Alice</li>
+                      <li>Les 7 autres participants sont <strong>exemptés</strong> (ils n'ont pas validé)</li>
+                    </ul>
+                  </div>
+                  <p className="mt-3 text-xs italic text-blue-700 dark:text-blue-300">
+                    💡 <strong>La validation détermine qui consomme et qui doit rembourser.</strong> C'est transparent, équitable, et tout le monde est quitte !
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+
       {/* Transparence totale : Qui verse à qui / Qui reçoit de qui */}
       {(() => {
         const balancesResult = computeBalances(event, transactions);
@@ -1141,8 +1538,9 @@ const handleExportPDF = () => {
                     Comment ça marche ?
                   </p>
                   <p className="text-sm text-blue-800 dark:text-blue-200">
-                    Basé sur les dépenses validées et les paiements enregistrés.
+                    Basé sur les dépenses <strong>validées</strong> et les paiements enregistrés.
                     Les transferts sont calculés uniquement à partir du <strong>solde final</strong> de chaque participant.
+                    <span className="block mt-1 text-xs italic">Rappel : Seuls les participants qui valident consomment et doivent rembourser.</span>
                   </p>
                 </div>
               </div>
@@ -1153,17 +1551,98 @@ const handleExportPDF = () => {
               <div className="mb-4 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
                 <div className="flex items-start gap-2">
                   <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100 mb-1">
-                      ⚠️ Répartition incomplète
-                    </p>
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
+                        ⚠️ Répartition incomplète
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-yellow-700 dark:text-yellow-300 hover:text-yellow-900 dark:hover:text-yellow-100"
+                        onClick={() => setShowHelpIncompleteDistribution(!showHelpIncompleteDistribution)}
+                      >
+                        <HelpCircle className="w-4 h-4 mr-1" />
+                        {showHelpIncompleteDistribution ? (
+                          <>
+                            <span className="text-xs">Masquer l'aide</span>
+                            <ChevronUp className="w-3 h-3 ml-1" />
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-xs">Comment corriger ?</span>
+                            <ChevronDown className="w-3 h-3 ml-1" />
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
                       {transfersResult.warning}
                     </p>
                     {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01 && (
-                      <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-2 italic">
+                      <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-2 italic">
                         Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
                       </p>
+                    )}
+                    
+                    {/* Section d'aide détaillée */}
+                    {showHelpIncompleteDistribution && (
+                      <div className="mt-4 p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg border border-yellow-300 dark:border-yellow-700">
+                        <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2">
+                          📚 Qu'est-ce qu'une répartition incomplète ?
+                        </h4>
+                        <p className="text-xs text-yellow-800 dark:text-yellow-200 mb-3">
+                          Une répartition incomplète signifie que la somme des soldes de tous les participants et de la cagnotte n'est pas égale à 0€. 
+                          En comptabilité, cette équation doit toujours être vraie : <strong>Σ soldes participants + solde POT = 0€</strong>
+                        </p>
+                        <div className="text-xs text-yellow-800 dark:text-yellow-200 mb-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded">
+                          <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". 
+                          Si toutes les transactions sont <strong>validées collectivement</strong> et équilibrées, alors la répartition devrait être équilibrée automatiquement.
+                        </div>
+                        
+                        <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
+                          🔍 Causes possibles :
+                        </h4>
+                        <ul className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-3 list-disc list-inside">
+                          <li><strong>Dépenses partagées mal enregistrées</strong> : Si une dépense de 100€ est partagée entre 4 personnes mais que seule la personne qui a payé est dans la liste "participants", alors cette personne consomme 100€ au lieu de 25€ (100/4).</li>
+                          <li><strong>Contributions manquantes</strong> : Si la cagnotte est déficitaire, il manque des contributions pour équilibrer les comptes.</li>
+                          <li><strong>Transactions incomplètes</strong> : Certaines transactions peuvent avoir des informations manquantes (montant, participants, payeur).</li>
+                        </ul>
+                        
+                        <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
+                          ✅ Solutions pour corriger :
+                        </h4>
+                        <ol className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-2 list-decimal list-inside">
+                          <li><strong>Vérifier les dépenses partagées</strong> : Pour chaque dépense partagée, ouvrez la transaction et assurez-vous que <strong>tous les participants concernés</strong> sont dans la liste "participants". Par exemple, si A paie 100€ pour A, B, C, D, la liste doit contenir [A, B, C, D], pas seulement [A].</li>
+                          <li><strong>Ajouter des contributions</strong> : Si la cagnotte est déficitaire, enregistrez des contributions supplémentaires pour combler le déficit.</li>
+                          <li><strong>Corriger les transactions suspectes</strong> : Bonkont détecte automatiquement les transactions où seul le payeur est dans la liste. Ouvrez ces transactions et ajoutez tous les participants concernés.</li>
+                          <li><strong>Vérifier les montants</strong> : Assurez-vous que tous les montants sont corrects et que les devises sont cohérentes.</li>
+                        </ol>
+                        
+                        <div className="mt-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded text-xs text-yellow-900 dark:text-yellow-100">
+                          <strong>💡 Astuce</strong> : Bonkont applique automatiquement une correction pour les dépenses où seul le payeur est dans la liste, mais il est préférable de corriger manuellement les transactions pour garantir la précision des calculs.
+                        </div>
+                        
+                        {/* Bouton pour enregistrer automatiquement les contributions théoriques */}
+                        {transfersResult.autoCorrectionSuggestion && transfersResult.autoCorrectionSuggestion.type === 'missing_contributions' && (
+                          <div className="mt-4 p-3 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-300 dark:border-green-700">
+                            <p className="text-sm font-semibold text-green-900 dark:text-green-100 mb-2">
+                              🚀 Correction automatique disponible
+                            </p>
+                            <p className="text-xs text-green-800 dark:text-green-200 mb-3">
+                              Vous pouvez enregistrer automatiquement les contributions théoriques ({transfersResult.autoCorrectionSuggestion.theoreticalContributionPerParticipant.toFixed(2)}€ par participant) 
+                              pour équilibrer les comptes.
+                            </p>
+                            <Button
+                              onClick={handleRegisterTheoreticalContributions}
+                              className="w-full bg-green-600 hover:bg-green-700 text-white"
+                              size="sm"
+                            >
+                              Enregistrer les contributions théoriques ({transfersResult.autoCorrectionSuggestion.totalTheoreticalContributions.toFixed(2)}€ total)
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1220,71 +1699,130 @@ const handleExportPDF = () => {
                   <div className="space-y-3">
                     {Object.values(balances).map((balance) => {
                       const participantTransfers = getParticipantTransfers(balance.participantId, transfersResult);
-                      
-                      if (!participantTransfers.hasTransfers) {
-                        return (
-                          <Card key={balance.participantId} className="p-4 border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-                                <span className="font-semibold">{balance.participantName}</span>
-                              </div>
-                              <span className="text-sm text-green-700 dark:text-green-400 font-medium">
-                                Participation équilibrée
-                              </span>
-                            </div>
-                          </Card>
-                        );
-                      }
+                      const solde = balance.solde || 0;
+                      const hasTransfers = participantTransfers.toReceive.length > 0 || participantTransfers.toPay.length > 0;
                       
                       return (
                         <Card key={balance.participantId} className="p-4 border-2">
                           <div className="mb-3">
-                            <h4 className="font-semibold text-base">{balance.participantName}</h4>
-                            <p className="text-xs text-muted-foreground">
-                              Solde : {(balance.solde || 0) >= 0 ? '+' : ''}{(balance.solde || 0).toFixed(2)}€
-                            </p>
-                          </div>
-                          
-                          {participantTransfers.toReceive.length > 0 && (
-                            <div className="mb-3">
-                              <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                <ArrowRight className="w-3 h-3 text-green-600 dark:text-green-400" />
-                                Reçoit de :
-                              </p>
-                              <div className="space-y-2">
-                                {participantTransfers.toReceive.map((transfer, idx) => (
-                                  <div key={idx} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm font-medium">{transfer.fromName}</span>
-                                    </div>
-                                    <span className="text-sm font-bold text-green-600 dark:text-green-400">
-                                      {(transfer.amount || 0).toFixed(2)}€
-                                    </span>
-                                  </div>
-                                ))}
+                            <h4 className="font-semibold text-base mb-3">{balance.participantName}</h4>
+                            
+                            {/* Détail financier complet */}
+                            <div className="mb-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                              <div className="grid grid-cols-2 gap-3 text-xs mb-3">
+                                <div>
+                                  <p className="text-muted-foreground mb-1">Contribution</p>
+                                  <p className="font-semibold">{(balance.contribution || 0).toFixed(2)}€</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground mb-1">Avancé</p>
+                                  <p className="font-semibold">{(balance.avance || 0).toFixed(2)}€</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground mb-1">Consommé</p>
+                                  <p className="font-semibold">{(balance.consomme || 0).toFixed(2)}€</p>
+                                </div>
+                                <div>
+                                  <p className="text-muted-foreground mb-1">Mise totale</p>
+                                  <p className="font-semibold">{(balance.mise || 0).toFixed(2)}€</p>
+                                </div>
+                              </div>
+                              <div className="pt-3 border-t border-blue-200 dark:border-blue-800">
+                                <p className="text-xs text-muted-foreground mb-1">Solde final</p>
+                                <p className={`text-lg font-bold ${solde > 0.01 ? 'text-green-600 dark:text-green-400' : solde < -0.01 ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground'}`}>
+                                  {solde >= 0 ? '+' : ''}{solde.toFixed(2)}€
+                                  {solde > 0.01 && <span className="ml-2 text-sm font-normal">(à recevoir)</span>}
+                                  {solde < -0.01 && <span className="ml-2 text-sm font-normal">(à verser)</span>}
+                                  {Math.abs(solde) <= 0.01 && <span className="ml-2 text-sm font-normal">(équilibré)</span>}
+                                </p>
                               </div>
                             </div>
-                          )}
-                          
-                          {participantTransfers.toPay.length > 0 && (
-                            <div>
-                              <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                <ArrowRight className="w-3 h-3 text-orange-600 dark:text-orange-400 rotate-180" />
-                                Verse à :
-                              </p>
-                              <div className="space-y-2">
-                                {participantTransfers.toPay.map((transfer, idx) => (
-                                  <div key={idx} className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950/20 rounded border border-orange-200 dark:border-orange-800">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm font-medium">{transfer.toName}</span>
-                                    </div>
-                                    <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
-                                      {(transfer.amount || 0).toFixed(2)}€
-                                    </span>
-                                  </div>
-                                ))}
+                            
+                            {/* Explication détaillée du solde */}
+                            <div className="mb-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
+                              <p className="text-xs font-medium text-muted-foreground mb-2">Explication du solde :</p>
+                              <div className="text-xs text-muted-foreground space-y-1">
+                                <p>
+                                  <strong>Mise totale</strong> = Contribution ({((balance.contribution || 0)).toFixed(2)}€) + Avancé ({((balance.avance || 0)).toFixed(2)}€) = <strong>{((balance.mise || 0)).toFixed(2)}€</strong>
+                                </p>
+                                <p>
+                                  <strong>Solde</strong> = Mise ({((balance.mise || 0)).toFixed(2)}€) - Consommé ({((balance.consomme || 0)).toFixed(2)}€) = <strong>{solde >= 0 ? '+' : ''}{solde.toFixed(2)}€</strong>
+                                </p>
+                                {Math.abs(solde) <= 0.01 ? (
+                                  <p className="text-green-600 dark:text-green-400 font-medium mt-2">
+                                    ✓ Votre compte est équilibré : vous avez consommé exactement ce que vous avez mis ({((balance.mise || 0)).toFixed(2)}€). Aucun ajustement n'est nécessaire.
+                                  </p>
+                                ) : solde > 0.01 ? (
+                                  <p className="text-green-600 dark:text-green-400 font-medium mt-2">
+                                    ✓ Vous devez recevoir {solde.toFixed(2)}€ car vous avez mis {((balance.mise || 0)).toFixed(2)}€ et consommé seulement {((balance.consomme || 0)).toFixed(2)}€.
+                                  </p>
+                                ) : (
+                                  <p className="text-orange-600 dark:text-orange-400 font-medium mt-2">
+                                    ⚠ Vous devez verser {Math.abs(solde).toFixed(2)}€ car vous avez consommé {((balance.consomme || 0)).toFixed(2)}€ alors que vous n'avez mis que {((balance.mise || 0)).toFixed(2)}€.
+                                  </p>
+                                )}
                               </div>
+                            </div>
+                          </div>
+                          
+                          {/* Transferts détaillés */}
+                          {hasTransfers ? (
+                            <>
+                              {participantTransfers.toReceive.length > 0 && (
+                                <div className="mb-3">
+                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                    <ArrowRight className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                    Reçoit de :
+                                  </p>
+                                  <div className="space-y-2">
+                                    {participantTransfers.toReceive.map((transfer, idx) => (
+                                      <div key={idx} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm font-medium">{transfer.fromName}</span>
+                                        </div>
+                                        <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                                          {(transfer.amount || 0).toFixed(2)}€
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {participantTransfers.toPay.length > 0 && (
+                                <div>
+                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                    <ArrowRight className="w-3 h-3 text-orange-600 dark:text-orange-400 rotate-180" />
+                                    Verse à :
+                                  </p>
+                                  <div className="space-y-2">
+                                    {participantTransfers.toPay.map((transfer, idx) => (
+                                      <div key={idx} className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950/20 rounded border border-orange-200 dark:border-orange-800">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-sm font-medium">{transfer.toName}</span>
+                                        </div>
+                                        <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
+                                          {(transfer.amount || 0).toFixed(2)}€
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="p-3 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800">
+                              <p className="text-xs font-medium text-green-700 dark:text-green-300 mb-1">
+                                ✓ Aucun transfert nécessaire
+                              </p>
+                              <p className="text-xs text-green-600 dark:text-green-400">
+                                {Math.abs(solde) <= 0.01 
+                                  ? "Votre compte est équilibré : vous avez consommé exactement ce que vous avez mis. Aucun ajustement n'est nécessaire."
+                                  : solde > 0.01
+                                    ? `Votre solde positif de ${solde.toFixed(2)}€ sera équilibré par les transferts des autres participants.`
+                                    : `Votre solde négatif de ${Math.abs(solde).toFixed(2)}€ sera équilibré par les transferts vers les autres participants.`
+                                }
+                              </p>
                             </div>
                           )}
                         </Card>
