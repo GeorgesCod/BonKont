@@ -29,24 +29,24 @@ function isContribution(transaction, eventId) {
   const isPaymentType = transaction.type === 'payment' || transaction.type === 'CONTRIBUTION';
   const isPaymentSource = transaction.source === 'payment';
   
-  // Log de débogage pour toutes les transactions de type payment
-  if (isPaymentType || isPaymentSource) {
-    console.log('[isContribution] 🔍 Analyse transaction payment:', {
-      transactionId: transaction.id,
-      fromId,
-      toId,
-      transactionEventId,
-      eventId,
-      type: transaction.type,
-      source: transaction.source,
-      amount: transaction.amount,
-      hasParticipants,
-      participants: transaction.participants,
-      toIdString: String(toId),
-      eventIdString: String(eventId),
-      transactionEventIdString: String(transactionEventId)
-    });
-  }
+  // Log désactivé pour éviter la boucle infinie
+  // if (isPaymentType || isPaymentSource) {
+  //   console.log('[isContribution] 🔍 Analyse transaction payment:', {
+  //     transactionId: transaction.id,
+  //     fromId,
+  //     toId,
+  //     transactionEventId,
+  //     eventId,
+  //     type: transaction.type,
+  //     source: transaction.source,
+  //     amount: parseFloat((transaction.amount || 0).toFixed(2)),
+  //     hasParticipants,
+  //     participants: transaction.participants,
+  //     toIdString: String(toId),
+  //     eventIdString: String(eventId),
+  //     transactionEventIdString: String(transactionEventId)
+  //   });
+  // }
   
   // Si pas de fromId, ce n'est pas une contribution
   if (!fromId) {
@@ -63,12 +63,13 @@ function isContribution(transaction, eventId) {
   
   // Cas 1: toId === POT_ID (explicite)
   if (toId === POT_ID) {
-    console.log('[isContribution] ✅ Contribution identifiée (toId === POT_ID):', {
-      transactionId: transaction.id,
-      fromId,
-      toId,
-      amount: transaction.amount
-    });
+    // Log désactivé pour éviter la boucle infinie
+    // console.log('[isContribution] ✅ Contribution identifiée (toId === POT_ID):', {
+    //   transactionId: transaction.id,
+    //   fromId,
+    //   toId,
+    //   amount: parseFloat((transaction.amount || 0).toFixed(2))
+    // });
     return true;
   }
   
@@ -89,22 +90,23 @@ function isContribution(transaction, eventId) {
     // Si toId === eventId ET (pas de participants OU type payment), c'est une contribution
     // Les contributions vers POT ne devraient PAS avoir de participants
     if (!hasParticipants || isPaymentType || isPaymentSource) {
-      console.log('[isContribution] ✅ Contribution identifiée (toId === eventId):', {
-        transactionId: transaction.id,
-        fromId,
-        toId,
-        transactionEventId,
-        eventId,
-        toIdString: String(toId),
-        eventIdString: String(eventId),
-        transactionEventIdString: String(transactionEventId),
-        amount: transaction.amount,
-        type: transaction.type,
-        source: transaction.source,
-        hasParticipants,
-        isPaymentType,
-        isPaymentSource
-      });
+      // Log désactivé pour éviter la boucle infinie
+      // console.log('[isContribution] ✅ Contribution identifiée (toId === eventId):', {
+      //   transactionId: transaction.id,
+      //   fromId,
+      //   toId,
+      //   transactionEventId,
+      //   eventId,
+      //   toIdString: String(toId),
+      //   eventIdString: String(eventId),
+      //   transactionEventIdString: String(transactionEventId),
+      //   amount: parseFloat((transaction.amount || 0).toFixed(2)),
+      //   type: transaction.type,
+      //   source: transaction.source,
+      //   hasParticipants,
+      //   isPaymentType,
+      //   isPaymentSource
+      // });
       return true;
     }
   }
@@ -113,13 +115,14 @@ function isContribution(transaction, eventId) {
   if (!toId && (transaction.type === 'CONTRIBUTION' || isPaymentSource || isPaymentType)) {
     // Vérifier qu'il n'y a pas de participants (sinon c'est une dépense)
     if (!hasParticipants) {
-      console.log('[isContribution] ✅ Contribution identifiée (pas de toId, type payment, pas de participants):', {
-        transactionId: transaction.id,
-        fromId,
-        type: transaction.type,
-        source: transaction.source,
-        amount: transaction.amount
-      });
+      // Log désactivé pour éviter la boucle infinie
+      // console.log('[isContribution] ✅ Contribution identifiée (pas de toId, type payment, pas de participants):', {
+      //   transactionId: transaction.id,
+      //   fromId,
+      //   type: transaction.type,
+      //   source: transaction.source,
+      //   amount: parseFloat((transaction.amount || 0).toFixed(2))
+      // });
       return true;
     }
   }
@@ -127,30 +130,32 @@ function isContribution(transaction, eventId) {
   // Si c'est une dépense (a des participants concernés), ce n'est pas une contribution
   // IMPORTANT: Vérifier isExpense() APRÈS avoir vérifié les cas de contribution
   if (isExpense(transaction)) {
-    if (isPaymentType || isPaymentSource) {
-      console.log('[isContribution] ❌ Rejetée car identifiée comme dépense:', {
-        transactionId: transaction.id,
-        hasParticipants,
-        toId,
-        eventId
-      });
-    }
+    // Log désactivé pour éviter la boucle infinie
+    // if (isPaymentType || isPaymentSource) {
+    //   console.log('[isContribution] ❌ Rejetée car identifiée comme dépense:', {
+    //     transactionId: transaction.id,
+    //     hasParticipants,
+    //     toId,
+    //     eventId
+    //   });
+    // }
     return false;
   }
   
-  if (isPaymentType || isPaymentSource) {
-    console.log('[isContribution] ❌ Transaction payment non identifiée comme contribution:', {
-      transactionId: transaction.id,
-      fromId,
-      toId,
-      transactionEventId,
-      eventId,
-      type: transaction.type,
-      source: transaction.source,
-      hasParticipants,
-      toIdMatchesEventId
-    });
-  }
+  // Log désactivé pour éviter la boucle infinie
+  // if (isPaymentType || isPaymentSource) {
+  //   console.log('[isContribution] ❌ Transaction payment non identifiée comme contribution:', {
+  //     transactionId: transaction.id,
+  //     fromId,
+  //     toId,
+  //     transactionEventId,
+  //     eventId,
+  //     type: transaction.type,
+  //     source: transaction.source,
+  //     hasParticipants,
+  //     toIdMatchesEventId
+  //   });
+  // }
   
   return false;
 }
@@ -473,20 +478,21 @@ export function getContributionToPot(participantId, event, transactions) {
  * @returns {Object} - { balances: {...}, potBalance: {...}, isBalanced: boolean }
  */
 export function computeBalances(event, transactions) {
-  console.log('[computeBalances] ⚠️ DÉBUT CALCUL BALANCES:', {
-    eventId: event?.id,
-    eventTitle: event?.title,
-    transactionsCount: transactions?.length,
-    participantsCount: event?.participants?.length,
-    transactionsDetails: transactions?.map(t => ({
-      id: t.id,
-      source: t.source,
-      participants: t.participants,
-      payerId: t.payerId,
-      amount: t.amount,
-      type: t.type
-    }))
-  });
+  // Log désactivé pour éviter la boucle infinie
+  // console.log('[computeBalances] ⚠️ DÉBUT CALCUL BALANCES:', {
+  //   eventId: event?.id,
+  //   eventTitle: event?.title,
+  //   transactionsCount: transactions?.length,
+  //   participantsCount: event?.participants?.length,
+  //   transactionsDetails: transactions?.map(t => ({
+  //     id: t.id,
+  //     source: t.source,
+  //     participants: t.participants,
+  //     payerId: t.payerId,
+  //     amount: parseFloat((t.amount || 0).toFixed(2)),
+  //     type: t.type
+  //   }))
+  // });
   
   const participants = event.participants || [];
   const balances = {};
@@ -581,33 +587,35 @@ export function computeBalances(event, transactions) {
       return;
     }
     
-    balances[fromId].contribution += amount;
-    potBalance.contributions += amount;
-    console.log('[computeBalances] ✅ Contribution comptabilisée:', {
-      transactionId: transaction.id,
-      fromId,
-      participantName: balances[fromId].participantName,
-      amount,
-      contributionAvant: balances[fromId].contribution - amount,
-      contributionApres: balances[fromId].contribution,
-      totalContributionsPot: potBalance.contributions
-    });
+    balances[fromId].contribution = parseFloat((balances[fromId].contribution + amount).toFixed(2));
+    potBalance.contributions = parseFloat((potBalance.contributions + amount).toFixed(2));
+    // Log désactivé pour éviter la boucle infinie
+    // console.log('[computeBalances] ✅ Contribution comptabilisée:', {
+    //   transactionId: transaction.id,
+    //   fromId,
+    //   participantName: balances[fromId].participantName,
+    //   amount: parseFloat(amount.toFixed(2)),
+    //   contributionAvant: parseFloat((balances[fromId].contribution - amount).toFixed(2)),
+    //   contributionApres: parseFloat(balances[fromId].contribution.toFixed(2)),
+    //   totalContributionsPot: parseFloat(potBalance.contributions.toFixed(2))
+    // });
   });
   
   // ===== B) DÉPENSES =====
   let totalConsommation = 0;
   let totalAvances = 0;
   
-  console.log('[computeBalances] Traitement des dépenses:', {
-    expensesCount: expenses.length,
-    expensesDetails: expenses.map(e => ({
-      id: e.id,
-      source: e.source,
-      participants: e.participants,
-      payerId: e.payerId,
-      amount: e.amount
-    }))
-  });
+  // Log désactivé pour éviter la boucle infinie
+  // console.log('[computeBalances] Traitement des dépenses:', {
+  //   expensesCount: expenses.length,
+  //   expensesDetails: expenses.map(e => ({
+  //     id: e.id,
+  //     source: e.source,
+  //     participants: e.participants,
+  //     payerId: e.payerId,
+  //     amount: parseFloat((e.amount || 0).toFixed(2))
+  //   }))
+  // });
   
   expenses.forEach(transaction => {
     const amount = parseFloat(transaction.amount) || 0;
@@ -675,7 +683,7 @@ export function computeBalances(event, transactions) {
     }
     
     // Part de chacun (montant total divisé par le nombre de participants concernés)
-    const share = amount / validParticipants.length;
+    const share = parseFloat((amount / validParticipants.length).toFixed(2));
     totalConsommation += amount; // La consommation totale = montant de la dépense
     
     // LOG DÉTAILLÉ POUR DIAGNOSTIC: Vérifier si c'est une transaction de 12.20€ entre 2 personnes
@@ -707,43 +715,45 @@ export function computeBalances(event, transactions) {
     const expectedShareForTwo = amount / 2; // Si 2 participants dans l'événement
     const isShareIncorrect = payerIsInParticipants && validParticipants.length !== participants.length && Math.abs(share - expectedShareForTwo) > 0.01;
     
-    console.log('[computeBalances] Traitement dépense:', {
-      transactionId: transaction.id,
-      source: transaction.source,
-      amount,
-      participantsConcerned,
-      validParticipants,
-      validParticipantsCount: validParticipants.length,
-      totalParticipantsEvent: participants.length,
-      payerId,
-      paidByPot,
-      share,
-      shareFormatted: share.toFixed(2) + '€',
-      payerIsInParticipants,
-      calculSoldeAttendu: payerId && validParticipants.includes(payerId) 
-        ? `Payeur avance ${amount}€, consomme ${share.toFixed(2)}€, solde attendu = ${(amount - share).toFixed(2)}€`
-        : payerId 
-          ? `⚠️ PROBLÈME: Payeur ${payerId} pas dans participants ${validParticipants.join(', ')}`
-          : 'Pas de payeur identifié',
-      verificationEquite: payerIsInParticipants && participants.length === 2
-        ? `Pour 2 participants: part attendue = ${expectedShareForTwo.toFixed(2)}€, part calculée = ${share.toFixed(2)}€, ${isShareIncorrect ? '⚠️ INCOHÉRENT' : '✅ COHÉRENT'}`
-        : null
-    });
+    // Log désactivé pour éviter la boucle infinie
+    // console.log('[computeBalances] Traitement dépense:', {
+    //   transactionId: transaction.id,
+    //   source: transaction.source,
+    //   amount: parseFloat(amount.toFixed(2)),
+    //   participantsConcerned,
+    //   validParticipants,
+    //   validParticipantsCount: validParticipants.length,
+    //   totalParticipantsEvent: participants.length,
+    //   payerId,
+    //   paidByPot,
+    //   share: parseFloat(share.toFixed(2)),
+    //   shareFormatted: share.toFixed(2) + '€',
+    //   payerIsInParticipants,
+    //   calculSoldeAttendu: payerId && validParticipants.includes(payerId) 
+    //     ? `Payeur avance ${amount.toFixed(2)}€, consomme ${share.toFixed(2)}€, solde attendu = ${(amount - share).toFixed(2)}€`
+    //     : payerId 
+    //       ? `⚠️ PROBLÈME: Payeur ${payerId} pas dans participants ${validParticipants.join(', ')}`
+    //       : 'Pas de payeur identifié',
+    //   verificationEquite: payerIsInParticipants && participants.length === 2
+    //     ? `Pour 2 participants: part attendue = ${expectedShareForTwo.toFixed(2)}€, part calculée = ${share.toFixed(2)}€, ${isShareIncorrect ? '⚠️ INCOHÉRENT' : '✅ COHÉRENT'}`
+    //     : null
+    // });
     
     if (paidByPot) {
       // Dépense payée par POT
-      potBalance.expensesPaid += amount;
+      potBalance.expensesPaid = parseFloat((potBalance.expensesPaid + amount).toFixed(2));
       
       // Chaque participant concerné consomme sa part
       validParticipants.forEach(participantId => {
-        balances[participantId].consomme += share;
+        balances[participantId].consomme = parseFloat((balances[participantId].consomme + share).toFixed(2));
       });
       
-      console.log('[computeBalances] Dépense payée par POT:', {
-        transactionId: transaction.id,
-        amount,
-        participantsConcerned: validParticipants.length
-      });
+      // Log désactivé pour éviter la boucle infinie
+      // console.log('[computeBalances] Dépense payée par POT:', {
+      //   transactionId: transaction.id,
+      //   amount: parseFloat(amount.toFixed(2)),
+      //   participantsConcerned: validParticipants.length
+      // });
     } else if (payerId && balances[payerId]) {
       // Dépense payée par un participant
       // IMPORTANT: Le payeur avance le montant TOTAL, mais chaque participant (y compris le payeur) consomme seulement sa PART
@@ -793,85 +803,88 @@ export function computeBalances(event, transactions) {
       // Détecter si c'est une transaction suspecte (payeur seul dans participants)
       const isSuspectTransaction = validParticipants.length === 1 && validParticipants[0] === payerId && amount > 10;
       
-      console.log('[computeBalances] Dépense payée par participant:', {
-        transactionId: transaction.id,
-        payerId,
-        amount,
-        avanceAvant: balances[payerId].avance - amount,
-        avanceApres: balances[payerId].avance,
-        participantsConcerned: validParticipants,
-        participantsCount: validParticipants.length,
-        consommationParPersonne: share,
-        consommationPayeur: balances[payerId].consomme,
-        soldePayeur,
-        soldeAttendu,
-        payerIsInParticipants,
-        isSuspectTransaction,
-        message: isSuspectTransaction 
-          ? `⚠️ ATTENTION: Transaction suspecte - Le payeur ${payerId} est seul dans la liste des participants. ` +
-            `Si c'est une dépense partagée, il faut ajouter tous les participants concernés dans la transaction. ` +
-            `Actuellement: payeur avance ${amount}€ et consomme ${share}€ (solde = ${soldePayeur.toFixed(2)}€). ` +
-            `Si c'était partagé entre 4 personnes: payeur consommerait ${(amount/4).toFixed(2)}€ (solde = ${(amount - amount/4).toFixed(2)}€).`
-          : `✅ Transaction normale - Payeur avance ${amount}€, consomme ${share}€, solde = ${soldePayeur.toFixed(2)}€`
-      });
+      // Log désactivé pour éviter la boucle infinie
+      // console.log('[computeBalances] Dépense payée par participant:', {
+      //   transactionId: transaction.id,
+      //   payerId,
+      //   amount: parseFloat(amount.toFixed(2)),
+      //   avanceAvant: parseFloat((balances[payerId].avance - amount).toFixed(2)),
+      //   avanceApres: parseFloat(balances[payerId].avance.toFixed(2)),
+      //   participantsConcerned: validParticipants,
+      //   participantsCount: validParticipants.length,
+      //   consommationParPersonne: parseFloat(share.toFixed(2)),
+      //   consommationPayeur: parseFloat(balances[payerId].consomme.toFixed(2)),
+      //   soldePayeur: parseFloat(soldePayeur.toFixed(2)),
+      //   soldeAttendu: parseFloat(soldeAttendu.toFixed(2)),
+      //   payerIsInParticipants,
+      //   isSuspectTransaction,
+      //   message: isSuspectTransaction 
+      //     ? `⚠️ ATTENTION: Transaction suspecte - Le payeur ${payerId} est seul dans la liste des participants. ` +
+      //       `Si c'est une dépense partagée, il faut ajouter tous les participants concernés dans la transaction. ` +
+      //       `Actuellement: payeur avance ${amount.toFixed(2)}€ et consomme ${share.toFixed(2)}€ (solde = ${soldePayeur.toFixed(2)}€). ` +
+      //       `Si c'était partagé entre 4 personnes: payeur consommerait ${(amount/4).toFixed(2)}€ (solde = ${(amount - amount/4).toFixed(2)}€).`
+      //     : `✅ Transaction normale - Payeur avance ${amount.toFixed(2)}€, consomme ${share.toFixed(2)}€, solde = ${soldePayeur.toFixed(2)}€`
+      // });
     } else {
       // Dépense équitable (pas de payeur identifié)
       // Chaque participant concerné consomme sa part, personne n'avance
       validParticipants.forEach(participantId => {
-        balances[participantId].consomme += share;
+        balances[participantId].consomme = parseFloat((balances[participantId].consomme + share).toFixed(2));
       });
       
-      console.log('[computeBalances] Dépense équitable (pas de payeur):', {
-        transactionId: transaction.id,
-        amount,
-        participantsConcerned: validParticipants.length
-      });
+      // Log désactivé pour éviter la boucle infinie
+      // console.log('[computeBalances] Dépense équitable (pas de payeur):', {
+      //   transactionId: transaction.id,
+      //   amount: parseFloat(amount.toFixed(2)),
+      //   participantsConcerned: validParticipants.length
+      // });
     }
   });
   
-  console.log('[computeBalances] Dépenses traitées:', {
-    totalConsommation,
-    totalAvances,
-    expensesPaidByPot: potBalance.expensesPaid
-  });
+  // Log désactivé pour éviter la boucle infinie
+  // console.log('[computeBalances] Dépenses traitées:', {
+  //   totalConsommation: parseFloat(totalConsommation.toFixed(2)),
+  //   totalAvances: parseFloat(totalAvances.toFixed(2)),
+  //   expensesPaidByPot: parseFloat(potBalance.expensesPaid.toFixed(2))
+  // });
   
   // ===== C) TRANSFERTS DIRECTS ENTRE PARTICIPANTS =====
   directTransfers.forEach(transaction => {
-    const amount = parseFloat(transaction.amount) || 0;
+    const amount = parseFloat((parseFloat(transaction.amount) || 0).toFixed(2));
     const fromId = transaction.fromId || transaction.from;
     const toId = transaction.toId || transaction.to;
     
     if (!fromId || !toId || amount === 0 || !balances[fromId] || !balances[toId]) return;
     
-    balances[fromId].paidOut += amount;
-    balances[toId].received += amount;
+    balances[fromId].paidOut = parseFloat((balances[fromId].paidOut + amount).toFixed(2));
+    balances[toId].received = parseFloat((balances[toId].received + amount).toFixed(2));
   });
   
   // ===== D) REMBOURSEMENTS POT → PARTICIPANTS =====
   potPayouts.forEach(transaction => {
-    const amount = parseFloat(transaction.amount) || 0;
+    const amount = parseFloat((parseFloat(transaction.amount) || 0).toFixed(2));
     const toId = transaction.toId || transaction.to;
     
     if (!toId || amount === 0 || !balances[toId]) return;
     
-    balances[toId].rembPot += amount;
-    potBalance.payouts += amount;
+    balances[toId].rembPot = parseFloat((balances[toId].rembPot + amount).toFixed(2));
+    potBalance.payouts = parseFloat((potBalance.payouts + amount).toFixed(2));
   });
   
   // ===== CALCUL DES MISES DE FONDS RÉELLES =====
   Object.keys(balances).forEach(participantId => {
     const balance = balances[participantId];
-    balance.mise = balance.contribution + balance.avance + balance.paidOut - balance.received - balance.rembPot;
+    balance.mise = parseFloat((balance.contribution + balance.avance + balance.paidOut - balance.received - balance.rembPot).toFixed(2));
   });
   
   // ===== CALCUL DES SOLDES PROVISOIRES =====
   Object.keys(balances).forEach(participantId => {
     const balance = balances[participantId];
-    balance.solde = balance.mise - balance.consomme;
+    balance.solde = parseFloat((balance.mise - balance.consomme).toFixed(2));
   });
   
   // ===== CALCUL DU SOLDE POT =====
-  potBalance.solde = potBalance.contributions - potBalance.expensesPaid - potBalance.payouts;
+  potBalance.solde = parseFloat((potBalance.contributions - potBalance.expensesPaid - potBalance.payouts).toFixed(2));
   
   // ===== TEST DE COHÉRENCE =====
   const totalSoldeParticipants = Object.values(balances).reduce((sum, b) => sum + b.solde, 0);
@@ -894,67 +907,68 @@ export function computeBalances(event, transactions) {
   const theoreticalContributionPerParticipant = event.amount ? (event.amount / participants.length) : 0;
   const totalTheoreticalContributions = theoreticalContributionPerParticipant * participants.length;
   
-  console.log('[computeBalances] Détection cas "avances sans contributions":', {
-    hasAdvancesWithoutContributions,
-    totalAvance,
-    potBalanceContributions: potBalance.contributions,
-    isBalanced,
-    theoreticalContributionPerParticipant,
-    totalTheoreticalContributions,
-    eventAmount: event.amount,
-    participantsCount: participants.length
-  });
+  // Log désactivé pour éviter la boucle infinie
+  // console.log('[computeBalances] Détection cas "avances sans contributions":', {
+  //   hasAdvancesWithoutContributions,
+  //   totalAvance: parseFloat(totalAvance.toFixed(2)),
+  //   potBalanceContributions: parseFloat(potBalance.contributions.toFixed(2)),
+  //   isBalanced,
+  //   theoreticalContributionPerParticipant: parseFloat(theoreticalContributionPerParticipant.toFixed(2)),
+  //   totalTheoreticalContributions: parseFloat(totalTheoreticalContributions.toFixed(2)),
+  //   eventAmount: parseFloat((event.amount || 0).toFixed(2)),
+  //   participantsCount: participants.length
+  // });
   
-  // LOG DÉTAILLÉ POUR DIAGNOSTIC: Afficher la consommation finale de chaque participant
-  // Particulièrement utile pour diagnostiquer les problèmes de calcul avec 2 participants
-  if (participants.length === 2) {
-    const participantsDetails = participants.map(p => ({
-      id: p.id,
-      name: p.name,
-      avance: balances[p.id]?.avance || 0,
-      consomme: balances[p.id]?.consomme || 0,
-      mise: balances[p.id]?.mise || 0,
-      solde: balances[p.id]?.solde || 0,
-      contribution: balances[p.id]?.contribution || 0
-    }));
-    
-    console.warn('[computeBalances] 🔍 DIAGNOSTIC FINAL - Événement à 2 participants:', {
-      participants: participantsDetails,
-      totalAvance,
-      totalConsomme,
-      verification: `Total avances (${totalAvance.toFixed(2)}€) devrait égaler total consommation (${totalConsomme.toFixed(2)}€) si équilibré`
-    });
-    
-    // Afficher chaque participant individuellement pour faciliter le diagnostic
-    participantsDetails.forEach((p, index) => {
-      console.warn(`[computeBalances] 🔍 Participant ${index + 1} - ${p.name}:`, {
-        id: p.id,
-        avance: `${p.avance.toFixed(2)}€`,
-        consomme: `${p.consomme.toFixed(2)}€`,
-        mise: `${p.mise.toFixed(2)}€`,
-        solde: `${p.solde.toFixed(2)}€`,
-        contribution: `${p.contribution.toFixed(2)}€`,
-        calculSolde: `mise (${p.mise.toFixed(2)}€) - consomme (${p.consomme.toFixed(2)}€) = solde (${p.solde.toFixed(2)}€)`
-      });
-    });
-  }
+  // LOG DÉTAILLÉ POUR DIAGNOSTIC: Désactivé pour éviter la boucle infinie
+  // if (participants.length === 2) {
+  //   const participantsDetails = participants.map(p => ({
+  //     id: p.id,
+  //     name: p.name,
+  //     avance: parseFloat((balances[p.id]?.avance || 0).toFixed(2)),
+  //     consomme: parseFloat((balances[p.id]?.consomme || 0).toFixed(2)),
+  //     mise: parseFloat((balances[p.id]?.mise || 0).toFixed(2)),
+  //     solde: parseFloat((balances[p.id]?.solde || 0).toFixed(2)),
+  //     contribution: parseFloat((balances[p.id]?.contribution || 0).toFixed(2))
+  //   }));
+  //   
+  //   console.warn('[computeBalances] 🔍 DIAGNOSTIC FINAL - Événement à 2 participants:', {
+  //     participants: participantsDetails,
+  //     totalAvance: parseFloat(totalAvance.toFixed(2)),
+  //     totalConsomme: parseFloat(totalConsomme.toFixed(2)),
+  //     verification: `Total avances (${totalAvance.toFixed(2)}€) devrait égaler total consommation (${totalConsomme.toFixed(2)}€) si équilibré`
+  //   });
+  //   
+  //   // Afficher chaque participant individuellement pour faciliter le diagnostic
+  //   participantsDetails.forEach((p, index) => {
+  //     console.warn(`[computeBalances] 🔍 Participant ${index + 1} - ${p.name}:`, {
+  //       id: p.id,
+  //       avance: `${p.avance.toFixed(2)}€`,
+  //       consomme: `${p.consomme.toFixed(2)}€`,
+  //       mise: `${p.mise.toFixed(2)}€`,
+  //       solde: `${p.solde.toFixed(2)}€`,
+  //       contribution: `${p.contribution.toFixed(2)}€`,
+  //       calculSolde: `mise (${p.mise.toFixed(2)}€) - consomme (${p.consomme.toFixed(2)}€) = solde (${p.solde.toFixed(2)}€)`
+  //     });
+  //   });
+  // }
   
-  console.log('[computeBalances] Totaux calculés:', {
-    totalMise,
-    totalConsomme,
-    totalContribution,
-    totalAvance,
-    totalPaidOut,
-    totalReceived,
-    totalRembPot,
-    potContributions: potBalance.contributions,
-    potExpensesPaid: potBalance.expensesPaid,
-    potPayouts: potBalance.payouts,
-    potSolde: potBalance.solde,
-    totalSoldeParticipants,
-    totalSolde,
-    isBalanced
-  });
+  // Log désactivé pour éviter la boucle infinie
+  // console.log('[computeBalances] Totaux calculés:', {
+  //   totalMise: parseFloat(totalMise.toFixed(2)),
+  //   totalConsomme: parseFloat(totalConsomme.toFixed(2)),
+  //   totalContribution: parseFloat(totalContribution.toFixed(2)),
+  //   totalAvance: parseFloat(totalAvance.toFixed(2)),
+  //   totalPaidOut: parseFloat(totalPaidOut.toFixed(2)),
+  //   totalReceived: parseFloat(totalReceived.toFixed(2)),
+  //   totalRembPot: parseFloat(totalRembPot.toFixed(2)),
+  //   potContributions: parseFloat(potBalance.contributions.toFixed(2)),
+  //   potExpensesPaid: parseFloat(potBalance.expensesPaid.toFixed(2)),
+  //   potPayouts: parseFloat(potBalance.payouts.toFixed(2)),
+  //   potSolde: parseFloat(potBalance.solde.toFixed(2)),
+  //   totalSoldeParticipants: parseFloat(totalSoldeParticipants.toFixed(2)),
+  //   totalSolde: parseFloat(totalSolde.toFixed(2)),
+  //   isBalanced
+  // });
   
   // Avec la règle Bonkont simple, toutes les dépenses avec un payeur sont automatiquement partagées
   // entre tous les participants. Il n'y a plus besoin de détecter des transactions suspectes.

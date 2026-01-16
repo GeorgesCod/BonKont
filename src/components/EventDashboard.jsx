@@ -685,24 +685,39 @@ setPaymentMethod('card');
     Enregistrer un paiement
   </Button>
 
-  {/* Scanner un ticket */}
-  <Button
-    variant="outline"
-    className="gap-2 neon-border"
-    onClick={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
+  {/* Scanner un ticket - Innovation mise en avant */}
+  <div className="relative">
+    <Button
+      variant="outline"
+      className="relative gap-2 neon-border scanner-ticket-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300 border-primary/50 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
 
-      console.log('[EventDashboard] ===== SCANNER BUTTON CLICKED =====');
-      localStorage.setItem('bonkont_scanner_eventId', event.id);
+        console.log('[EventDashboard] ===== SCANNER BUTTON CLICKED =====');
+        localStorage.setItem('bonkont_scanner_eventId', event.id);
 
-      setScannerEventId(event.id);
-      setShowScannerDialog(true);
-    }}
-  >
-    <Scan className="w-4 h-4" />
-    Scanner un ticket
-  </Button>
+        setScannerEventId(event.id);
+        setShowScannerDialog(true);
+      }}
+    >
+      <div className="relative">
+        <Scan className="w-4 h-4 relative z-10" />
+        <span className="absolute -top-1 -right-1 flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+        </span>
+      </div>
+      <span className="font-semibold">Scanner un ticket CB</span>
+    </Button>
+    <Badge 
+      variant="outline" 
+      className="absolute -top-2 -right-2 bg-gradient-to-r from-primary to-purple-600 text-white border-0 text-[10px] px-1.5 py-0.5 shadow-lg animate-bounce"
+      style={{ animation: 'bounce 2s infinite' }}
+    >
+      ✨ Innovation
+    </Badge>
+  </div>
 
   {/* ✅ NOUVEAU : Transactions */}
   <Button

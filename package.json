@@ -8,7 +8,9 @@
     "dev:all": "vite",
     "build": " vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "git:commit-push": "node scripts/git-commit-push.js",
+    "git:cp": "node scripts/git-commit-push.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

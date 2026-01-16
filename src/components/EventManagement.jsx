@@ -45,6 +45,12 @@ import autoTable from 'jspdf-autotable';
 import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers, getExpenseTraceability, getPaymentTraceability, getContributionToPot } from '@/utils/bonkontBalances';
 import { FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 
 export function EventManagement({ eventId, onBack }) {
   console.log('[EventManagement] Component mounted:', { eventId, type: typeof eventId });
@@ -80,6 +86,7 @@ export function EventManagement({ eventId, onBack }) {
   const [scannerParticipantId, setScannerParticipantId] = useState(null);
   const [showHelpIncompleteDistribution, setShowHelpIncompleteDistribution] = useState(false);
   const [showBonkontRule, setShowBonkontRule] = useState(true);
+  const [accordionValue, setAccordionValue] = useState(['event', 'bonkont-rule']); // Par défaut, événement et règle Bonkont ouverts
 
   if (!event) {
     console.error('[EventManagement] Event not found:', { 
@@ -199,11 +206,11 @@ const locationLower = normalizeText(getLocationText(event.location));
         }
         
         return {
-          name: poi.name,
-          rating: poi.rating,
+        name: poi.name,
+        rating: poi.rating,
           category: category,
           distance: distance,
-          totalReviews: poi.totalReviews || 0
+        totalReviews: poi.totalReviews || 0
         };
       })
     : getSpotsForLocation(event.location);
@@ -774,8 +781,8 @@ const handleExportPDF = () => {
     doc.text('• Les 7 autres participants sont exemptés (ils n\'ont pas validé)', margin + 10, yPosition);
     yPosition += 8;
     
-      doc.setFontSize(8);
-      doc.setTextColor(100, 100, 100);
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
       doc.setFont(undefined, 'italic');
       checkNewPage(5);
       doc.text('La validation détermine qui consomme et qui doit rembourser. C\'est transparent, équitable, et tout le monde est quitte !', margin, yPosition);
@@ -971,7 +978,7 @@ const handleExportPDF = () => {
         yPosition += 5;
         
         // Solde avec explication
-        doc.setFontSize(9);
+          doc.setFontSize(9);
         if (solde > 0.01) {
           doc.setTextColor(34, 197, 94); // Vert
           doc.setFont(undefined, 'bold');
@@ -1144,7 +1151,7 @@ const handleExportPDF = () => {
       inProgressLines.forEach((line, idx) => {
         checkNewPage(5);
         doc.text(line, margin, yPosition);
-        yPosition += 5;
+      yPosition += 5;
       });
       checkNewPage(10);
       yPosition += 5;
@@ -1335,13 +1342,26 @@ const handleExportPDF = () => {
 
       </div>
 
+      {/* Accordéon principal avec les 4 sections */}
+      <Accordion type="multiple" value={accordionValue} onValueChange={setAccordionValue} className="w-full space-y-4">
+        
+        {/* Section 1: L'événement */}
+        <AccordionItem value="event" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-primary" />
+              <h2 className="text-xl font-semibold">L'événement</h2>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pt-4 pb-6">
+            <div className="space-y-6">
       {/* Localisation */}
       <Card className="p-6 neon-border">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <MapPin className="w-6 h-6 text-primary" />
+                  <h3 className="text-lg font-semibold flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-primary" />
             Localisation
-          </h2>
+                  </h3>
           <Button variant="outline" size="sm" onClick={handleShareLocation} className="gap-2">
             <Share2 className="w-4 h-4" />
             Partager le lieu
@@ -1364,10 +1384,10 @@ const handleExportPDF = () => {
 
       {/* Meilleurs spots à visiter */}
       <Card className="p-6 neon-border">
-        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-          <Star className="w-6 h-6 text-primary" />
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Star className="w-5 h-5 text-primary" />
           Meilleurs spots à visiter
-        </h2>
+                </h3>
         <ScrollArea className="h-64">
           <div className="space-y-3 pr-4">
             {spots.map((spot, index) => (
@@ -1382,7 +1402,7 @@ const handleExportPDF = () => {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold">{spot.name}</h3>
+                              <h4 className="font-semibold">{spot.name}</h4>
                       <Badge variant="outline" className="text-xs">
                         {spot.category}
                       </Badge>
@@ -1410,35 +1430,20 @@ const handleExportPDF = () => {
           </div>
         </ScrollArea>
       </Card>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
 
-      {/* Règle Bonkont - Section principale */}
-      <Card className="p-6 neon-border border-primary/30 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <CheckCircle2 className="w-6 h-6 text-primary" />
-            La Règle Bonkont
-          </h2>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2"
-            onClick={() => setShowBonkontRule(!showBonkontRule)}
-          >
-            {showBonkontRule ? (
-              <>
-                <ChevronUp className="w-4 h-4 mr-1" />
-                <span className="text-xs">Masquer</span>
-              </>
-            ) : (
-              <>
-                <ChevronDown className="w-4 h-4 mr-1" />
-                <span className="text-xs">Afficher</span>
-              </>
-            )}
-          </Button>
-        </div>
-        
-        {showBonkontRule && (
+        {/* Section 2: La Règle Bonkont */}
+        <AccordionItem value="bonkont-rule" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-primary" />
+              <h2 className="text-xl font-semibold">La Règle Bonkont</h2>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pt-4 pb-6">
+            <div className="space-y-4">
           <div className="space-y-4">
             {/* Phrase principale */}
             <div className="p-5 rounded-lg bg-primary/20 dark:bg-primary/10 border-2 border-primary/30">
@@ -1507,9 +1512,179 @@ const handleExportPDF = () => {
               </div>
             </div>
           </div>
-        )}
-      </Card>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
 
+        {/* Section 3: Les Participants */}
+        <AccordionItem value="participants" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary" />
+              <h2 className="text-xl font-semibold">Les Participants ({participants.length})</h2>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pt-4 pb-6">
+            <Card className="p-6 neon-border">
+              <ScrollArea className="h-96">
+                <div className="space-y-3 pr-4">
+                  {participants.map((participant) => {
+                    const stats = getParticipantStats(participant);
+                    
+                    return (
+                      <div
+                        key={participant.id}
+                        className="p-4 rounded-lg border border-border hover:border-primary/50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-lg">{participant.name}</h3>
+                            <p className="text-sm text-muted-foreground">{participant.email}</p>
+                          </div>
+                          {stats.hasPaid && (
+                            <Badge className="bg-green-500/20 text-green-500 border-green-500/50">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Payé
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="relative">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="relative gap-2 scanner-ticket-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300 border-primary/50 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                console.log('[EventManagement] Scanner button clicked for participant:', {
+                                  participantId: participant.id,
+                                  participantName: participant.name,
+                                  eventId
+                                });
+                                setScannerParticipantId(participant.id);
+                                setIsScannerOpen(true);
+                              }}
+                            >
+                              <div className="relative">
+                                <Scan className="w-4 h-4 relative z-10" />
+                                <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                                </span>
+                              </div>
+                              <span className="font-semibold">Scanner un ticket CB</span>
+                            </Button>
+                            <Badge 
+                              variant="outline" 
+                              className="absolute -top-2 -right-2 bg-gradient-to-r from-primary to-purple-600 text-white border-0 text-[10px] px-1.5 py-0.5 shadow-lg animate-bounce"
+                              style={{ animation: 'bounce 2s infinite' }}
+                            >
+                              ✨ Innovation
+                            </Badge>
+                          </div>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="relative gap-2 mes-participations-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300"
+                                  onClick={() => {
+                                    console.log('[EventManagement] Participant clicked:', {
+                                      id: participant.id,
+                                      name: participant.name,
+                                      stats
+                                    });
+                                    setSelectedParticipant(participant);
+                                  }}
+                                >
+                                  <div className="relative">
+                                    <UserCircle className="w-4 h-4" />
+                                    {/* Badge d'alerte animé */}
+                                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                      <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+                                    </span>
+                                  </div>
+                                  <span className="font-semibold">Mes Participations</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="bg-primary text-primary-foreground">
+                                <p className="font-medium">Voir tout en détail</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-sm">
+                          <div>
+                            <p className="text-muted-foreground">Montant dû</p>
+                            <p className="font-semibold">{stats.totalDue.toFixed(2)}€</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Payé</p>
+                            <p className="font-semibold text-green-500">{stats.paid.toFixed(2)}€</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Reste à payer</p>
+                            <p className="font-semibold text-destructive">{stats.remaining.toFixed(2)}€</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Score</p>
+                            <p className="font-semibold flex items-center gap-1">
+                              <TrendingUp className="w-4 h-4" />
+                              {stats.score}/100
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between text-xs mb-1">
+                            <span className="text-muted-foreground">Progression du paiement</span>
+                            <span>{stats.paymentProgress.toFixed(0)}%</span>
+                          </div>
+                          <div className="h-2 bg-background rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary transition-all"
+                              style={{ width: `${stats.paymentProgress}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {stats.paymentRank && (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Classement: {stats.paymentRank}ème participant à avoir payé
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </Card>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Section 4: Les Ajustements */}
+        <AccordionItem value="adjustments" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-primary" />
+              <h2 className="text-xl font-semibold">Les Ajustements</h2>
+              {(() => {
+                const balancesResult = computeBalances(event, transactions);
+                const transfersResult = computeTransfers(balancesResult);
+                const transfers = transfersResult.transfers || [];
+                return transfers.length > 0 ? (
+                  <Badge variant="outline" className="text-sm ml-2">
+                    {transfers.length} transfert{transfers.length > 1 ? 's' : ''}
+                  </Badge>
+                ) : null;
+              })()}
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pt-4 pb-6">
       {/* Transparence totale : Qui verse à qui / Qui reçoit de qui */}
       {(() => {
         const balancesResult = computeBalances(event, transactions);
@@ -1554,8 +1729,8 @@ const handleExportPDF = () => {
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-1">
                       <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
-                        ⚠️ Répartition incomplète
-                      </p>
+                      ⚠️ Répartition incomplète
+                    </p>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1598,7 +1773,7 @@ const handleExportPDF = () => {
                         <div className="text-xs text-yellow-800 dark:text-yellow-200 mb-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded">
                           <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". 
                           Si toutes les transactions sont <strong>validées collectivement</strong> et équilibrées, alors la répartition devrait être équilibrée automatiquement.
-                        </div>
+                  </div>
                         
                         <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
                           🔍 Causes possibles :
@@ -1702,7 +1877,7 @@ const handleExportPDF = () => {
                       const solde = balance.solde || 0;
                       const hasTransfers = participantTransfers.toReceive.length > 0 || participantTransfers.toPay.length > 0;
                       
-                      return (
+                        return (
                         <Card key={balance.participantId} className="p-4 border-2">
                           <div className="mb-3">
                             <h4 className="font-semibold text-base mb-3">{balance.participantName}</h4>
@@ -1713,11 +1888,11 @@ const handleExportPDF = () => {
                                 <div>
                                   <p className="text-muted-foreground mb-1">Contribution</p>
                                   <p className="font-semibold">{(balance.contribution || 0).toFixed(2)}€</p>
-                                </div>
+                              </div>
                                 <div>
                                   <p className="text-muted-foreground mb-1">Avancé</p>
                                   <p className="font-semibold">{(balance.avance || 0).toFixed(2)}€</p>
-                                </div>
+                            </div>
                                 <div>
                                   <p className="text-muted-foreground mb-1">Consommé</p>
                                   <p className="font-semibold">{(balance.consomme || 0).toFixed(2)}€</p>
@@ -1768,45 +1943,45 @@ const handleExportPDF = () => {
                           {/* Transferts détaillés */}
                           {hasTransfers ? (
                             <>
-                              {participantTransfers.toReceive.length > 0 && (
-                                <div className="mb-3">
-                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                    <ArrowRight className="w-3 h-3 text-green-600 dark:text-green-400" />
-                                    Reçoit de :
-                                  </p>
-                                  <div className="space-y-2">
-                                    {participantTransfers.toReceive.map((transfer, idx) => (
-                                      <div key={idx} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800">
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-sm font-medium">{transfer.fromName}</span>
-                                        </div>
-                                        <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                          {participantTransfers.toReceive.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                <ArrowRight className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                Reçoit de :
+                              </p>
+                              <div className="space-y-2">
+                                {participantTransfers.toReceive.map((transfer, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium">{transfer.fromName}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-green-600 dark:text-green-400">
                                           {(transfer.amount || 0).toFixed(2)}€
-                                        </span>
-                                      </div>
-                                    ))}
+                                    </span>
                                   </div>
-                                </div>
-                              )}
-                              
-                              {participantTransfers.toPay.length > 0 && (
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                    <ArrowRight className="w-3 h-3 text-orange-600 dark:text-orange-400 rotate-180" />
-                                    Verse à :
-                                  </p>
-                                  <div className="space-y-2">
-                                    {participantTransfers.toPay.map((transfer, idx) => (
-                                      <div key={idx} className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950/20 rounded border border-orange-200 dark:border-orange-800">
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-sm font-medium">{transfer.toName}</span>
-                                        </div>
-                                        <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {participantTransfers.toPay.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                <ArrowRight className="w-3 h-3 text-orange-600 dark:text-orange-400 rotate-180" />
+                                Verse à :
+                              </p>
+                              <div className="space-y-2">
+                                {participantTransfers.toPay.map((transfer, idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-950/20 rounded border border-orange-200 dark:border-orange-800">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium">{transfer.toName}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
                                           {(transfer.amount || 0).toFixed(2)}€
-                                        </span>
-                                      </div>
-                                    ))}
+                                    </span>
                                   </div>
+                                ))}
+                              </div>
                                 </div>
                               )}
                             </>
@@ -1845,135 +2020,10 @@ const handleExportPDF = () => {
           </Card>
         );
       })()}
+            </AccordionContent>
+        </AccordionItem>
 
-      {/* Liste des participants */}
-      <Card className="p-6 neon-border">
-        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-          <Users className="w-6 h-6 text-primary" />
-          Participants ({participants.length})
-        </h2>
-        <ScrollArea className="h-96">
-          <div className="space-y-3 pr-4">
-            {participants.map((participant) => {
-              const stats = getParticipantStats(participant);
-              
-              return (
-                <div
-                  key={participant.id}
-                  className="p-4 rounded-lg border border-border hover:border-primary/50 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg">{participant.name}</h3>
-                      <p className="text-sm text-muted-foreground">{participant.email}</p>
-                    </div>
-                    {stats.hasPaid && (
-                      <Badge className="bg-green-500/20 text-green-500 border-green-500/50">
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        Payé
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 mb-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        console.log('[EventManagement] Scanner button clicked for participant:', {
-                          participantId: participant.id,
-                          participantName: participant.name,
-                          eventId
-                        });
-                        setScannerParticipantId(participant.id);
-                        setIsScannerOpen(true);
-                      }}
-                    >
-                      <Scan className="w-4 h-4" />
-                      Scanner un ticket
-                    </Button>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="default"
-                            size="sm"
-                            className="relative gap-2 mes-participations-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300"
-                            onClick={() => {
-                              console.log('[EventManagement] Participant clicked:', {
-                                id: participant.id,
-                                name: participant.name,
-                                stats
-                              });
-                              setSelectedParticipant(participant);
-                            }}
-                          >
-                            <div className="relative">
-                              <UserCircle className="w-4 h-4" />
-                              {/* Badge d'alerte animé */}
-                              <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
-                              </span>
-                            </div>
-                            <span className="font-semibold">Mes Participations</span>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="bg-primary text-primary-foreground">
-                          <p className="font-medium">Voir tout en détail</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Montant dû</p>
-                      <p className="font-semibold">{stats.totalDue.toFixed(2)}€</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Payé</p>
-                      <p className="font-semibold text-green-500">{stats.paid.toFixed(2)}€</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Reste à payer</p>
-                      <p className="font-semibold text-destructive">{stats.remaining.toFixed(2)}€</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Score</p>
-                      <p className="font-semibold flex items-center gap-1">
-                        <TrendingUp className="w-4 h-4" />
-                        {stats.score}/100
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="text-muted-foreground">Progression du paiement</span>
-                      <span>{stats.paymentProgress.toFixed(0)}%</span>
-                    </div>
-                    <div className="h-2 bg-background rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary transition-all"
-                        style={{ width: `${stats.paymentProgress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {stats.paymentRank && (
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      Classement: {stats.paymentRank}ème participant à avoir payé
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </ScrollArea>
-      </Card>
+      </Accordion>
 
       {/* Scanner de ticket */}
       <EventTicketScanner
@@ -2007,9 +2057,10 @@ const handleExportPDF = () => {
                 <p className="text-muted-foreground">{selectedParticipant.email}</p>
               </div>
               
+              <div className="relative">
               <Button
                 variant="outline"
-                className="w-full gap-2"
+                  className="relative w-full gap-2 scanner-ticket-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300 border-primary/50 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent"
                 onClick={() => {
                   console.log('[EventManagement] Opening scanner from participant dialog');
                   setSelectedParticipant(null);
@@ -2017,9 +2068,28 @@ const handleExportPDF = () => {
                   setIsScannerOpen(true);
                 }}
               >
-                <Scan className="w-4 h-4" />
-                Scanner un ticket pour ce participant
+                  <div className="relative">
+                    <Scan className="w-4 h-4 relative z-10" />
+                    <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                    </span>
+                  </div>
+                  <span className="font-semibold">Scanner un ticket CB</span>
               </Button>
+                <Badge 
+                  variant="outline" 
+                  className="absolute -top-2 -right-2 bg-gradient-to-r from-primary to-purple-600 text-white border-0 text-[10px] px-1.5 py-0.5 shadow-lg animate-bounce"
+                  style={{ animation: 'bounce 2s infinite' }}
+                >
+                  ✨ Innovation
+                </Badge>
+                <div className="mt-2 text-center">
+                  <p className="text-xs text-muted-foreground italic">
+                    Un simple scan de ton ticket CB, Tu valides collectivement, Tu partages les frais
+                  </p>
+                </div>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="p-4 rounded-lg border border-border">
