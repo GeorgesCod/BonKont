@@ -1,0 +1,209 @@
+# Guide de la Double Règle Bonkont
+
+## 🎯 La Règle Fondamentale
+
+**"Tu Valides, Tu consommes, Tu reçois ou Tu verses, Tu es Quittes"**
+
+C'est Transparent, c'est Équitable, c'est Bonkont.
+
+---
+
+## 📋 La Double Règle Bonkont
+
+La règle Bonkont repose sur **deux principes fondamentaux** qui garantissent un partage équitable et transparent de toutes les dépenses :
+
+### 1️⃣ La Validation : Qui est concerné ?
+
+**Dès qu'un participant valide une transaction, il est concerné par la répartition équitable.**
+
+- ✅ **Validation collective** : Si tous les participants valident → Tous sont concernés
+- ✅ **Validation partielle** : Si seulement certains valident → Seuls ces participants sont concernés
+- ✅ **Par défaut** : Si aucune validation explicite → Tous les participants sont concernés (répartition équitable)
+
+**Exemple concret :**
+- 10 personnes participent à un événement
+- Alice effectue une dépense de 30€ pour un repas en ville
+- Alice, Bob et Charlie valident cette dépense
+- Les 7 autres participants ne valident pas (ils sont restés sur site)
+- **Résultat** : Seuls Alice, Bob et Charlie sont concernés par cette dépense
+
+### 2️⃣ Le Partage Équitable : Comment se fait la répartition ?
+
+**Toute avance étant validée par les participants, le payeur consomme sa part au prorata, et les autres participants concernés consomment aussi leur part au prorata.**
+
+#### Principe de base :
+- Le **payeur avance le montant TOTAL**
+- Le **payeur consomme sa PART** (montant ÷ nombre de participants concernés)
+- Chaque **autre participant concerné consomme aussi sa PART** (montant ÷ nombre de participants concernés)
+- Le **payeur reçoit le remboursement** des autres participants concernés
+
+#### Exemple concret avec 8 participants :
+
+**Scénario :** kalopic avance 36,61€ pour une dépense validée par tous les participants
+
+**Calcul :**
+- Montant total : 36,61€
+- Nombre de participants concernés : 8
+- Part par personne : 36,61€ ÷ 8 = **4,58€**
+
+**Répartition :**
+- kalopic avance : **36,61€**
+- kalopic consomme : **4,58€** (sa part)
+- Chaque autre participant consomme : **4,58€** (sa part)
+- kalopic doit recevoir : 36,61€ - 4,58€ = **32,03€** des 7 autres participants
+
+**Mais attention !** kalopic consomme aussi sa part de toutes les autres dépenses avancées par les autres participants. Donc :
+
+- kalopic avance : 36,61€
+- kalopic consomme sa part de sa propre avance : 4,58€
+- kalopic consomme sa part des autres avances : 47,75€
+- **Total consommé par kalopic : 52,33€**
+- **Solde de kalopic : 36,61€ - 52,33€ = -15,72€** (à verser)
+
+---
+
+## 💡 Exemples Pratiques
+
+### Exemple 1 : Repas partagé entre 3 personnes sur 10
+
+**Situation :**
+- 10 personnes dans un événement
+- Alice, Bob et Charlie sortent prendre un repas
+- Alice paie 30€ pour les 3
+- Seulement Alice, Bob et Charlie valident cette dépense
+
+**Résultat selon la règle Bonkont :**
+- ✅ Seuls Alice, Bob et Charlie sont concernés (validation partielle)
+- ✅ Chacun consomme : 30€ ÷ 3 = **10€**
+- ✅ Alice a avancé 30€, elle consomme 10€ → elle doit recevoir **20€**
+- ✅ Bob et Charlie doivent chacun **10€** à Alice
+- ✅ Les 7 autres participants sont exemptés (ils n'ont pas validé)
+
+### Exemple 2 : Courses pour tous validées collectivement
+
+**Situation :**
+- 8 personnes dans un événement
+- Bob fait des courses pour 40€
+- Tous les participants valident cette dépense
+
+**Résultat selon la règle Bonkont :**
+- ✅ Tous les 8 participants sont concernés (validation collective)
+- ✅ Chacun consomme : 40€ ÷ 8 = **5€**
+- ✅ Bob a avancé 40€, il consomme 5€ → il doit recevoir **35€**
+- ✅ Chaque autre participant doit **5€** à Bob
+
+### Exemple 3 : Plusieurs dépenses successives
+
+**Situation :**
+- 4 personnes dans un événement (Alice, Bob, Charlie, David)
+- Alice avance 20€ (validé par tous)
+- Bob avance 40€ (validé par tous)
+- Charlie avance 60€ (validé par tous)
+
+**Calcul pour Alice :**
+- Alice avance : **20€**
+- Alice consomme sa part de sa propre avance : 20€ ÷ 4 = **5€**
+- Alice consomme sa part de l'avance de Bob : 40€ ÷ 4 = **10€**
+- Alice consomme sa part de l'avance de Charlie : 60€ ÷ 4 = **15€**
+- **Total consommé par Alice : 30€**
+- **Solde d'Alice : 20€ - 30€ = -10€** (à verser)
+
+**Calcul pour Bob :**
+- Bob avance : **40€**
+- Bob consomme sa part de l'avance d'Alice : 20€ ÷ 4 = **5€**
+- Bob consomme sa part de sa propre avance : 40€ ÷ 4 = **10€**
+- Bob consomme sa part de l'avance de Charlie : 60€ ÷ 4 = **15€**
+- **Total consommé par Bob : 30€**
+- **Solde de Bob : 40€ - 30€ = +10€** (à recevoir)
+
+**Résultat final :**
+- Alice doit verser 10€
+- Bob doit recevoir 10€
+- Charlie doit recevoir 30€ (60€ - 30€)
+- David doit verser 30€ (0€ - 30€)
+- **Total : 0€** (équilibré !)
+
+---
+
+## 🔍 Comment ça fonctionne dans Bonkont ?
+
+### 1. Création d'une dépense
+
+Quand vous créez une dépense dans Bonkont :
+- Vous indiquez le montant
+- Vous sélectionnez le payeur (ou c'est automatique)
+- Les participants concernés sont déterminés par la validation
+
+### 2. Validation
+
+- **Validation collective** : Tous les participants valident → Tous consomment leur part
+- **Validation partielle** : Seulement certains valident → Seuls ces participants consomment leur part
+- **Par défaut** : Si aucune validation explicite → Tous les participants consomment leur part (répartition équitable)
+
+### 3. Calcul automatique
+
+Bonkont calcule automatiquement :
+- ✅ La part de chaque participant concerné
+- ✅ La consommation totale de chaque participant
+- ✅ Le solde de chaque participant (ce qu'il doit recevoir ou verser)
+- ✅ Les transferts nécessaires pour équilibrer les comptes
+
+### 4. Traçabilité complète
+
+Dans votre fiche participant et dans l'export PDF, vous voyez :
+- ✅ Toutes les dépenses que vous avez avancées
+- ✅ Votre part de consommation pour chaque dépense avancée
+- ✅ Toutes les dépenses avancées par d'autres dont vous avez consommé votre part
+- ✅ Votre consommation totale
+- ✅ Votre solde final
+
+---
+
+## ✅ Avantages de la Règle Bonkont
+
+### 🎯 Transparence Totale
+- Chaque participant voit exactement ce qu'il a avancé et consommé
+- Tous les calculs sont détaillés et vérifiables
+- Aucune ambiguïté sur qui doit quoi à qui
+
+### ⚖️ Équité Garantie
+- Chacun consomme sa part au prorata
+- Personne ne paie plus que sa part réelle
+- La répartition est toujours équitable
+
+### 🤝 Confiance et Simplicité
+- La règle est simple et claire
+- Les calculs sont automatiques
+- Le PDF exporté est un document de référence incontestable
+
+### 💰 Gestion Équilibrée
+- Les comptes sont toujours équilibrés
+- Les transferts sont calculés automatiquement
+- Chacun sait exactement combien il doit recevoir ou verser
+
+---
+
+## 📊 Résumé en 3 Points
+
+1. **Validation** : Dès que tu valides, tu es concerné par la répartition équitable
+2. **Partage** : Chacun consomme sa part au prorata du nombre de participants concernés
+3. **Équilibre** : Le payeur avance le total, consomme sa part, et reçoit le remboursement des autres
+
+---
+
+## 🎉 La Promesse Bonkont
+
+**"Bonkont fait les comptes, les Amis font le reste"**
+
+Avec la double règle Bonkont :
+- ✅ Plus de disputes sur qui doit quoi
+- ✅ Plus de calculs compliqués à faire
+- ✅ Plus de doutes sur la répartition
+- ✅ Juste du partage équitable et transparent
+
+**C'est Transparent, c'est Équitable, c'est Bonkont.**
+
+---
+
+*Dernière mise à jour : 2024*
+

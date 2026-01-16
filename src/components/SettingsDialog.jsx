@@ -208,7 +208,7 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
           </DialogHeader>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="account" className="text-xs sm:text-sm">
                 <User className="w-4 h-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">{t('account')}</span>
@@ -216,6 +216,10 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
               <TabsTrigger value="preferences" className="text-xs sm:text-sm">
                 <Globe className="w-4 h-4 mr-1 sm:mr-2" />
                 <span className="hidden sm:inline">{t('preferences')}</span>
+              </TabsTrigger>
+              <TabsTrigger value="help" className="text-xs sm:text-sm">
+                <HelpCircle className="w-4 h-4 mr-1 sm:mr-2" />
+                <span className="hidden sm:inline">{t('help')}</span>
               </TabsTrigger>
             </TabsList>
 
@@ -475,6 +479,272 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                     {t('contact')}
                     <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
                   </Button>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* Onglet Aide */}
+            <TabsContent value="help" className="space-y-6 mt-4">
+              <div className="space-y-6">
+                <div>
+                  <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2 mb-2">
+                    <HelpCircle className="w-5 h-5" />
+                    {currentLanguage?.code === 'en' ? 'Bonkont Rule Guide' : 'Guide de la Règle Bonkont'}
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {currentLanguage?.code === 'en' 
+                      ? 'Understand how Bonkont ensures fair and transparent expense sharing'
+                      : 'Comprenez comment Bonkont garantit un partage équitable et transparent des dépenses'}
+                  </p>
+                </div>
+
+                {/* Guide de la Règle Bonkont */}
+                <div className="space-y-6 prose prose-sm max-w-none dark:prose-invert">
+                  {/* Règle Fondamentale */}
+                  <div className="bg-primary/10 p-4 rounded-lg border border-primary/20">
+                    <h4 className="font-bold text-lg mb-2 text-primary">
+                      {currentLanguage?.code === 'en' ? 'The Fundamental Rule' : '🎯 La Règle Fondamentale'}
+                    </h4>
+                    <p className="text-base font-semibold italic mb-2">
+                      "{currentLanguage?.code === 'en' 
+                        ? 'You Validate, You Consume, You Receive or You Pay, You are Even'
+                        : 'Tu Valides, Tu consommes, Tu reçois ou Tu verses, Tu es Quittes'}"
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {currentLanguage?.code === 'en'
+                        ? 'It\'s Transparent, it\'s Fair, it\'s Bonkont.'
+                        : 'C\'est Transparent, c\'est Équitable, c\'est Bonkont.'}
+                    </p>
+                  </div>
+
+                  {/* La Double Règle */}
+                  <div className="space-y-4">
+                    <h4 className="font-bold text-base">
+                      {currentLanguage?.code === 'en' ? '📋 The Double Bonkont Rule' : '📋 La Double Règle Bonkont'}
+                    </h4>
+                    <p className="text-sm">
+                      {currentLanguage?.code === 'en'
+                        ? 'The Bonkont rule is based on two fundamental principles that ensure fair and transparent sharing of all expenses:'
+                        : 'La règle Bonkont repose sur deux principes fondamentaux qui garantissent un partage équitable et transparent de toutes les dépenses :'}
+                    </p>
+
+                    {/* 1. La Validation */}
+                    <div className="bg-muted/50 p-4 rounded-lg space-y-2">
+                      <h5 className="font-semibold text-sm">
+                        {currentLanguage?.code === 'en' ? '1️⃣ Validation: Who is concerned?' : '1️⃣ La Validation : Qui est concerné ?'}
+                      </h5>
+                      <p className="text-sm">
+                        <strong>{currentLanguage?.code === 'en' ? 'As soon as a participant validates a transaction, they are concerned by the fair distribution.' : 'Dès qu\'un participant valide une transaction, il est concerné par la répartition équitable.'}</strong>
+                      </p>
+                      <ul className="text-sm space-y-1 ml-4 list-disc">
+                        <li>
+                          {currentLanguage?.code === 'en'
+                            ? '✅ Collective validation: If all participants validate → All are concerned'
+                            : '✅ Validation collective : Si tous les participants valident → Tous sont concernés'}
+                        </li>
+                        <li>
+                          {currentLanguage?.code === 'en'
+                            ? '✅ Partial validation: If only some validate → Only these participants are concerned'
+                            : '✅ Validation partielle : Si seulement certains valident → Seuls ces participants sont concernés'}
+                        </li>
+                        <li>
+                          {currentLanguage?.code === 'en'
+                            ? '✅ By default: If no explicit validation → All participants are concerned (fair distribution)'
+                            : '✅ Par défaut : Si aucune validation explicite → Tous les participants sont concernés (répartition équitable)'}
+                        </li>
+                      </ul>
+                      <div className="mt-3 p-3 bg-background rounded border border-border">
+                        <p className="text-xs font-semibold mb-1">
+                          {currentLanguage?.code === 'en' ? 'Concrete example:' : 'Exemple concret :'}
+                        </p>
+                        <p className="text-xs">
+                          {currentLanguage?.code === 'en'
+                            ? '10 people participate in an event. Alice makes a 30€ expense for a meal in town. Alice, Bob and Charlie validate this expense. The 7 other participants do not validate (they stayed on site). Result: Only Alice, Bob and Charlie are concerned by this expense.'
+                            : '10 personnes participent à un événement. Alice effectue une dépense de 30€ pour un repas en ville. Alice, Bob et Charlie valident cette dépense. Les 7 autres participants ne valident pas (ils sont restés sur site). Résultat : Seuls Alice, Bob et Charlie sont concernés par cette dépense.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 2. Le Partage Équitable */}
+                    <div className="bg-muted/50 p-4 rounded-lg space-y-2">
+                      <h5 className="font-semibold text-sm">
+                        {currentLanguage?.code === 'en' ? '2️⃣ Fair Sharing: How is the distribution done?' : '2️⃣ Le Partage Équitable : Comment se fait la répartition ?'}
+                      </h5>
+                      <p className="text-sm">
+                        <strong>
+                          {currentLanguage?.code === 'en'
+                            ? 'Any advance validated by participants means the payer consumes their share on a pro-rata basis, and the other concerned participants also consume their share on a pro-rata basis.'
+                            : 'Toute avance étant validée par les participants, le payeur consomme sa part au prorata, et les autres participants concernés consomment aussi leur part au prorata.'}
+                        </strong>
+                      </p>
+                      
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs font-semibold">
+                          {currentLanguage?.code === 'en' ? 'Basic principle:' : 'Principe de base :'}
+                        </p>
+                        <ul className="text-xs space-y-1 ml-4 list-disc">
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'The payer advances the TOTAL amount'
+                              : 'Le payeur avance le montant TOTAL'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'The payer consumes their SHARE (amount ÷ number of concerned participants)'
+                              : 'Le payeur consomme sa PART (montant ÷ nombre de participants concernés)'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'Each other concerned participant also consumes their SHARE (amount ÷ number of concerned participants)'
+                              : 'Chaque autre participant concerné consomme aussi sa PART (montant ÷ nombre de participants concernés)'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'The payer receives reimbursement from the other concerned participants'
+                              : 'Le payeur reçoit le remboursement des autres participants concernés'}
+                          </li>
+                        </ul>
+                      </div>
+
+                      <div className="mt-3 p-3 bg-background rounded border border-border">
+                        <p className="text-xs font-semibold mb-1">
+                          {currentLanguage?.code === 'en' ? 'Concrete example with 8 participants:' : 'Exemple concret avec 8 participants :'}
+                        </p>
+                        <p className="text-xs mb-2">
+                          <strong>{currentLanguage?.code === 'en' ? 'Scenario:' : 'Scénario :'}</strong> {currentLanguage?.code === 'en'
+                            ? 'kalopic advances 36.61€ for an expense validated by all participants'
+                            : 'kalopic avance 36,61€ pour une dépense validée par tous les participants'}
+                        </p>
+                        <p className="text-xs mb-2">
+                          <strong>{currentLanguage?.code === 'en' ? 'Calculation:' : 'Calcul :'}</strong>
+                        </p>
+                        <ul className="text-xs space-y-1 ml-4 list-disc">
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'Total amount: 36.61€'
+                              : 'Montant total : 36,61€'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'Number of concerned participants: 8'
+                              : 'Nombre de participants concernés : 8'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'Share per person: 36.61€ ÷ 8 = 4.58€'
+                              : 'Part par personne : 36,61€ ÷ 8 = 4,58€'}
+                          </li>
+                        </ul>
+                        <p className="text-xs mt-2">
+                          <strong>{currentLanguage?.code === 'en' ? 'Distribution:' : 'Répartition :'}</strong>
+                        </p>
+                        <ul className="text-xs space-y-1 ml-4 list-disc">
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'kalopic advances: 36.61€'
+                              : 'kalopic avance : 36,61€'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'kalopic consumes: 4.58€ (their share)'
+                              : 'kalopic consomme : 4,58€ (sa part)'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'Each other participant consumes: 4.58€ (their share)'
+                              : 'Chaque autre participant consomme : 4,58€ (sa part)'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'kalopic must receive: 36.61€ - 4.58€ = 32.03€ from the 7 other participants'
+                              : 'kalopic doit recevoir : 36,61€ - 4,58€ = 32,03€ des 7 autres participants'}
+                          </li>
+                        </ul>
+                        <p className="text-xs mt-2 font-semibold text-primary">
+                          {currentLanguage?.code === 'en'
+                            ? '⚠️ But note! kalopic also consumes their share of all other expenses advanced by other participants. So:'
+                            : '⚠️ Mais attention ! kalopic consomme aussi sa part de toutes les autres dépenses avancées par les autres participants. Donc :'}
+                        </p>
+                        <ul className="text-xs space-y-1 ml-4 list-disc">
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'kalopic advances: 36.61€'
+                              : 'kalopic avance : 36,61€'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'kalopic consumes their share of their own advance: 4.58€'
+                              : 'kalopic consomme sa part de sa propre avance : 4,58€'}
+                          </li>
+                          <li>
+                            {currentLanguage?.code === 'en'
+                              ? 'kalopic consumes their share of other advances: 47.75€'
+                              : 'kalopic consomme sa part des autres avances : 47,75€'}
+                          </li>
+                          <li>
+                            <strong>
+                              {currentLanguage?.code === 'en'
+                                ? 'Total consumed by kalopic: 52.33€'
+                                : 'Total consommé par kalopic : 52,33€'}
+                            </strong>
+                          </li>
+                          <li>
+                            <strong>
+                              {currentLanguage?.code === 'en'
+                                ? 'kalopic\'s balance: 36.61€ - 52.33€ = -15.72€ (to pay)'
+                                : 'Solde de kalopic : 36,61€ - 52,33€ = -15,72€ (à verser)'}
+                            </strong>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Résumé */}
+                  <div className="bg-primary/5 p-4 rounded-lg border border-primary/10">
+                    <h4 className="font-bold text-base mb-3">
+                      {currentLanguage?.code === 'en' ? '📊 Summary in 3 Points' : '📊 Résumé en 3 Points'}
+                    </h4>
+                    <ol className="text-sm space-y-2 ml-4 list-decimal">
+                      <li>
+                        <strong>{currentLanguage?.code === 'en' ? 'Validation:' : 'Validation :'}</strong> {currentLanguage?.code === 'en'
+                          ? 'As soon as you validate, you are concerned by the fair distribution'
+                          : 'Dès que tu valides, tu es concerné par la répartition équitable'}
+                      </li>
+                      <li>
+                        <strong>{currentLanguage?.code === 'en' ? 'Sharing:' : 'Partage :'}</strong> {currentLanguage?.code === 'en'
+                          ? 'Each person consumes their share on a pro-rata basis of the number of concerned participants'
+                          : 'Chacun consomme sa part au prorata du nombre de participants concernés'}
+                      </li>
+                      <li>
+                        <strong>{currentLanguage?.code === 'en' ? 'Balance:' : 'Équilibre :'}</strong> {currentLanguage?.code === 'en'
+                          ? 'The payer advances the total, consumes their share, and receives reimbursement from the others'
+                          : 'Le payeur avance le total, consomme sa part, et reçoit le remboursement des autres'}
+                      </li>
+                    </ol>
+                  </div>
+
+                  {/* La Promesse Bonkont */}
+                  <div className="bg-muted/30 p-4 rounded-lg border border-border text-center">
+                    <h4 className="font-bold text-base mb-2">
+                      {currentLanguage?.code === 'en' ? '🎉 The Bonkont Promise' : '🎉 La Promesse Bonkont'}
+                    </h4>
+                    <p className="text-sm font-semibold italic mb-3">
+                      "{currentLanguage?.code === 'en'
+                        ? 'Bonkont does the accounting, Friends do the rest'
+                        : 'Bonkont fait les comptes, les Amis font le reste'}"
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {currentLanguage?.code === 'en'
+                        ? 'With the double Bonkont rule: No more disputes about who owes what, no more complicated calculations to do, no more doubts about the distribution, just fair and transparent sharing.'
+                        : 'Avec la double règle Bonkont : Plus de disputes sur qui doit quoi, plus de calculs compliqués à faire, plus de doutes sur la répartition, juste du partage équitable et transparent.'}
+                    </p>
+                    <p className="text-xs font-semibold text-primary mt-2">
+                      {currentLanguage?.code === 'en'
+                        ? 'It\'s Transparent, it\'s Fair, it\'s Bonkont.'
+                        : 'C\'est Transparent, c\'est Équitable, c\'est Bonkont.'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </TabsContent>

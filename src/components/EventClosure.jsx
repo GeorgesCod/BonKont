@@ -46,7 +46,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
-import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers } from '@/utils/bonkontBalances';
+import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers, getExpenseTraceability } from '@/utils/bonkontBalances';
 import { useToast } from '@/hooks/use-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -454,15 +454,53 @@ export function EventClosure({ eventId, onBack }) {
       doc.text('C\'est Transparent, c\'est Equitable, c\'est Bonkont', margin, yPosition);
       yPosition += 8;
       
-      // Explication
+      // Explication de la double règle
       doc.setFontSize(9);
       doc.setTextColor(60, 60, 60);
       doc.setFont(undefined, 'normal');
-      const explicationText = 'La règle Bonkont est simple et équitable : seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata. La validation (complète ou partielle) détermine la répartition et les transferts.';
-      const explicationLines = doc.splitTextToSize(explicationText, pageWidth - 2 * margin);
-      explicationLines.forEach((line, idx) => {
+      const explicationText1 = 'La règle Bonkont repose sur deux principes fondamentaux :';
+      const explicationLines1 = doc.splitTextToSize(explicationText1, pageWidth - 2 * margin);
+      explicationLines1.forEach((line, idx) => {
         checkNewPage(5);
         doc.text(line, margin, yPosition);
+        yPosition += 5;
+      });
+      checkNewPage(10);
+      yPosition += 3;
+      
+      doc.setFontSize(9);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('1. La Validation :', margin + 5, yPosition);
+      yPosition += 5;
+      
+      doc.setFontSize(8);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      const validationText = 'Seuls les participants qui valident une dépense ou une avance sont concernés par la répartition équitable. La validation (complète ou partielle) détermine qui consomme et qui doit rembourser.';
+      const validationLines = doc.splitTextToSize(validationText, pageWidth - 2 * margin - 5);
+      validationLines.forEach((line, idx) => {
+        checkNewPage(5);
+        doc.text(line, margin + 10, yPosition);
+        yPosition += 5;
+      });
+      checkNewPage(10);
+      yPosition += 3;
+      
+      doc.setFontSize(9);
+      doc.setTextColor(99, 102, 241);
+      doc.setFont(undefined, 'bold');
+      doc.text('2. Le Calcul Équitable :', margin + 5, yPosition);
+      yPosition += 5;
+      
+      doc.setFontSize(8);
+      doc.setTextColor(60, 60, 60);
+      doc.setFont(undefined, 'normal');
+      const calculText = 'Toute avance étant validée par les participants, le payeur consomme au prorata sa part, et les autres participants concernés consomment aussi au prorata leur part. C\'est la logique de calcul équitable : chacun consomme sa part, le payeur reçoit le remboursement des autres.';
+      const calculLines = doc.splitTextToSize(calculText, pageWidth - 2 * margin - 5);
+      calculLines.forEach((line, idx) => {
+        checkNewPage(5);
+        doc.text(line, margin + 10, yPosition);
         yPosition += 5;
       });
       checkNewPage(15);
@@ -492,23 +530,26 @@ export function EventClosure({ eventId, onBack }) {
       doc.setTextColor(34, 197, 94); // Vert
       doc.setFont(undefined, 'bold');
       checkNewPage(5);
-      doc.text('Résultat selon la règle Bonkont :', margin + 5, yPosition);
+      doc.text('Résultat selon la double règle Bonkont :', margin + 5, yPosition);
       yPosition += 5;
       
       doc.setFontSize(8);
       doc.setTextColor(60, 60, 60);
       doc.setFont(undefined, 'normal');
       checkNewPage(5);
-      doc.text('• Seuls Alice, Bob et Charlie sont concernés par cette dépense', margin + 10, yPosition);
+      doc.text('1. VALIDATION : Seuls Alice, Bob et Charlie sont concernés (ils ont validé)', margin + 10, yPosition);
       yPosition += 5;
       checkNewPage(5);
-      doc.text('• Chacun consomme 10€ (30€ ÷ 3 personnes)', margin + 10, yPosition);
+      doc.text('2. CALCUL ÉQUITABLE : Chacun consomme sa part au prorata (30€ ÷ 3 = 10€)', margin + 10, yPosition);
       yPosition += 5;
       checkNewPage(5);
-      doc.text('• Alice a avancé 30€, elle consomme 10€ → elle doit recevoir 20€', margin + 10, yPosition);
+      doc.text('• Alice a avancé 30€, elle consomme 10€ (sa part) → elle doit recevoir 20€', margin + 10, yPosition);
       yPosition += 5;
       checkNewPage(5);
-      doc.text('• Bob et Charlie doivent chacun 10€ à Alice', margin + 10, yPosition);
+      doc.text('• Bob consomme 10€ (sa part) → il doit 10€ à Alice', margin + 10, yPosition);
+      yPosition += 5;
+      checkNewPage(5);
+      doc.text('• Charlie consomme 10€ (sa part) → il doit 10€ à Alice', margin + 10, yPosition);
       yPosition += 5;
       checkNewPage(5);
       doc.text('• Les 7 autres participants sont exemptés (ils n\'ont pas validé)', margin + 10, yPosition);
@@ -518,7 +559,7 @@ export function EventClosure({ eventId, onBack }) {
       doc.setTextColor(100, 100, 100);
       doc.setFont(undefined, 'italic');
       checkNewPage(5);
-      doc.text('La validation détermine qui consomme et qui doit rembourser. C\'est transparent, équitable, et tout le monde est quitte !', margin, yPosition);
+      doc.text('Double règle Bonkont : La validation détermine qui est concerné, le calcul équitable garantit que chacun consomme sa part au prorata. C\'est transparent, équitable, et tout le monde est quitte !', margin, yPosition);
       checkNewPage(15);
       yPosition += 10;
       
@@ -581,6 +622,40 @@ export function EventClosure({ eventId, onBack }) {
           doc.setFont(undefined, 'bold');
           doc.text(`${balance.participantName}`, margin + 5, yPosition);
           yPosition += 6;
+          
+          // Détail financier
+          doc.setFontSize(7);
+          doc.setTextColor(60, 60, 60);
+          doc.setFont(undefined, 'normal');
+          doc.text(`Contribution: ${((balance.contribution || 0)).toFixed(2)}€ | Avancé: ${((balance.avance || 0)).toFixed(2)}€ | Consommé: ${((balance.consomme || 0)).toFixed(2)}€ | Solde: ${((balance.solde || 0)).toFixed(2)}€`, margin + 5, yPosition);
+          yPosition += 5;
+          
+          // Traçabilité des dépenses (Règle Bonkont)
+          const traceability = getExpenseTraceability(balance.participantId, event, transactions);
+          
+          if (traceability.depensesAvancees.length > 0) {
+            checkNewPage(10);
+            doc.setFontSize(7);
+            doc.setTextColor(60, 60, 60);
+            doc.setFont(undefined, 'bold');
+            doc.text('Dépenses avancées:', margin + 10, yPosition);
+            yPosition += 4;
+            
+            traceability.depensesAvancees.forEach((dep) => {
+              checkNewPage(6);
+              doc.setFontSize(6);
+              doc.setTextColor(60, 60, 60);
+              doc.setFont(undefined, 'normal');
+              const desc = dep.description || 'Dépense';
+              const descShort = desc.length > 25 ? desc.substring(0, 22) + '...' : desc;
+              const totalAmount = dep.amount.toFixed(2);
+              const shareAmount = dep.share.toFixed(2);
+              const participantsCount = dep.participantsConcerned || 1;
+              doc.text(`• ${descShort}: ${totalAmount}€ | Part: ${shareAmount}€ | ${participantsCount} participant(s)`, margin + 15, yPosition);
+              yPosition += 3;
+            });
+            yPosition += 2;
+          }
           
           if (participantTransfers.toReceive.length > 0) {
             doc.setFontSize(8);

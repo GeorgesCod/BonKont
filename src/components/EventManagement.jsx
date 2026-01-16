@@ -721,15 +721,53 @@ const handleExportPDF = () => {
     doc.text('C\'est Transparent, c\'est Equitable, c\'est Bonkont', margin, yPosition);
     yPosition += 8;
     
-    // Explication
+    // Explication de la double règle
     doc.setFontSize(9);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
-    const explicationText = 'La règle Bonkont est simple et équitable : seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata. La validation (complète ou partielle) détermine la répartition et les transferts.';
-    const explicationLines = doc.splitTextToSize(explicationText, pageWidth - 2 * margin);
-    explicationLines.forEach((line, idx) => {
+    const explicationText1 = 'La règle Bonkont repose sur deux principes fondamentaux :';
+    const explicationLines1 = doc.splitTextToSize(explicationText1, pageWidth - 2 * margin);
+    explicationLines1.forEach((line, idx) => {
       checkNewPage(5);
       doc.text(line, margin, yPosition);
+      yPosition += 5;
+    });
+    checkNewPage(10);
+    yPosition += 3;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('1. La Validation :', margin + 5, yPosition);
+    yPosition += 5;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    const validationText = 'Seuls les participants qui valident une dépense ou une avance sont concernés par la répartition équitable. La validation (complète ou partielle) détermine qui consomme et qui doit rembourser.';
+    const validationLines = doc.splitTextToSize(validationText, pageWidth - 2 * margin - 5);
+    validationLines.forEach((line, idx) => {
+      checkNewPage(5);
+      doc.text(line, margin + 10, yPosition);
+      yPosition += 5;
+    });
+    checkNewPage(10);
+    yPosition += 3;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('2. Le Calcul Équitable :', margin + 5, yPosition);
+    yPosition += 5;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    const calculText = 'Toute avance étant validée par les participants, le payeur consomme au prorata sa part, et les autres participants concernés consomment aussi au prorata leur part. C\'est la logique de calcul équitable : chacun consomme sa part, le payeur reçoit le remboursement des autres.';
+    const calculLines = doc.splitTextToSize(calculText, pageWidth - 2 * margin - 5);
+    calculLines.forEach((line, idx) => {
+      checkNewPage(5);
+      doc.text(line, margin + 10, yPosition);
       yPosition += 5;
     });
     checkNewPage(15);
@@ -759,23 +797,26 @@ const handleExportPDF = () => {
     doc.setTextColor(34, 197, 94); // Vert
     doc.setFont(undefined, 'bold');
     checkNewPage(5);
-    doc.text('Résultat selon la règle Bonkont :', margin + 5, yPosition);
+    doc.text('Résultat selon la double règle Bonkont :', margin + 5, yPosition);
     yPosition += 5;
     
     doc.setFontSize(8);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
     checkNewPage(5);
-    doc.text('• Seuls Alice, Bob et Charlie sont concernés par cette dépense', margin + 10, yPosition);
+    doc.text('1. VALIDATION : Seuls Alice, Bob et Charlie sont concernés (ils ont validé)', margin + 10, yPosition);
     yPosition += 5;
     checkNewPage(5);
-    doc.text('• Chacun consomme 10€ (30€ ÷ 3 personnes)', margin + 10, yPosition);
+    doc.text('2. CALCUL ÉQUITABLE : Chacun consomme sa part au prorata (30€ ÷ 3 = 10€)', margin + 10, yPosition);
     yPosition += 5;
     checkNewPage(5);
-    doc.text('• Alice a avancé 30€, elle consomme 10€ → elle doit recevoir 20€', margin + 10, yPosition);
+    doc.text('• Alice a avancé 30€, elle consomme 10€ (sa part) → elle doit recevoir 20€', margin + 10, yPosition);
     yPosition += 5;
     checkNewPage(5);
-    doc.text('• Bob et Charlie doivent chacun 10€ à Alice', margin + 10, yPosition);
+    doc.text('• Bob consomme 10€ (sa part) → il doit 10€ à Alice', margin + 10, yPosition);
+    yPosition += 5;
+    checkNewPage(5);
+    doc.text('• Charlie consomme 10€ (sa part) → il doit 10€ à Alice', margin + 10, yPosition);
     yPosition += 5;
     checkNewPage(5);
     doc.text('• Les 7 autres participants sont exemptés (ils n\'ont pas validé)', margin + 10, yPosition);
@@ -783,9 +824,9 @@ const handleExportPDF = () => {
     
     doc.setFontSize(8);
     doc.setTextColor(100, 100, 100);
-      doc.setFont(undefined, 'italic');
-      checkNewPage(5);
-      doc.text('La validation détermine qui consomme et qui doit rembourser. C\'est transparent, équitable, et tout le monde est quitte !', margin, yPosition);
+    doc.setFont(undefined, 'italic');
+    checkNewPage(5);
+    doc.text('Double règle Bonkont : La validation détermine qui est concerné, le calcul équitable garantit que chacun consomme sa part au prorata. C\'est transparent, équitable, et tout le monde est quitte !', margin, yPosition);
     checkNewPage(15);
     yPosition += 10;
     
@@ -803,10 +844,13 @@ const handleExportPDF = () => {
     doc.text('• Contribution : Argent réellement versé dans la cagnotte (espèces, virement, CB)', margin + 5, yPosition);
     yPosition += 5;
     checkNewPage(5);
-    doc.text('• Avance : Dépenses payées pour le groupe (courses, frais partagés)', margin + 5, yPosition);
+    doc.text('• Avance : Dépenses payées pour le groupe (le payeur avance le montant total)', margin + 5, yPosition);
     yPosition += 5;
     checkNewPage(5);
-    doc.text('• Consommation : Votre part réelle des dépenses partagées (selon la validation)', margin + 5, yPosition);
+    doc.text('• Consommation : Votre part réelle au prorata des dépenses partagées (selon la validation)', margin + 5, yPosition);
+    yPosition += 5;
+    checkNewPage(5);
+    doc.text('  → Le payeur consomme sa part au prorata, comme tous les autres participants', margin + 10, yPosition);
     yPosition += 5;
     checkNewPage(5);
     doc.text('• Solde : Ce que vous devez recevoir ou verser pour être équitablement quittes', margin + 5, yPosition);
@@ -825,7 +869,25 @@ const handleExportPDF = () => {
     doc.setTextColor(100, 100, 100);
     doc.setFont(undefined, 'italic');
     doc.text('Chaque participant voit clairement sa contribution, ses avances, sa consommation et son solde équitable.', margin, yPosition);
-    yPosition += 8;
+    yPosition += 6;
+    
+    // Note importante sur la règle Bonkont
+    doc.setFontSize(7);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('RÈGLE BONKONT - Consommation équitable:', margin, yPosition);
+    yPosition += 4;
+    
+    doc.setFontSize(7);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    const ruleNote = 'Quand un participant avance une dépense validée par d\'autres participants, le payeur consomme sa part au prorata, ET tous les autres participants concernés consomment aussi leur part au prorata. Exemple : Si A avance 36,61€ pour 8 participants, A consomme 4,58€ (sa part) et les 7 autres consomment aussi 4,58€ chacun.';
+    const ruleNoteLines = doc.splitTextToSize(ruleNote, pageWidth - 2 * margin);
+    ruleNoteLines.forEach((line, idx) => {
+      doc.text(line, margin + 5, yPosition);
+      yPosition += 4;
+    });
+    yPosition += 6;
     
     const detailedBalancesTableData = Object.values(balances).map(balance => {
       const formatted = formatBalance(balance);
@@ -1013,7 +1075,140 @@ const handleExportPDF = () => {
           yPosition += 4;
           doc.text(`Votre compte est équilibré, aucun ajustement n'est nécessaire.`, margin + 5, yPosition);
         }
-        yPosition += 3;
+        yPosition += 5;
+        
+        // ===== TRACABILITÉ DES DÉPENSES (RÈGLE BONKONT) =====
+        // Montrer clairement que tous les participants concernés consomment leur part
+        const traceability = getExpenseTraceability(balance.participantId, event, transactions);
+        
+        // Note importante sur la consommation totale
+        checkNewPage(10);
+        doc.setFontSize(7);
+        doc.setTextColor(99, 102, 241);
+        doc.setFont(undefined, 'bold');
+        const consommationTotal = (balance.consomme || 0).toFixed(2);
+        const depensesAvanceesCount = traceability.depensesAvancees.length;
+        const depensesConsommeesCount = traceability.depensesConsommees.length;
+        doc.text(`Consommation totale: ${consommationTotal}€ = Votre part de vos avances (${depensesAvanceesCount}) + Votre part des avances des autres (${depensesConsommeesCount})`, margin + 5, yPosition);
+        yPosition += 5;
+        
+        if (traceability.depensesAvancees.length > 0 || traceability.depensesConsommees.length > 0) {
+          checkNewPage(15);
+          doc.setFontSize(9);
+          doc.setTextColor(99, 102, 241);
+          doc.setFont(undefined, 'bold');
+          doc.text('Détail de la traçabilité (Règle Bonkont):', margin + 5, yPosition);
+          yPosition += 6;
+          
+          // Dépenses avancées par ce participant
+          if (traceability.depensesAvancees.length > 0) {
+            doc.setFontSize(8);
+            doc.setTextColor(60, 60, 60);
+            doc.setFont(undefined, 'bold');
+            doc.text('Dépenses avancées:', margin + 10, yPosition);
+            yPosition += 5;
+            
+            traceability.depensesAvancees.forEach((dep) => {
+              checkNewPage(8);
+              doc.setFontSize(7);
+              doc.setTextColor(60, 60, 60);
+              doc.setFont(undefined, 'normal');
+              const desc = dep.description || 'Dépense';
+              const descShort = desc.length > 30 ? desc.substring(0, 27) + '...' : desc;
+              doc.text(`• ${descShort}`, margin + 15, yPosition);
+              yPosition += 4;
+              
+              doc.setFontSize(7);
+              doc.setTextColor(100, 100, 100);
+              doc.setFont(undefined, 'italic');
+              const totalAmount = dep.amount.toFixed(2);
+              const shareAmount = dep.share.toFixed(2);
+              const participantsCount = dep.participantsConcerned || 1;
+              doc.text(`  Montant total: ${totalAmount}€ | Part par personne: ${shareAmount}€ | ${participantsCount} participant(s) concerné(s)`, margin + 20, yPosition);
+              yPosition += 4;
+              
+              doc.setFontSize(7);
+              doc.setTextColor(34, 197, 94);
+              doc.setFont(undefined, 'normal');
+              doc.text(`  → Vous consommez ${shareAmount}€ (votre part) | Les autres participants concernés consomment aussi ${shareAmount}€ chacun`, margin + 20, yPosition);
+              yPosition += 5;
+            });
+            yPosition += 3;
+          }
+          
+          // Dépenses consommées par ce participant (avancées par d'autres)
+          if (traceability.depensesConsommees.length > 0) {
+            checkNewPage(10);
+            doc.setFontSize(8);
+            doc.setTextColor(60, 60, 60);
+            doc.setFont(undefined, 'bold');
+            doc.text('Dépenses consommées (avancées par d\'autres):', margin + 10, yPosition);
+            yPosition += 5;
+            
+            // Calculer le total de consommation des dépenses avancées par d'autres
+            let totalConsommeAutres = 0;
+            traceability.depensesConsommees.forEach((dep) => {
+              totalConsommeAutres += dep.part || 0;
+            });
+            
+            traceability.depensesConsommees.forEach((dep) => {
+              checkNewPage(8);
+              doc.setFontSize(7);
+              doc.setTextColor(60, 60, 60);
+              doc.setFont(undefined, 'normal');
+              const desc = dep.description || 'Dépense';
+              const descShort = desc.length > 30 ? desc.substring(0, 27) + '...' : desc;
+              const payerName = dep.payerName || 'Inconnu';
+              const participantsCount = dep.participantsConcerned || 1;
+              doc.text(`• ${descShort} (avancée par ${payerName})`, margin + 15, yPosition);
+              yPosition += 4;
+              
+              doc.setFontSize(7);
+              doc.setTextColor(100, 100, 100);
+              doc.setFont(undefined, 'italic');
+              const shareAmount = dep.part.toFixed(2);
+              doc.text(`  Montant total: ${dep.amount.toFixed(2)}€ | Part par personne: ${shareAmount}€ | ${participantsCount} participant(s) concerné(s)`, margin + 20, yPosition);
+              yPosition += 4;
+              
+              doc.setFontSize(7);
+              doc.setTextColor(34, 197, 94);
+              doc.setFont(undefined, 'normal');
+              doc.text(`  → Vous consommez ${shareAmount}€ (votre part au prorata)`, margin + 20, yPosition);
+              yPosition += 5;
+            });
+            
+            // Afficher le total
+            checkNewPage(5);
+            doc.setFontSize(7);
+            doc.setTextColor(99, 102, 241);
+            doc.setFont(undefined, 'bold');
+            doc.text(`Total consommé des avances des autres: ${totalConsommeAutres.toFixed(2)}€`, margin + 15, yPosition);
+            yPosition += 5;
+            
+            // Calculer aussi le total de consommation de ses propres avances
+            let totalConsommePropres = 0;
+            traceability.depensesAvancees.forEach((dep) => {
+              totalConsommePropres += dep.share || 0;
+            });
+            
+            if (traceability.depensesAvancees.length > 0) {
+              doc.setFontSize(7);
+              doc.setTextColor(99, 102, 241);
+              doc.setFont(undefined, 'bold');
+              doc.text(`Total consommé de vos propres avances: ${totalConsommePropres.toFixed(2)}€`, margin + 15, yPosition);
+              yPosition += 5;
+              
+              const totalCalcule = totalConsommePropres + totalConsommeAutres;
+              doc.setFontSize(8);
+              doc.setTextColor(34, 197, 94);
+              doc.setFont(undefined, 'bold');
+              doc.text(`Total consommation calculé: ${totalCalcule.toFixed(2)}€ | Total affiché: ${consommationTotal}€`, margin + 15, yPosition);
+              yPosition += 3;
+            }
+            
+            yPosition += 3;
+          }
+        }
         
         if (!hasTransfers) {
           yPosition += 3;
