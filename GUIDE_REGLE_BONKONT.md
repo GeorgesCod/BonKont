@@ -24,9 +24,11 @@ La règle Bonkont repose sur **deux principes fondamentaux** qui garantissent un
 **Types de transactions et traitement :**
 
 1. **Contributions au POT** (participant → POT) :
-   - ✅ Validées pour traçabilité et transparence
-   - ℹ️ Ne déclenchent PAS de partage équitable (versement direct au POT)
-   - La validation confirme que c'est bien une contribution
+   - ✅ Validées ET déclenchent le partage équitable
+   - ✅ La validation détermine QUI est concerné (qui bénéficie de la contribution)
+   - ✅ Le partage équitable détermine COMBIEN chacun consomme (montant ÷ nombre de participants concernés)
+   - Le participant qui paie verse le montant total, tous les participants concernés consomment leur part
+   - **Double règle : Validation + Partage Équitable**
 
 2. **Dépenses/Avances** (participant paie pour le groupe) :
    - ✅ Validées ET déclenchent le partage équitable
@@ -160,9 +162,9 @@ La règle Bonkont repose sur **deux principes fondamentaux** qui garantissent un
 Bonkont gère **4 types de transactions**, toutes validées selon la règle Bonkont :
 
 **A) Contributions au POT** (participant → POT) :
-- Versement direct au POT (cagnotte)
-- Validé pour traçabilité
-- Pas de partage équitable (versement direct)
+- Le participant verse le montant total au POT (cagnotte)
+- Validé ET partagé équitablement
+- Tous les participants concernés consomment leur part au prorata
 
 **B) Dépenses/Avances** (participant paie pour le groupe) :
 - Le payeur avance le montant total

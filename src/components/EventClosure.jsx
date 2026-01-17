@@ -471,7 +471,7 @@ export function EventClosure({ eventId, onBack }) {
       doc.setFontSize(8);
       doc.setTextColor(60, 60, 60);
       doc.setFont(undefined, 'normal');
-      const typesText = '• Contributions au POT : Validées pour traçabilité (versement direct)\n• Dépenses/Avances : Validées ET partagées équitablement\n• Transferts directs : Validés pour traçabilité (paiement direct)\n• Remboursements POT : Validés pour traçabilité (remboursement direct)';
+      const typesText = '• Contributions au POT : Validées ET partagées équitablement (tous les participants concernés consomment leur part)\n• Dépenses/Avances : Validées ET partagées équitablement\n• Transferts directs : Validés pour traçabilité (paiement direct)\n• Remboursements POT : Validés pour traçabilité (remboursement direct)';
       const typesLines = doc.splitTextToSize(typesText, pageWidth - 2 * margin - 5);
       typesLines.forEach((line, idx) => {
         checkNewPage(5);

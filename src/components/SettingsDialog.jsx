@@ -535,7 +535,7 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                       </h5>
                       <ul className="text-xs space-y-1 ml-4 list-disc text-blue-800 dark:text-blue-200">
                         <li>
-                          <strong>{currentLanguage?.code === 'en' ? 'POT Contributions' : 'Contributions au POT'}</strong>: {currentLanguage?.code === 'en' ? 'Validated for traceability (direct payment, no sharing)' : 'Validées pour traçabilité (versement direct, pas de partage)'}
+                          <strong>{currentLanguage?.code === 'en' ? 'POT Contributions' : 'Contributions au POT'}</strong>: {currentLanguage?.code === 'en' ? 'Validated AND fairly shared (all concerned participants consume their share)' : 'Validées ET partagées équitablement (tous les participants concernés consomment leur part)'}
                         </li>
                         <li>
                           <strong>{currentLanguage?.code === 'en' ? 'Expenses/Advances' : 'Dépenses/Avances'}</strong>: {currentLanguage?.code === 'en' ? 'Validated AND fairly shared (who consumes what)' : 'Validées ET partagées équitablement (qui consomme quoi)'}
@@ -593,8 +593,8 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                       </h5>
                       <p className="text-xs text-muted-foreground mb-2">
                         {currentLanguage?.code === 'en'
-                          ? 'Fair sharing applies to EXPENSES/ADVANCES. POT contributions, direct transfers, and POT reimbursements are direct transactions that do not require sharing (but are always validated for traceability).'
-                          : 'Le partage équitable s\'applique aux DÉPENSES/AVANCES. Les contributions au POT, transferts directs et remboursements POT sont des transactions directes qui ne nécessitent pas de partage (mais sont toujours validées pour traçabilité).'}
+                          ? 'Fair sharing applies to CONTRIBUTIONS and EXPENSES/ADVANCES. Direct transfers and POT reimbursements are direct transactions that do not require sharing (but are always validated for traceability).'
+                          : 'Le partage équitable s\'applique aux CONTRIBUTIONS et DÉPENSES/AVANCES. Les transferts directs et remboursements POT sont des transactions directes qui ne nécessitent pas de partage (mais sont toujours validées pour traçabilité).'}
                       </p>
                       <p className="text-sm">
                         <strong>

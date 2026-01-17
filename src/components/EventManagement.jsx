@@ -738,7 +738,7 @@ const handleExportPDF = () => {
     doc.setFontSize(8);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
-    const typesText = '• Contributions au POT : Validées pour traçabilité (versement direct)\n• Dépenses/Avances : Validées ET partagées équitablement\n• Transferts directs : Validés pour traçabilité (paiement direct)\n• Remboursements POT : Validés pour traçabilité (remboursement direct)';
+    const typesText = '• Contributions au POT : Validées ET partagées équitablement (tous les participants concernés consomment leur part)\n• Dépenses/Avances : Validées ET partagées équitablement\n• Transferts directs : Validés pour traçabilité (paiement direct)\n• Remboursements POT : Validés pour traçabilité (remboursement direct)';
     const typesLines = doc.splitTextToSize(typesText, pageWidth - 2 * margin - 5);
     typesLines.forEach((line, idx) => {
       checkNewPage(5);
@@ -1674,7 +1674,7 @@ const handleExportPDF = () => {
               </p>
               <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
                 <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-2 ml-4 list-disc">
-                  <li><strong>Contributions au POT</strong> : Validées pour traçabilité (versement direct, pas de partage)</li>
+                  <li><strong>Contributions au POT</strong> : Validées ET partagées équitablement (tous les participants concernés consomment leur part)</li>
                   <li><strong>Dépenses/Avances</strong> : Validées ET partagées équitablement (qui consomme quoi)</li>
                   <li><strong>Transferts directs</strong> : Validés pour traçabilité (paiement direct, pas de partage)</li>
                   <li><strong>Remboursements POT</strong> : Validés pour traçabilité (remboursement direct, pas de partage)</li>

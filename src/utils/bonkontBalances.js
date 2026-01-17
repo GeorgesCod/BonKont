@@ -253,7 +253,10 @@ function isCollectivelyValidated(transaction, event) {
  * @returns {Array<string>} Liste des IDs des participants concernés par la dépense
  */
 function getParticipantsConcernedByExpense(transaction, event) {
-  const payerId = transaction.payerId || transaction.payer || transaction.selectedPayerId || null;
+  // Pour les contributions, utiliser fromId comme payeur si payerId n'est pas défini
+  const payerId = transaction.payerId || transaction.payer || transaction.selectedPayerId || 
+                  (transaction.fromId ? String(transaction.fromId) : null) || 
+                  (transaction.from ? String(transaction.from) : null);
   const validatedBy = transaction.validatedBy || [];
   const paidByPot = isPaidByPot(transaction);
   const eventParticipants = event?.participants || [];
@@ -547,9 +550,11 @@ export function getContributionToPot(participantId, event, transactions) {
  * Types de transactions et traitement :
  * 
  * 1. CONTRIBUTIONS (participant → POT) :
- *    - Validées pour traçabilité et transparence
- *    - Ne déclenchent PAS de partage équitable (versement direct au POT)
- *    - La validation confirme que c'est bien une contribution
+ *    - Validées ET déclenchent le partage équitable
+ *    - La validation détermine QUI est concerné (qui bénéficie de la contribution)
+ *    - Le partage équitable détermine COMBIEN chacun consomme (montant ÷ nombre de participants concernés)
+ *    - Le participant qui paie verse le montant total, tous les participants concernés consomment leur part
+ *    - Double règle : Validation + Partage Équitable
  * 
  * 2. DÉPENSES/AVANCES (participant paie pour le groupe) :
  *    - Validées ET déclenchent le partage équitable
@@ -623,7 +628,7 @@ export function computeBalances(event, transactions) {
   
   // Séparer les transactions par type
   // RÈGLE BONKONT : La validation de TOUTE transaction détermine et déclenche la règle Bonkont
-  // - Contributions au POT : Validées pour traçabilité, mais non partagées (versement direct)
+  // - Contributions au POT : Validées ET partagées équitablement (tous les participants concernés consomment leur part)
   // - Dépenses/Avances : Validées ET partagées équitablement selon la validation (qui consomme quoi)
   // - Transferts directs : Validés pour traçabilité
   // - Remboursements POT : Validés pour traçabilité
@@ -650,10 +655,10 @@ export function computeBalances(event, transactions) {
   });
   
   // ===== A) CONTRIBUTIONS (participant → POT) =====
-  // RÈGLE BONKONT : Les contributions au POT sont validées pour traçabilité et transparence
-  // Elles ne déclenchent PAS de partage équitable car ce sont des versements directs au POT
-  // (pas des dépenses partagées). La validation confirme simplement que c'est bien une contribution.
-  // Le partage équitable s'applique uniquement aux DÉPENSES/AVANCES validées.
+  // RÈGLE BONKONT : Les contributions au POT validées déclenchent le partage équitable
+  // Si une contribution est validée collectivement ou partiellement, tous les participants concernés
+  // bénéficient équitablement de cette contribution (chacun consomme sa part au prorata)
+  // Le participant qui paie verse le montant total, mais tous les participants concernés consomment leur part
   console.log('[computeBalances] Traitement des contributions:', {
     contributionsCount: contributions.length,
     contributionsDetails: contributions.map(c => ({
@@ -665,7 +670,7 @@ export function computeBalances(event, transactions) {
       source: c.source,
       eventId: c.eventId,
       validatedBy: c.validatedBy || [],
-      message: 'RÈGLE BONKONT: Contribution validée pour traçabilité (non partagée, versement direct au POT)'
+      message: 'RÈGLE BONKONT: Contribution validée → déclenche le partage équitable entre participants concernés'
     }))
   });
   
@@ -692,14 +697,42 @@ export function computeBalances(event, transactions) {
       return;
     }
     
+    // RÈGLE BONKONT : Déterminer qui est concerné par cette contribution validée
+    // Utiliser la même logique que pour les dépenses pour garantir la cohérence
+    const participantsConcerned = getParticipantsConcernedByExpense(transaction, event);
+    
+    if (participantsConcerned.length === 0) {
+      console.warn('[computeBalances] Contribution ignorée (aucun participant concerné):', {
+        transactionId: transaction.id,
+        fromId,
+        amount,
+        validatedBy: transaction.validatedBy || []
+      });
+      return;
+    }
+    
+    // Calculer la part équitable pour chaque participant concerné
+    const share = parseFloat((amount / participantsConcerned.length).toFixed(2));
+    
+    // Le participant qui paie verse le montant total au POT
     balances[fromId].contribution = parseFloat((balances[fromId].contribution + amount).toFixed(2));
     potBalance.contributions = parseFloat((potBalance.contributions + amount).toFixed(2));
+    
+    // RÈGLE BONKONT : Tous les participants concernés consomment leur part équitablement
+    participantsConcerned.forEach(participantId => {
+      if (balances[participantId]) {
+        balances[participantId].consomme = parseFloat((balances[participantId].consomme + share).toFixed(2));
+      }
+    });
+    
     // Log désactivé pour éviter la boucle infinie
-    // console.log('[computeBalances] ✅ Contribution comptabilisée:', {
+    // console.log('[computeBalances] ✅ Contribution comptabilisée avec partage équitable:', {
     //   transactionId: transaction.id,
     //   fromId,
     //   participantName: balances[fromId].participantName,
     //   amount: parseFloat(amount.toFixed(2)),
+    //   participantsConcerned: participantsConcerned.length,
+    //   share: parseFloat(share.toFixed(2)),
     //   contributionAvant: parseFloat((balances[fromId].contribution - amount).toFixed(2)),
     //   contributionApres: parseFloat(balances[fromId].contribution.toFixed(2)),
     //   totalContributionsPot: parseFloat(potBalance.contributions.toFixed(2))
