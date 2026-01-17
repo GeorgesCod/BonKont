@@ -524,9 +524,30 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                     </h4>
                     <p className="text-sm">
                       {currentLanguage?.code === 'en'
-                        ? 'The Bonkont rule is based on two fundamental principles that ensure fair and transparent sharing of all expenses:'
-                        : 'La règle Bonkont repose sur deux principes fondamentaux qui garantissent un partage équitable et transparent de toutes les dépenses :'}
+                        ? 'The Bonkont rule applies to ALL validated transactions and is based on two fundamental principles:'
+                        : 'La règle Bonkont s\'applique à TOUTES les transactions validées et repose sur deux principes fondamentaux :'}
                     </p>
+
+                    {/* Types de transactions */}
+                    <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800 space-y-2">
+                      <h5 className="font-semibold text-sm text-blue-900 dark:text-blue-100">
+                        {currentLanguage?.code === 'en' ? '📋 Transaction Types:' : '📋 Types de transactions :'}
+                      </h5>
+                      <ul className="text-xs space-y-1 ml-4 list-disc text-blue-800 dark:text-blue-200">
+                        <li>
+                          <strong>{currentLanguage?.code === 'en' ? 'POT Contributions' : 'Contributions au POT'}</strong>: {currentLanguage?.code === 'en' ? 'Validated for traceability (direct payment, no sharing)' : 'Validées pour traçabilité (versement direct, pas de partage)'}
+                        </li>
+                        <li>
+                          <strong>{currentLanguage?.code === 'en' ? 'Expenses/Advances' : 'Dépenses/Avances'}</strong>: {currentLanguage?.code === 'en' ? 'Validated AND fairly shared (who consumes what)' : 'Validées ET partagées équitablement (qui consomme quoi)'}
+                        </li>
+                        <li>
+                          <strong>{currentLanguage?.code === 'en' ? 'Direct Transfers' : 'Transferts directs'}</strong>: {currentLanguage?.code === 'en' ? 'Validated for traceability (direct payment, no sharing)' : 'Validés pour traçabilité (paiement direct, pas de partage)'}
+                        </li>
+                        <li>
+                          <strong>{currentLanguage?.code === 'en' ? 'POT Reimbursements' : 'Remboursements POT'}</strong>: {currentLanguage?.code === 'en' ? 'Validated for traceability (direct reimbursement, no sharing)' : 'Validés pour traçabilité (remboursement direct, pas de partage)'}
+                        </li>
+                      </ul>
+                    </div>
 
                     {/* 1. La Validation */}
                     <div className="bg-muted/50 p-4 rounded-lg space-y-2">
@@ -534,7 +555,7 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                         {currentLanguage?.code === 'en' ? '1️⃣ Validation: Who is concerned?' : '1️⃣ La Validation : Qui est concerné ?'}
                       </h5>
                       <p className="text-sm">
-                        <strong>{currentLanguage?.code === 'en' ? 'As soon as a participant validates a transaction, they are concerned by the fair distribution.' : 'Dès qu\'un participant valide une transaction, il est concerné par la répartition équitable.'}</strong>
+                        <strong>{currentLanguage?.code === 'en' ? 'The validation of ANY transaction triggers the Bonkont rule. For expenses/advances: only participants who validate are concerned by the fair distribution.' : 'La validation de TOUTE transaction déclenche la règle Bonkont. Pour les dépenses/avances : seuls les participants qui valident sont concernés par la répartition équitable.'}</strong>
                       </p>
                       <ul className="text-sm space-y-1 ml-4 list-disc">
                         <li>
@@ -570,6 +591,11 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                       <h5 className="font-semibold text-sm">
                         {currentLanguage?.code === 'en' ? '2️⃣ Fair Sharing: How is the distribution done?' : '2️⃣ Le Partage Équitable : Comment se fait la répartition ?'}
                       </h5>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        {currentLanguage?.code === 'en'
+                          ? 'Fair sharing applies to EXPENSES/ADVANCES. POT contributions, direct transfers, and POT reimbursements are direct transactions that do not require sharing (but are always validated for traceability).'
+                          : 'Le partage équitable s\'applique aux DÉPENSES/AVANCES. Les contributions au POT, transferts directs et remboursements POT sont des transactions directes qui ne nécessitent pas de partage (mais sont toujours validées pour traçabilité).'}
+                      </p>
                       <p className="text-sm">
                         <strong>
                           {currentLanguage?.code === 'en'

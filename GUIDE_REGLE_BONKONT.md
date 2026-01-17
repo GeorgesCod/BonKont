@@ -10,15 +10,39 @@ C'est Transparent, c'est Équitable, c'est Bonkont.
 
 ## 📋 La Double Règle Bonkont
 
-La règle Bonkont repose sur **deux principes fondamentaux** qui garantissent un partage équitable et transparent de toutes les dépenses :
+La règle Bonkont repose sur **deux principes fondamentaux** qui garantissent un partage équitable et transparent de **TOUTES les transactions** :
 
 ### 1️⃣ La Validation : Qui est concerné ?
 
-**Dès qu'un participant valide une transaction, il est concerné par la répartition équitable.**
+**La validation de TOUTE transaction détermine et déclenche la règle Bonkont.**
 
+**Principe universel :** Dès qu'une transaction est validée, elle suit la règle Bonkont selon son type :
 - ✅ **Validation collective** : Si tous les participants valident → Tous sont concernés
 - ✅ **Validation partielle** : Si seulement certains valident → Seuls ces participants sont concernés
 - ✅ **Par défaut** : Si aucune validation explicite → Tous les participants sont concernés (répartition équitable)
+
+**Types de transactions et traitement :**
+
+1. **Contributions au POT** (participant → POT) :
+   - ✅ Validées pour traçabilité et transparence
+   - ℹ️ Ne déclenchent PAS de partage équitable (versement direct au POT)
+   - La validation confirme que c'est bien une contribution
+
+2. **Dépenses/Avances** (participant paie pour le groupe) :
+   - ✅ Validées ET déclenchent le partage équitable
+   - ✅ La validation détermine QUI consomme
+   - ✅ Le partage équitable détermine COMBIEN chacun consomme
+   - **Double règle : Validation + Partage Équitable**
+
+3. **Transferts directs** (participant → participant) :
+   - ✅ Validés pour traçabilité et transparence
+   - ℹ️ Ne déclenchent PAS de partage équitable (paiement direct)
+   - La validation confirme que le transfert est accepté
+
+4. **Remboursements POT** (POT → participant) :
+   - ✅ Validés pour traçabilité et transparence
+   - ℹ️ Ne déclenchent PAS de partage équitable (remboursement direct)
+   - La validation confirme que le remboursement est accepté
 
 **Exemple concret :**
 - 10 personnes participent à un événement
@@ -29,7 +53,11 @@ La règle Bonkont repose sur **deux principes fondamentaux** qui garantissent un
 
 ### 2️⃣ Le Partage Équitable : Comment se fait la répartition ?
 
+**Le partage équitable s'applique aux DÉPENSES/AVANCES validées :**
+
 **Toute avance étant validée par les participants, le payeur consomme sa part au prorata, et les autres participants concernés consomment aussi leur part au prorata.**
+
+**Important :** Le partage équitable ne s'applique qu'aux dépenses/avances. Les contributions au POT, transferts directs et remboursements sont des transactions directes qui ne nécessitent pas de partage (mais sont toujours validées pour traçabilité).
 
 #### Principe de base :
 - Le **payeur avance le montant TOTAL**
@@ -127,24 +155,49 @@ La règle Bonkont repose sur **deux principes fondamentaux** qui garantissent un
 
 ## 🔍 Comment ça fonctionne dans Bonkont ?
 
-### 1. Création d'une dépense
+### 1. Types de transactions
 
-Quand vous créez une dépense dans Bonkont :
-- Vous indiquez le montant
-- Vous sélectionnez le payeur (ou c'est automatique)
-- Les participants concernés sont déterminés par la validation
+Bonkont gère **4 types de transactions**, toutes validées selon la règle Bonkont :
+
+**A) Contributions au POT** (participant → POT) :
+- Versement direct au POT (cagnotte)
+- Validé pour traçabilité
+- Pas de partage équitable (versement direct)
+
+**B) Dépenses/Avances** (participant paie pour le groupe) :
+- Le payeur avance le montant total
+- Validé ET partagé équitablement
+- La validation détermine qui consomme
+- Le partage équitable détermine combien chacun consomme
+
+**C) Transferts directs** (participant → participant) :
+- Paiement direct entre participants
+- Validé pour traçabilité
+- Pas de partage équitable (paiement direct)
+
+**D) Remboursements POT** (POT → participant) :
+- Remboursement direct du POT vers un participant
+- Validé pour traçabilité
+- Pas de partage équitable (remboursement direct)
 
 ### 2. Validation
 
-- **Validation collective** : Tous les participants valident → Tous consomment leur part
-- **Validation partielle** : Seulement certains valident → Seuls ces participants consomment leur part
-- **Par défaut** : Si aucune validation explicite → Tous les participants consomment leur part (répartition équitable)
+**Pour TOUTES les transactions :**
+- ✅ **Validation collective** : Tous les participants valident → Transaction acceptée
+- ✅ **Validation partielle** : Seulement certains valident → Transaction acceptée par ces participants
+- ✅ **Par défaut** : Si aucune validation explicite → Transaction acceptée par tous (répartition équitable)
+
+**Pour les DÉPENSES/AVANCES spécifiquement :**
+- La validation détermine QUI est concerné par le partage équitable
+- Si tous valident → Tous consomment leur part
+- Si seulement certains valident → Seuls ces participants consomment leur part
 
 ### 3. Calcul automatique
 
-Bonkont calcule automatiquement :
-- ✅ La part de chaque participant concerné
-- ✅ La consommation totale de chaque participant
+Bonkont calcule automatiquement pour **toutes les transactions validées** :
+- ✅ La traçabilité complète (qui a payé, qui a reçu, qui a validé)
+- ✅ Pour les dépenses/avances : la part de chaque participant concerné
+- ✅ Pour les dépenses/avances : la consommation totale de chaque participant
 - ✅ Le solde de chaque participant (ce qu'il doit recevoir ou verser)
 - ✅ Les transferts nécessaires pour équilibrer les comptes
 
@@ -185,9 +238,9 @@ Dans votre fiche participant et dans l'export PDF, vous voyez :
 
 ## 📊 Résumé en 3 Points
 
-1. **Validation** : Dès que tu valides, tu es concerné par la répartition équitable
-2. **Partage** : Chacun consomme sa part au prorata du nombre de participants concernés
-3. **Équilibre** : Le payeur avance le total, consomme sa part, et reçoit le remboursement des autres
+1. **Validation Universelle** : La validation de TOUTE transaction (contributions, dépenses, transferts, remboursements) déclenche la règle Bonkont pour traçabilité et transparence
+2. **Partage Équitable** : Pour les dépenses/avances validées, chacun consomme sa part au prorata du nombre de participants concernés
+3. **Équilibre Garanti** : Pour les dépenses/avances, le payeur avance le total, consomme sa part, et reçoit le remboursement des autres participants concernés
 
 ---
 

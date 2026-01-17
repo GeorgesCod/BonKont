@@ -725,11 +725,24 @@ const handleExportPDF = () => {
     doc.setFontSize(9);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
-    const explicationText1 = 'La règle Bonkont repose sur deux principes fondamentaux :';
+    const explicationText1 = 'La règle Bonkont s\'applique à TOUTES les transactions validées :';
     const explicationLines1 = doc.splitTextToSize(explicationText1, pageWidth - 2 * margin);
     explicationLines1.forEach((line, idx) => {
       checkNewPage(5);
       doc.text(line, margin, yPosition);
+      yPosition += 5;
+    });
+    checkNewPage(15);
+    yPosition += 3;
+    
+    doc.setFontSize(8);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    const typesText = '• Contributions au POT : Validées pour traçabilité (versement direct)\n• Dépenses/Avances : Validées ET partagées équitablement\n• Transferts directs : Validés pour traçabilité (paiement direct)\n• Remboursements POT : Validés pour traçabilité (remboursement direct)';
+    const typesLines = doc.splitTextToSize(typesText, pageWidth - 2 * margin - 5);
+    typesLines.forEach((line, idx) => {
+      checkNewPage(5);
+      doc.text(line, margin + 10, yPosition);
       yPosition += 5;
     });
     checkNewPage(10);
@@ -744,7 +757,7 @@ const handleExportPDF = () => {
     doc.setFontSize(8);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
-    const validationText = 'Seuls les participants qui valident une dépense ou une avance sont concernés par la répartition équitable. La validation (complète ou partielle) détermine qui consomme et qui doit rembourser.';
+    const validationText = 'La validation de TOUTE transaction déclenche la règle Bonkont. Pour les dépenses/avances : seuls les participants qui valident sont concernés par la répartition équitable. La validation (complète ou partielle) détermine qui consomme et qui doit rembourser.';
     const validationLines = doc.splitTextToSize(validationText, pageWidth - 2 * margin - 5);
     validationLines.forEach((line, idx) => {
       checkNewPage(5);
@@ -1657,7 +1670,18 @@ const handleExportPDF = () => {
                 Comment ça fonctionne ?
               </h3>
               <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
-                La règle Bonkont est simple et équitable : <strong>seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata</strong>. 
+                <strong>La validation de TOUTE transaction détermine et déclenche la règle Bonkont :</strong>
+              </p>
+              <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
+                <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-2 ml-4 list-disc">
+                  <li><strong>Contributions au POT</strong> : Validées pour traçabilité (versement direct, pas de partage)</li>
+                  <li><strong>Dépenses/Avances</strong> : Validées ET partagées équitablement (qui consomme quoi)</li>
+                  <li><strong>Transferts directs</strong> : Validés pour traçabilité (paiement direct, pas de partage)</li>
+                  <li><strong>Remboursements POT</strong> : Validés pour traçabilité (remboursement direct, pas de partage)</li>
+                </ul>
+              </div>
+              <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
+                Pour les <strong>dépenses/avances</strong> : seuls les participants qui valident sont redevables au payeur au prorata. 
                 La validation (complète ou partielle) détermine la répartition et les transferts.
               </p>
               

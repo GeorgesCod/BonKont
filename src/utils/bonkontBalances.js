@@ -542,6 +542,31 @@ export function getContributionToPot(participantId, event, transactions) {
 /**
  * Calcule les soldes pour chaque participant + POT
  * 
+ * RÈGLE BONKONT : La validation de TOUTE transaction détermine et déclenche la règle Bonkont
+ * 
+ * Types de transactions et traitement :
+ * 
+ * 1. CONTRIBUTIONS (participant → POT) :
+ *    - Validées pour traçabilité et transparence
+ *    - Ne déclenchent PAS de partage équitable (versement direct au POT)
+ *    - La validation confirme que c'est bien une contribution
+ * 
+ * 2. DÉPENSES/AVANCES (participant paie pour le groupe) :
+ *    - Validées ET déclenchent le partage équitable
+ *    - La validation détermine QUI est concerné (qui consomme)
+ *    - Le partage équitable détermine COMBIEN chacun consomme (montant ÷ nombre de participants concernés)
+ *    - Double règle : Validation + Partage Équitable
+ * 
+ * 3. TRANSFERTS DIRECTS (participant → participant) :
+ *    - Validés pour traçabilité et transparence
+ *    - Ne déclenchent PAS de partage équitable (paiement direct)
+ *    - La validation confirme que le transfert est accepté
+ * 
+ * 4. REMBOURSEMENTS POT (POT → participant) :
+ *    - Validés pour traçabilité et transparence
+ *    - Ne déclenchent PAS de partage équitable (remboursement direct)
+ *    - La validation confirme que le remboursement est accepté
+ * 
  * @param {Object} event - L'événement avec participants
  * @param {Array} transactions - Toutes les transactions de l'événement
  * @returns {Object} - { balances: {...}, potBalance: {...}, isBalanced: boolean }
@@ -597,6 +622,11 @@ export function computeBalances(event, transactions) {
   };
   
   // Séparer les transactions par type
+  // RÈGLE BONKONT : La validation de TOUTE transaction détermine et déclenche la règle Bonkont
+  // - Contributions au POT : Validées pour traçabilité, mais non partagées (versement direct)
+  // - Dépenses/Avances : Validées ET partagées équitablement selon la validation (qui consomme quoi)
+  // - Transferts directs : Validés pour traçabilité
+  // - Remboursements POT : Validés pour traçabilité
   const contributions = transactions.filter(t => isContribution(t, eventId));
   const expenses = transactions.filter(t => isExpense(t));
   const directTransfers = transactions.filter(t => {
@@ -620,6 +650,10 @@ export function computeBalances(event, transactions) {
   });
   
   // ===== A) CONTRIBUTIONS (participant → POT) =====
+  // RÈGLE BONKONT : Les contributions au POT sont validées pour traçabilité et transparence
+  // Elles ne déclenchent PAS de partage équitable car ce sont des versements directs au POT
+  // (pas des dépenses partagées). La validation confirme simplement que c'est bien une contribution.
+  // Le partage équitable s'applique uniquement aux DÉPENSES/AVANCES validées.
   console.log('[computeBalances] Traitement des contributions:', {
     contributionsCount: contributions.length,
     contributionsDetails: contributions.map(c => ({
@@ -629,7 +663,9 @@ export function computeBalances(event, transactions) {
       amount: c.amount,
       type: c.type,
       source: c.source,
-      eventId: c.eventId
+      eventId: c.eventId,
+      validatedBy: c.validatedBy || [],
+      message: 'RÈGLE BONKONT: Contribution validée pour traçabilité (non partagée, versement direct au POT)'
     }))
   });
   
@@ -671,6 +707,10 @@ export function computeBalances(event, transactions) {
   });
   
   // ===== B) DÉPENSES =====
+  // RÈGLE BONKONT : Les dépenses/avances sont validées ET déclenchent le partage équitable
+  // La validation détermine QUI est concerné (qui consomme)
+  // Le partage équitable détermine COMBIEN chacun consomme (montant ÷ nombre de participants concernés)
+  // Double règle : Validation + Partage Équitable
   let totalConsommation = 0;
   let totalAvances = 0;
   
@@ -682,7 +722,9 @@ export function computeBalances(event, transactions) {
   //     source: e.source,
   //     participants: e.participants,
   //     payerId: e.payerId,
-  //     amount: parseFloat((e.amount || 0).toFixed(2))
+  //     validatedBy: e.validatedBy || [],
+  //     amount: parseFloat((e.amount || 0).toFixed(2)),
+  //     message: 'RÈGLE BONKONT: Dépense validée → déclenche le partage équitable'
   //   }))
   // });
   
@@ -750,8 +792,12 @@ export function computeBalances(event, transactions) {
     // Utiliser payerIdStrFinal partout dans cette fonction
     const payerIdStr = payerIdStrFinal; // Alias pour compatibilité avec le code existant
     
-    // RÈGLE BONKONT : Seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata.
-    // La validation (complète ou partielle) détermine la règle de répartition et de transferts.
+    // RÈGLE BONKONT : La validation de cette dépense/avance détermine et déclenche la règle Bonkont
+    // Cette fonction analyse la validation (validatedBy) pour déterminer QUI est concerné
+    // - Si validation collective → Tous les participants sont concernés
+    // - Si validation partielle → Seuls les validateurs + le payeur sont concernés
+    // - Si aucune validation explicite → Tous les participants sont concernés par défaut (répartition équitable)
+    // Ensuite, le partage équitable s'applique : chacun consomme sa part au prorata
     // Exemple : 10 personnes dans un événement, A fait une dépense validée par B et C seulement
     // → Seuls A, B et C sont concernés par la répartition équitable
     const participantsConcerned = getParticipantsConcernedByExpense(transaction, event);
@@ -1091,6 +1137,9 @@ export function computeBalances(event, transactions) {
   // });
   
   // ===== C) TRANSFERTS DIRECTS ENTRE PARTICIPANTS =====
+  // RÈGLE BONKONT : Les transferts directs sont validés pour traçabilité et transparence
+  // Ils ne déclenchent PAS de partage équitable car ce sont des paiements directs entre participants
+  // La validation confirme simplement que le transfert est bien effectué et accepté
   directTransfers.forEach(transaction => {
     const amount = parseFloat((parseFloat(transaction.amount) || 0).toFixed(2));
     const fromId = transaction.fromId || transaction.from;
@@ -1103,6 +1152,9 @@ export function computeBalances(event, transactions) {
   });
   
   // ===== D) REMBOURSEMENTS POT → PARTICIPANTS =====
+  // RÈGLE BONKONT : Les remboursements POT sont validés pour traçabilité et transparence
+  // Ils ne déclenchent PAS de partage équitable car ce sont des remboursements directs
+  // La validation confirme simplement que le remboursement est bien effectué et accepté
   potPayouts.forEach(transaction => {
     const amount = parseFloat((parseFloat(transaction.amount) || 0).toFixed(2));
     const toId = transaction.toId || transaction.to;
