@@ -72,8 +72,8 @@ export function EventCode({ eventId }) {
     if (navigator.share) {
       navigator.share({
         title: `Invitation à ${event.title}`,
-        text(message),
-        url
+        text: `Rejoignez l'événement "${event.title}" sur BONKONT avec le code : ${event.code}\nLien : ${shareUrl}`,
+        url: shareUrl
       });
     } else {
       window.location.href = `sms:?body=${message}`;
@@ -180,7 +180,7 @@ export function EventCode({ eventId }) {
                   navigator.share({
                     title: `Invitation à ${event.title}`,
                     text: `Rejoignez l'événement "${event.title}" sur BONKONT`,
-                    url
+                    url: shareUrl
                   });
                 }
               }}

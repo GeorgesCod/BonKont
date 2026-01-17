@@ -6,7 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Calendar, Euro, Users, Clock, Plus, ArrowRight, Copy, Check, FileText, Shield } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Calendar, Euro, Users, Clock, Plus, ArrowRight, Copy, Check, FileText, Shield, Globe } from 'lucide-react';
 import { ParticipantForm } from '@/components/ParticipantForm';
 import { EventLocation } from '@/components/EventLocation';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -15,21 +16,57 @@ import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import confetti from 'canvas-confetti';
 import { nanoid } from 'nanoid';
+import { EventCode } from '@/components/EventCode';
 
-export function EventCreation() {
+export function EventCreation({ onEventCreated }) {
   const { toast } = useToast();
   const addEvent = useEventStore((state) => state.addEvent);
   const [step, setStep] = useState(1);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [useDuration, setUseDuration] = useState(true); // true = durée en jours, false = date limite
+  const [duration, setDuration] = useState(1);
   const [deadline, setDeadline] = useState(30);
+  const [expectedParticipants, setExpectedParticipants] = useState('');
+  const [currency, setCurrency] = useState('EUR');
   const [eventCode, setEventCode] = useState(nanoid(8).toUpperCase());
   const [location, setLocation] = useState(null);
-  const [participants, setParticipants] = useState([
-    { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false, hasAcceptedCharter: false }
-  ]);
+  const [organizerId, setOrganizerId] = useState(null);
+  const [organizerName, setOrganizerName] = useState('');
+  const [participants, setParticipants] = useState([]);
   const [charterAccepted, setCharterAccepted] = useState(false);
+  const [showShareCode, setShowShareCode] = useState(false);
+  const [createdEventId, setCreatedEventId] = useState(null);
+
+  // Récupérer l'utilisateur connecté (organisateur)
+  useEffect(() => {
+    const userData = localStorage.getItem('bonkont-user');
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        const userId = user.email || nanoid(); // Utiliser l'email comme ID unique
+        setOrganizerId(userId);
+        setOrganizerName(user.name || user.email?.split('@')[0] || 'Organisateur');
+        
+        // L'organisateur devient automatiquement participant #1
+        setParticipants([{
+          id: 1,
+          name: user.name || user.email?.split('@')[0] || 'Organisateur',
+          email: user.email || '',
+          hasConfirmed: true, // L'organisateur est automatiquement confirmé
+          hasValidatedAmount: false,
+          hasValidatedDeadline: false,
+          hasAcceptedCharter: false,
+          isOrganizer: true
+        }]);
+      } catch (e) {
+        console.error('[EventCreation] Erreur lors de la récupération de l\'utilisateur:', e);
+      }
+    }
+  }, []);
 
   // Log de la taille d'écran pour vérifier la responsivité
   useEffect(() => {
@@ -87,13 +124,23 @@ export function EventCreation() {
     let result = false;
     switch (step) {
       case 1:
-        result = title.trim() !== '' && description.trim() !== '';
-        console.log('[EventCreation] Step 1 validation:', { title: title.trim(), description: description.trim(), result });
+        result = title.trim() !== '' && description.trim() !== '' && startDate !== '';
+        console.log('[EventCreation] Step 1 validation:', { title: title.trim(), description: description.trim(), startDate, result });
         return result;
       case 2:
         const amountValue = parseFloat(amount);
-        result = amount.trim() !== '' && !isNaN(amountValue) && amountValue > 0;
-        console.log('[EventCreation] Step 2 validation:', { amount: amount.trim(), amountValue, isValid: !isNaN(amountValue), isPositive: amountValue > 0, result });
+        const dateValid = useDuration 
+          ? duration > 0 
+          : endDate !== '' && new Date(endDate) >= new Date(startDate);
+        result = amount.trim() !== '' && !isNaN(amountValue) && amountValue > 0 && dateValid;
+        console.log('[EventCreation] Step 2 validation:', { 
+          amount: amount.trim(), 
+          amountValue, 
+          isValid: !isNaN(amountValue), 
+          isPositive: amountValue > 0, 
+          dateValid,
+          result 
+        });
         return result;
       case 3:
         // Accepter si location existe avec une adresse valide
@@ -108,11 +155,12 @@ export function EventCreation() {
         });
         return result;
       case 4:
-        const allParticipantsValid = participants.every(p => p.name.trim() !== '' && p.email.trim() !== '');
-        result = allParticipantsValid && charterAccepted;
+        // L'organisateur est déjà dans la liste, on vérifie juste qu'il a un nom
+        const organizerValid = participants.length > 0 && participants[0].name.trim() !== '';
+        result = organizerValid && charterAccepted;
         console.log('[EventCreation] Step 4 validation:', { 
           participantsCount: participants.length, 
-          allParticipantsValid, 
+          organizerValid, 
           charterAccepted, 
           participants: participants.map(p => ({ name: p.name.trim(), email: p.email.trim() })),
           result 
@@ -126,13 +174,40 @@ export function EventCreation() {
 
   const handleSubmit = () => {
     console.log('[EventCreation] ===== SUBMITTING EVENT =====');
+    
+    if (!organizerId) {
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: "Vous devez être connecté pour créer un événement."
+      });
+      return;
+    }
+
+    // Calculer la date de fin
+    const start = new Date(startDate);
+    const end = useDuration 
+      ? new Date(start.getTime() + duration * 24 * 60 * 60 * 1000)
+      : new Date(endDate);
+    
+    // Calculer le délai de remboursement (jours entre startDate et endDate)
+    const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    
     console.log('[EventCreation] Event data:', { 
       title, 
       description, 
       amount, 
-      deadline, 
+      startDate,
+      endDate: end.toISOString(),
+      duration,
+      useDuration,
+      deadline: daysDiff,
+      expectedParticipants,
+      currency,
       eventCode, 
       location, 
+      organizerId,
+      organizerName,
       participantsCount: participants.length,
       charterAccepted 
     });
@@ -141,24 +216,31 @@ export function EventCreation() {
       title,
       description,
       amount: parseFloat(amount),
-      deadline,
+      deadline: daysDiff,
+      startDate: start,
+      endDate: end,
+      expectedParticipants: expectedParticipants ? parseInt(expectedParticipants) : null,
+      currency,
       code: eventCode,
       location,
-      startDate: new Date(),
-      participants: participants.map(p => ({
+      organizerId,
+      organizerName,
+      participants: participants.map((p, index) => ({
         ...p,
+        id: index + 1,
         hasPaid: false,
         paidAmount: 0,
-        hasAcceptedCharter: true
+        hasAcceptedCharter: true,
+        status: p.isOrganizer ? 'confirmed' : 'pending' // L'organisateur est confirmé, les autres en attente
       })),
-      status: 'active',
+      status: 'draft', // Événement en brouillon jusqu'au démarrage officiel
       totalPaid: 0
     };
 
     console.log('[EventCreation] Event object created:', newEvent);
     console.log('[EventCreation] Adding event to store...');
-    addEvent(newEvent);
-    console.log('[EventCreation] ✅ Event added to store successfully');
+    const eventId = addEvent(newEvent);
+    console.log('[EventCreation] ✅ Event added to store successfully, eventId:', eventId);
 
     // Effet de confetti
     confetti({
@@ -169,33 +251,67 @@ export function EventCreation() {
 
     toast({
       title: "Événement créé !",
-      description: "L'événement a été ajouté avec succès."
+      description: "Partagez maintenant le code avec vos amis."
     });
 
-    console.log('[EventCreation] Toast notification sent');
-    console.log('[EventCreation] Resetting form...');
-
-    // Réinitialiser le formulaire
-    setStep(1);
-    setTitle('');
-    setDescription('');
-    setAmount('');
-    setDeadline(30);
-    setEventCode(nanoid(8).toUpperCase());
-    setLocation(null);
-    setCharterAccepted(false);
-    setParticipants([
-      { id: 1, name: '', email: '', hasConfirmed: false, hasValidatedAmount: false, hasValidatedDeadline: false, hasAcceptedCharter: false }
-    ]);
+    // Afficher l'écran de partage du code
+    setCreatedEventId(eventId);
+    setShowShareCode(true);
     
-    console.log('[EventCreation] ✅ Form reset complete');
-    console.log('[EventCreation] ===== SUBMIT PROCESS END =====');
+    console.log('[EventCreation] ✅ Event creation process complete');
   };
+
+  // Si on affiche l'écran de partage du code
+  if (showShareCode && createdEventId) {
+    return (
+      <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
+          <div>
+            <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text">Ton code événement</h2>
+            <p className="text-sm text-muted-foreground mt-1">Partage ce code. Seuls ceux qui l'ont peuvent rejoindre.</p>
+          </div>
+        </div>
+        <EventCode eventId={createdEventId} />
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowShareCode(false);
+              setCreatedEventId(null);
+              // Réinitialiser le formulaire
+              setStep(1);
+              setTitle('');
+              setDescription('');
+              setAmount('');
+              setStartDate('');
+              setEndDate('');
+              setDuration(1);
+              setDeadline(30);
+              setExpectedParticipants('');
+              setCurrency('EUR');
+              setEventCode(nanoid(8).toUpperCase());
+              setLocation(null);
+              setCharterAccepted(false);
+              if (onEventCreated) {
+                onEventCreated(createdEventId);
+              }
+            }}
+            className="neon-border"
+          >
+            Terminé
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
-        <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text">Créer un événement</h2>
+        <div>
+          <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text">Créer un événement</h2>
+          <p className="text-sm text-muted-foreground mt-1">Tu proposes l'idée, Bonkont garde les comptes.</p>
+        </div>
         <Badge variant="outline" className="gap-2 text-xs sm:text-sm">
           Étape {step}/5
         </Badge>
@@ -214,12 +330,12 @@ export function EventCreation() {
         {step === 1 && (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Titre de l'événement</Label>
+              <Label htmlFor="title">Nom de l'événement</Label>
               <Input
                 id="title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Ex: Soirée restaurant"
+                placeholder="Ex: Voyage Florence"
                 className="neon-border"
               />
             </div>
@@ -231,6 +347,17 @@ export function EventCreation() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Décrivez votre événement..."
                 className="neon-border min-h-[100px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="startDate">Date de début</Label>
+              <Input
+                id="startDate"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="neon-border"
+                min={new Date().toISOString().split('T')[0]}
               />
             </div>
             <div className="p-4 rounded-lg neon-border bg-primary/5">
@@ -262,38 +389,97 @@ export function EventCreation() {
         {step === 2 && (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="amount">Montant total à partager</Label>
-              <div className="relative">
-                <Euro className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={amount}
-              onChange={(e) => {
-                const value = e.target.value;
-                setAmount(value);
-                console.log('[EventCreation] Amount changed:', value, 'canProceed:', canProceed());
-              }}
-              className="pl-10 neon-border"
-              placeholder="0.00"
-            />
+              <Label htmlFor="amount">Budget total</Label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Euro className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="amount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={amount}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setAmount(value);
+                      console.log('[EventCreation] Amount changed:', value, 'canProceed:', canProceed());
+                    }}
+                    className="pl-10 neon-border"
+                    placeholder="0.00"
+                  />
+                </div>
+                <Select value={currency} onValueChange={setCurrency}>
+                  <SelectTrigger className="w-32 neon-border">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EUR">EUR (€)</SelectItem>
+                    <SelectItem value="USD">USD ($)</SelectItem>
+                    <SelectItem value="GBP">GBP (£)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+              <p className="text-xs text-muted-foreground">
+                La part cible par personne sera calculée automatiquement
+              </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="deadline">Délai de remboursement (jours)</Label>
-              <div className="relative">
-                <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="deadline"
-                  type="number"
-                  min="1"
-                  value={deadline}
-                  onChange={(e) => setDeadline(parseInt(e.target.value))}
-                  className="pl-10 neon-border"
-                />
+              <Label>Durée / Date limite</Label>
+              <div className="flex gap-2 items-center">
+                <Button
+                  type="button"
+                  variant={useDuration ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setUseDuration(true)}
+                  className="neon-border"
+                >
+                  Durée (jours)
+                </Button>
+                <Button
+                  type="button"
+                  variant={!useDuration ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setUseDuration(false)}
+                  className="neon-border"
+                >
+                  Date limite
+                </Button>
               </div>
+              {useDuration ? (
+                <div className="relative">
+                  <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="duration"
+                    type="number"
+                    min="1"
+                    value={duration}
+                    onChange={(e) => setDuration(parseInt(e.target.value) || 1)}
+                    className="pl-10 neon-border"
+                    placeholder="Nombre de jours"
+                  />
+                </div>
+              ) : (
+                <Input
+                  id="endDate"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="neon-border"
+                  min={startDate || new Date().toISOString().split('T')[0]}
+                />
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="expectedParticipants">Nombre prévu de participants (optionnel)</Label>
+              <Input
+                id="expectedParticipants"
+                type="number"
+                min="1"
+                value={expectedParticipants}
+                onChange={(e) => setExpectedParticipants(e.target.value)}
+                className="neon-border"
+                placeholder="Ex: 8"
+              />
             </div>
           </div>
         )}
@@ -311,35 +497,25 @@ export function EventCreation() {
         {step === 4 && (
           <div className="space-y-6">
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
-                <h3 className="text-base sm:text-lg font-semibold">Participants</h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={addParticipant}
-                  className="gap-2 neon-border w-full sm:w-auto"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="text-xs sm:text-sm">Ajouter</span>
-                </Button>
-              </div>
-              <div className="space-y-4">
-                {participants.map((participant) => (
-                  <ParticipantForm
-                    key={participant.id}
-                    participant={participant}
-                    onUpdate={(updates) => {
-                      console.log('[EventCreation] Participant updated:', participant.id, updates);
-                      updateParticipant(participant.id, updates);
-                      console.log('[EventCreation] Can proceed to next step:', canProceed());
-                    }}
-                    onRemove={() => {
-                      console.log('[EventCreation] Removing participant:', participant.id);
-                      removeParticipant(participant.id);
-                    }}
-                    canRemove={participants.length > 1}
-                  />
-                ))}
+              <div className="p-4 rounded-lg neon-border bg-primary/5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="w-5 h-5 text-primary" />
+                  <h3 className="text-base sm:text-lg font-semibold">Organisateur</h3>
+                  <Badge variant="outline" className="ml-auto">Participant #1</Badge>
+                </div>
+                {participants.length > 0 && participants[0].isOrganizer && (
+                  <div className="space-y-2">
+                    <p className="font-medium">{participants[0].name}</p>
+                    <p className="text-sm text-muted-foreground">{participants[0].email}</p>
+                    <Badge variant="outline" className="gap-1">
+                      <Check className="w-3 h-3" />
+                      Confirmé
+                    </Badge>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground mt-2">
+                  Les autres participants rejoindront l'événement avec le code.
+                </p>
               </div>
             </div>
 

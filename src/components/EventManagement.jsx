@@ -27,7 +27,10 @@ import {
   CheckCircle2,
   HelpCircle,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  X,
+  Check,
+  Rocket
 } from 'lucide-react';
 import {
   Tooltip,
@@ -57,6 +60,7 @@ export function EventManagement({ eventId, onBack }) {
   
   const { toast } = useToast();
   const allEvents = useEventStore((state) => state.events);
+  const updateEvent = useEventStore((state) => state.updateEvent);
   console.log('[EventManagement] All events:', allEvents.map(e => ({ id: e.id, title: e.title })));
   
   const event = allEvents.find(e => {
@@ -88,6 +92,83 @@ export function EventManagement({ eventId, onBack }) {
   const [showBonkontRule, setShowBonkontRule] = useState(true);
   const [accordionValue, setAccordionValue] = useState(['event', 'bonkont-rule']); // Par défaut, événement et règle Bonkont ouverts
 
+  // Vérifier si l'utilisateur actuel est l'organisateur
+  const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+  const currentUserId = userData ? (() => {
+    try {
+      const user = JSON.parse(userData);
+      return user.email || null;
+    } catch {
+      return null;
+    }
+  })() : null;
+  const isOrganizer = currentUserId && event?.organizerId === currentUserId;
+
+  // Définir participants avant de l'utiliser
+  const participants = Array.isArray(event.participants) ? event.participants : [];
+
+  // Séparer les participants confirmés et en attente
+  // Pour la compatibilité avec les événements existants : si pas de status, considérer comme confirmé
+  const confirmedParticipants = participants.filter(p => {
+    // Si le participant a explicitement status === 'pending' et pas hasConfirmed, c'est en attente
+    if (p.status === 'pending' && !p.hasConfirmed && !p.isOrganizer) {
+      return false;
+    }
+    // Sinon, considérer comme confirmé (compatibilité avec anciens événements)
+    return true;
+  });
+  const pendingParticipants = participants.filter(p => p.status === 'pending' && !p.hasConfirmed && !p.isOrganizer);
+
+  // Fonction pour valider un participant
+  const handleValidateParticipant = (participantId) => {
+    const updatedParticipants = event.participants.map(p => 
+      p.id === participantId 
+        ? { ...p, status: 'confirmed', hasConfirmed: true }
+        : p
+    );
+    updateEvent(eventId, { participants: updatedParticipants });
+    toast({
+      title: "Participant validé",
+      description: "Le participant a été ajouté à l'événement."
+    });
+  };
+
+  // Fonction pour rejeter un participant
+  const handleRejectParticipant = (participantId) => {
+    const updatedParticipants = event.participants.filter(p => p.id !== participantId);
+    updateEvent(eventId, { participants: updatedParticipants });
+    toast({
+      title: "Participant rejeté",
+      description: "Le participant a été retiré de la liste."
+    });
+  };
+
+  // Fonction pour lancer l'événement officiellement
+  const handleLaunchEvent = () => {
+    if (confirmedParticipants.length < 1) {
+      toast({
+        variant: "destructive",
+        title: "Impossible de lancer",
+        description: "Il faut au moins un participant confirmé pour lancer l'événement."
+      });
+      return;
+    }
+
+    updateEvent(eventId, { 
+      status: 'active',
+      // Figer les paramètres
+      frozenAt: new Date(),
+      frozenParticipants: [...confirmedParticipants],
+      frozenBudget: event.amount,
+      frozenCurrency: event.currency
+    });
+
+    toast({
+      title: "Événement lancé !",
+      description: "L'événement est maintenant actif. Les paramètres sont figés."
+    });
+  };
+
   if (!event) {
     console.error('[EventManagement] Event not found:', { 
       eventId, 
@@ -113,47 +194,8 @@ export function EventManagement({ eventId, onBack }) {
     participantsCount: event.participants?.length || 0
   });
 
-  // Liste des meilleurs spots (exemple - à adapter selon le lieu)
-  const getSpotsForLocation = (location) => {
-    const spotsByLocation = {
-      'marrakech': [
-        { name: 'Place Jemaa el-Fnaa', rating: 4.8, category: 'Culture', distance: '0.5 km' },
-        { name: 'Palais de la Bahia', rating: 4.6, category: 'Histoire', distance: '1.2 km' },
-        { name: 'Jardin Majorelle', rating: 4.7, category: 'Nature', distance: '2.5 km' },
-        { name: 'Souk de Marrakech', rating: 4.5, category: 'Shopping', distance: '0.8 km' },
-        { name: 'Mosquée Koutoubia', rating: 4.9, category: 'Architecture', distance: '1.0 km' }
-      ],
-      'essaouira': [
-        { name: 'Médina d\'Essaouira', rating: 4.7, category: 'Culture', distance: '0.3 km' },
-        { name: 'Port d\'Essaouira', rating: 4.6, category: 'Port', distance: '0.5 km' },
-        { name: 'Plage d\'Essaouira', rating: 4.8, category: 'Plage', distance: '0.8 km' },
-        { name: 'Skala de la Kasbah', rating: 4.5, category: 'Histoire', distance: '0.4 km' }
-      ]
-    };
-
-     const normalizeText = (v) => String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-
-const getLocationText = (loc) => {
-  if (!loc) return '';
-  if (typeof loc === 'string') return loc;
-  return loc.address || loc.displayName || '';
-};
-
-const locationLower = normalizeText(getLocationText(event.location));
-
-
-    if (locationLower.includes('marrakech')) {
-      return spotsByLocation.marrakech;
-    } else if (locationLower.includes('essaouira')) {
-      return spotsByLocation.essaouira;
-    }
-    
-    // Spots par défaut
-    return [
-      { name: 'Point d\'intérêt 1', rating: 4.5, category: 'Général', distance: '1.0 km' },
-      { name: 'Point d\'intérêt 2', rating: 4.3, category: 'Général', distance: '1.5 km' }
-    ];
-  };
+  // Ne plus utiliser de fallback avec des points génériques
+  // On utilise uniquement les points d'intérêt réels récupérés depuis l'API
 
   // Calculer la distance entre deux points GPS (formule de Haversine)
   const calculateDistance = (lat1, lng1, lat2, lng2) => {
@@ -167,12 +209,21 @@ const locationLower = normalizeText(getLocationText(event.location));
     return R * c;
   };
 
-  // Utiliser les points d'intérêt sauvegardés dans l'événement, sinon utiliser la fonction de fallback
+  // Utiliser UNIQUEMENT les points d'intérêt réels sauvegardés dans l'événement
+  // Pas de fallback avec des points génériques
   const locationPOI = event.location?.pointsOfInterest || [];
   const eventCoords = event.location?.coordinates;
   
-  const spots = locationPOI.length > 0 
-    ? locationPOI.map(poi => {
+  // Trier par rating décroissant et limiter aux 3-5 meilleurs
+  const spots = locationPOI
+    .filter(poi => poi.rating && poi.rating >= 3.5) // Filtrer les points avec au moins 2 avis (rating >= 3.5)
+    .sort((a, b) => {
+      // Trier par rating décroissant, puis par nombre d'avis
+      if (b.rating !== a.rating) return b.rating - a.rating;
+      return (b.totalReviews || 0) - (a.totalReviews || 0);
+    })
+    .slice(0, 5) // Limiter aux 5 meilleurs
+    .map(poi => {
         let distance = 'N/A';
         if (poi.coordinates && eventCoords) {
           const dist = calculateDistance(
@@ -200,21 +251,24 @@ const locationLower = normalizeText(getLocationText(event.location));
             'zoo': 'Nature',
             'aquarium': 'Nature',
             'stadium': 'Sport',
-            'amusement_park': 'Divertissement'
+            'amusement_park': 'Divertissement',
+            'restaurant': 'Restaurant',
+            'cafe': 'Café',
+            'bar': 'Bar',
+            'hotel': 'Hébergement',
+            'lodging': 'Hébergement'
           };
           category = typeMap[poi.types[0]] || poi.types[0].replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Général';
         }
         
         return {
-        name: poi.name,
-        rating: poi.rating,
+          name: poi.name,
+          rating: poi.rating,
           category: category,
           distance: distance,
-        totalReviews: poi.totalReviews || 0
+          totalReviews: poi.totalReviews || 0
         };
-      })
-    : getSpotsForLocation(event.location);
-  const participants = Array.isArray(event.participants) ? event.participants : [];
+      });
 
   const handleShareLocation = () => {
     console.log('[EventManagement] Sharing location:', event.location);
@@ -1106,16 +1160,16 @@ const handleExportPDF = () => {
         yPosition += 5;
         
         if (traceability.depensesAvancees.length > 0 || traceability.depensesConsommees.length > 0) {
-          checkNewPage(15);
+        checkNewPage(15);
           doc.setFontSize(9);
           doc.setTextColor(99, 102, 241);
-          doc.setFont(undefined, 'bold');
+        doc.setFont(undefined, 'bold');
           doc.text('Détail de la traçabilité (Règle Bonkont):', margin + 5, yPosition);
-          yPosition += 6;
-          
+        yPosition += 6;
+        
           // Dépenses avancées par ce participant
           if (traceability.depensesAvancees.length > 0) {
-            doc.setFontSize(8);
+          doc.setFontSize(8);
             doc.setTextColor(60, 60, 60);
             doc.setFont(undefined, 'bold');
             doc.text('Dépenses avancées:', margin + 10, yPosition);
@@ -1141,10 +1195,10 @@ const handleExportPDF = () => {
               yPosition += 4;
               
               doc.setFontSize(7);
-              doc.setTextColor(34, 197, 94);
-              doc.setFont(undefined, 'normal');
+          doc.setTextColor(34, 197, 94);
+          doc.setFont(undefined, 'normal');
               doc.text(`  → Vous consommez ${shareAmount}€ (votre part) | Les autres participants concernés consomment aussi ${shareAmount}€ chacun`, margin + 20, yPosition);
-              yPosition += 5;
+          yPosition += 5;
             });
             yPosition += 3;
           }
@@ -1174,7 +1228,7 @@ const handleExportPDF = () => {
               const payerName = dep.payerName || 'Inconnu';
               const participantsCount = dep.participantsConcerned || 1;
               doc.text(`• ${descShort} (avancée par ${payerName})`, margin + 15, yPosition);
-              yPosition += 4;
+            yPosition += 4;
               
               doc.setFontSize(7);
               doc.setTextColor(100, 100, 100);
@@ -1592,13 +1646,23 @@ const handleExportPDF = () => {
 
       {/* Meilleurs spots à visiter */}
       <Card className="p-6 neon-border">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <Star className="w-5 h-5 text-primary" />
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Star className="w-5 h-5 text-primary" />
           Meilleurs spots à visiter
-                </h3>
-        <ScrollArea className="h-64">
-          <div className="space-y-3 pr-4">
-            {spots.map((spot, index) => (
+        </h3>
+        {spots.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-muted-foreground mb-2">
+              Aucun point d'intérêt trouvé avec au moins 2 avis
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Les points d'intérêt seront affichés ici une fois la localisation complète avec coordonnées GPS.
+            </p>
+          </div>
+        ) : (
+          <ScrollArea className="h-64">
+            <div className="space-y-3 pr-4">
+              {spots.map((spot, index) => (
               <div
                 key={index}
                 className="p-4 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer"
@@ -1634,9 +1698,10 @@ const handleExportPDF = () => {
                   <ExternalLink className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
-            ))}
-          </div>
-        </ScrollArea>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
       </Card>
             </div>
           </AccordionContent>
@@ -1740,14 +1805,86 @@ const handleExportPDF = () => {
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">Les Participants ({participants.length})</h2>
+              <h2 className="text-xl font-semibold">
+                Les Participants ({confirmedParticipants.length}
+                {pendingParticipants.length > 0 && ` + ${pendingParticipants.length} en attente`})
+              </h2>
+              {event.status === 'draft' && isOrganizer && (
+                <Badge variant="outline" className="ml-2">Brouillon</Badge>
+              )}
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-4 pb-6">
+            {/* Bouton de démarrage pour l'organisateur */}
+            {event.status === 'draft' && isOrganizer && (
+              <Card className="p-4 mb-4 neon-border bg-primary/5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold mb-1">Lancer l'événement</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Une fois lancé, la liste des participants et le budget seront figés.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={handleLaunchEvent}
+                    className="gap-2 button-glow"
+                    disabled={confirmedParticipants.length < 1}
+                  >
+                    <Rocket className="w-4 h-4" />
+                    Lancer l'événement
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {/* Participants en attente (pour l'organisateur) */}
+            {pendingParticipants.length > 0 && isOrganizer && (
+              <Card className="p-4 mb-4 neon-border bg-yellow-500/10 border-yellow-500/20">
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-yellow-500" />
+                  Demandes en attente ({pendingParticipants.length})
+                </h3>
+                <div className="space-y-2">
+                  {pendingParticipants.map((participant) => (
+                    <div
+                      key={participant.id}
+                      className="flex items-center justify-between p-3 rounded-lg border border-yellow-500/20 bg-background"
+                    >
+                      <div>
+                        <p className="font-medium">{participant.name}</p>
+                        {participant.email && (
+                          <p className="text-sm text-muted-foreground">{participant.email}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRejectParticipant(participant.id)}
+                          className="gap-1"
+                        >
+                          <X className="w-4 h-4" />
+                          Rejeter
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleValidateParticipant(participant.id)}
+                          className="gap-1"
+                        >
+                          <Check className="w-4 h-4" />
+                          Valider
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
             <Card className="p-6 neon-border">
               <ScrollArea className="h-96">
                 <div className="space-y-3 pr-4">
-                  {participants.map((participant) => {
+                  {confirmedParticipants.map((participant) => {
                     const stats = getParticipantStats(participant);
                     
                     return (

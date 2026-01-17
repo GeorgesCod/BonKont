@@ -6,6 +6,7 @@ import { EventManagement } from '@/components/EventManagement';
 import { TransactionManagement } from '@/components/TransactionManagement';
 import { EventHistory } from '@/components/EventHistory';
 import { EventClosure } from '@/components/EventClosure';
+import { EventJoin } from '@/components/EventJoin';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { AuthDialog } from '@/components/AuthDialog';
 import { UserProfile } from '@/components/UserProfile';
@@ -33,7 +34,7 @@ export default function App() {
   const [settingsDefaultTab, setSettingsDefaultTab] = useState('account');
   const [showStats, setShowStats] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history', 'privacy', 'terms', 'faq', 'contact'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history', 'privacy', 'terms', 'faq', 'contact', 'join'
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [viewMode, setViewMode] = useState('management'); // 'management', 'transactions', or 'closure'
 
@@ -199,6 +200,31 @@ export default function App() {
       setShowHistory(false);
       setShowStats(false);
       return;
+    }
+    // Route pour rejoindre un événement
+    if (hash.startsWith('#/join') || hash.startsWith('#join')) {
+      setCurrentView('join');
+      setSelectedEventId(null);
+      setShowHistory(false);
+      setShowStats(false);
+      return;
+    }
+    // Route pour rejoindre via code événement direct: /event/:code
+    const eventCodeMatch = hash.match(/^#\/event\/([A-Z0-9-]+)$/);
+    if (eventCodeMatch && !hash.includes('/transactions') && !hash.includes('/closure')) {
+      const code = eventCodeMatch[1];
+      // Vérifier si c'est un code (format court) ou un ID (format long)
+      const events = useEventStore.getState().events;
+      const eventByCode = events.find(e => e.code?.toUpperCase() === code.toUpperCase());
+      if (eventByCode) {
+        // C'est un code, rediriger vers la page de rejoindre
+        window.location.hash = `#/join/${code}`;
+        setCurrentView('join');
+        setSelectedEventId(null);
+        setShowHistory(false);
+        setShowStats(false);
+        return;
+      }
     }
 
     if (hash.startsWith('#event/')) {
@@ -522,6 +548,8 @@ export default function App() {
               setSettingsDefaultTab('preferences');
               setIsSettingsOpen(true);
             }} />
+          ) : currentView === 'join' ? (
+            <EventJoin />
           ) : currentView === 'event' && selectedEventId ? (
             <div className="space-y-4 animate-fade-in">
               {!isLoggedIn && (

@@ -7,18 +7,22 @@ export const useEventStore = create()(
     (set) => ({
       events: [],
       
-      addEvent: (eventData) => set((state) => {
+      addEvent: (eventData) => {
         const now = new Date();
+        const eventId = eventData.id || nanoid();
         const newEvent = {
           ...eventData,
-          id: nanoid(),
-          code: nanoid(8).toUpperCase(),
+          id: eventId,
+          code: eventData.code || nanoid(8).toUpperCase(),
           createdAt: now,
           updatedAt: now,
           ratings: [],
         };
-        return { events: [newEvent, ...state.events] };
-      }),
+        set((state) => ({
+          events: [newEvent, ...state.events]
+        }));
+        return eventId;
+      },
 
       updateEvent: (id, updates) => set((state) => ({
         events: state.events.map((event) =>
