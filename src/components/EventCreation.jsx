@@ -172,6 +172,92 @@ export function EventCreation({ onEventCreated }) {
     }
   };
 
+  // Fonction pour vérifier les chevauchements de dates
+  const checkDateOverlaps = (newStart, newEnd, organizerId, newParticipants) => {
+    const events = useEventStore.getState().events;
+    const overlaps = [];
+    
+    // Normaliser les dates (ignorer l'heure, seulement la date)
+    const normalizeDate = (date) => {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
+    
+    const newStartNorm = normalizeDate(newStart);
+    const newEndNorm = normalizeDate(newEnd);
+    
+    events.forEach(existingEvent => {
+      if (!existingEvent.startDate || !existingEvent.endDate) return;
+      
+      const existingStart = normalizeDate(existingEvent.startDate);
+      const existingEnd = normalizeDate(existingEvent.endDate);
+      
+      // Vérifier si les dates se chevauchent
+      const datesOverlap = (newStartNorm <= existingEnd && newEndNorm >= existingStart);
+      
+      if (!datesOverlap) return;
+      
+      // Vérifier si l'organisateur est impliqué dans l'événement existant
+      const organizerInvolved = existingEvent.organizerId === organizerId ||
+        existingEvent.organizerId === organizerId?.toLowerCase() ||
+        existingEvent.organizerId === organizerId?.toUpperCase() ||
+        existingEvent.participants?.some(p => {
+          const pEmail = p.email?.toLowerCase() || '';
+          const pUserId = p.userId?.toLowerCase() || '';
+          const orgId = organizerId?.toLowerCase() || '';
+          return (pEmail === orgId || pUserId === orgId) &&
+                 (p.isOrganizer === true || p.status === 'confirmed' || p.status === 'pending');
+        });
+      
+      // Vérifier si un participant est impliqué dans l'événement existant
+      let participantInvolved = null;
+      for (const newParticipant of newParticipants) {
+        const newEmail = newParticipant.email?.toLowerCase()?.trim() || '';
+        const newName = newParticipant.name?.toLowerCase()?.trim() || '';
+        const newUserId = newParticipant.userId?.toLowerCase() || '';
+        
+        const found = existingEvent.participants?.find(p => {
+          const pEmail = p.email?.toLowerCase()?.trim() || '';
+          const pName = p.name?.toLowerCase()?.trim() || '';
+          const pUserId = p.userId?.toLowerCase() || '';
+          
+          // Correspondance par email (prioritaire)
+          if (newEmail && pEmail && newEmail === pEmail) {
+            return (p.status === 'confirmed' || p.status === 'pending');
+          }
+          // Correspondance par userId
+          if (newUserId && pUserId && newUserId === pUserId) {
+            return (p.status === 'confirmed' || p.status === 'pending');
+          }
+          // Correspondance par nom (si pas d'email)
+          if (!newEmail && !pEmail && newName && pName && newName === pName) {
+            return (p.status === 'confirmed' || p.status === 'pending');
+          }
+          return false;
+        });
+        
+        if (found) {
+          participantInvolved = {
+            participant: newParticipant,
+            existingParticipant: found
+          };
+          break;
+        }
+      }
+      
+      if (organizerInvolved || participantInvolved) {
+        overlaps.push({
+          event: existingEvent,
+          reason: organizerInvolved ? 'organizer' : 'participant',
+          participantInfo: participantInvolved
+        });
+      }
+    });
+    
+    return overlaps;
+  };
+
   const handleSubmit = () => {
     console.log('[EventCreation] ===== SUBMITTING EVENT =====');
     
@@ -189,6 +275,41 @@ export function EventCreation({ onEventCreated }) {
     const end = useDuration 
       ? new Date(start.getTime() + duration * 24 * 60 * 60 * 1000)
       : new Date(endDate);
+    
+    // Vérifier les chevauchements de dates
+    const overlaps = checkDateOverlaps(start, end, organizerId, participants);
+    
+    if (overlaps.length > 0) {
+      console.warn('[EventCreation] ❌ Date overlaps detected:', overlaps);
+      
+      // Construire le message d'erreur
+      const overlapMessages = overlaps.map(overlap => {
+        const event = overlap.event;
+        const eventStart = new Date(event.startDate).toLocaleDateString('fr-FR');
+        const eventEnd = new Date(event.endDate).toLocaleDateString('fr-FR');
+        const eventTitle = event.title || 'Sans titre';
+        const location = event.location?.address || event.location?.city || 'Lieu non spécifié';
+        
+        if (overlap.reason === 'organizer') {
+          return `• Vous êtes déjà organisateur de "${eventTitle}" du ${eventStart} au ${eventEnd} à ${location}`;
+        } else {
+          const participantName = overlap.participantInfo?.participant?.name || 
+                                  overlap.participantInfo?.participant?.email || 
+                                  'un participant';
+          return `• Le participant "${participantName}" est déjà impliqué dans "${eventTitle}" du ${eventStart} au ${eventEnd} à ${location}`;
+        }
+      });
+      
+      const errorMessage = `Impossible de créer cet événement :\n\n${overlapMessages.join('\n')}\n\nUne personne ne peut pas être à deux endroits différents en même temps.`;
+      
+      toast({
+        variant: "destructive",
+        title: "Conflit de dates",
+        description: errorMessage,
+        duration: 10000 // Afficher plus longtemps pour que l'utilisateur puisse lire
+      });
+      return;
+    }
     
     // Calculer le délai de remboursement (jours entre startDate et endDate)
     const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));

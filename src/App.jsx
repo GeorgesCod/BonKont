@@ -18,7 +18,7 @@ import { PrivacyPolicy } from '@/components/PrivacyPolicy';
 import { TermsOfService } from '@/components/TermsOfService';
 import { FAQ } from '@/components/FAQ';
 import { Contact } from '@/components/Contact';
-import { Wallet2, LogIn, UserCircle, BarChart as ChartBar, ArrowLeft, Settings } from 'lucide-react';
+import { Wallet2, LogIn, UserCircle, BarChart as ChartBar, ArrowLeft, Settings, UserPlus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
@@ -172,6 +172,17 @@ export default function App() {
       hash 
     });
 
+    // Si pas de hash ou hash vide, afficher le dashboard (page d'accueil)
+    if (!hash || hash === '' || hash === '#') {
+      console.log('[App] No hash, navigating to dashboard');
+      setCurrentView('dashboard');
+      setSelectedEventId(null);
+      setViewMode('management');
+      setShowHistory(false);
+      // Ne pas réinitialiser showStats ici
+      return;
+    }
+
     // Gérer les routes publiques
     if (hash === '#/privacy' || hash === '#privacy') {
       setCurrentView('privacy');
@@ -201,8 +212,8 @@ export default function App() {
       setShowStats(false);
       return;
     }
-    // Route pour rejoindre un événement
-    if (hash.startsWith('#/join') || hash.startsWith('#join')) {
+    // Route pour rejoindre un événement (seulement si hash explicite #/join ou #/join/CODE)
+    if (hash.startsWith('#/join/') || hash === '#/join') {
       setCurrentView('join');
       setSelectedEventId(null);
       setShowHistory(false);
@@ -271,7 +282,8 @@ export default function App() {
       setShowHistory(false);
       setShowStats(false);
     } else {
-      console.log('[App] Navigating to dashboard');
+      // Pas d'événement spécifique dans l'URL, afficher le dashboard (page d'accueil)
+      console.log('[App] Navigating to dashboard (home page)');
       setCurrentView('dashboard');
       setSelectedEventId(null);
       setViewMode('management');
@@ -283,6 +295,12 @@ export default function App() {
   };
 
   // Init + listeners
+  // Si l'URL contient #/join sans code, rediriger vers la page d'accueil
+  const initialHash = window.location.hash;
+  if (initialHash === '#/join' && !initialHash.includes('/join/')) {
+    console.log('[App] Redirecting from #/join to home page');
+    window.location.hash = '';
+  }
   handleHashChange();
   window.addEventListener('resize', handleResize);
   window.addEventListener('hashchange', handleHashChange);
@@ -442,6 +460,21 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-4 flex-shrink-0">
+              {/* Bouton "Rejoindre un évènement" - TOUJOURS visible */}
+              <Button
+                variant="outline"
+                className="neon-border gap-2 min-h-[44px] px-3 sm:px-4 border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground"
+                onClick={() => {
+                  console.log('[App] Join event button clicked');
+                  setCurrentView('join');
+                  window.location.hash = '#/join';
+                }}
+                title="Rejoindre un évènement"
+              >
+                <UserPlus className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline">Rejoindre</span>
+              </Button>
+              
               {!isLoggedIn ? (
                 <>
                   <InviteFriends />
@@ -549,7 +582,10 @@ export default function App() {
               setIsSettingsOpen(true);
             }} />
           ) : currentView === 'join' ? (
-            <EventJoin />
+            <EventJoin onAuthRequired={() => {
+              console.log('[App] Auth required for joining event');
+              setIsAuthOpen(true);
+            }} />
           ) : currentView === 'event' && selectedEventId ? (
             <div className="space-y-4 animate-fade-in">
               {!isLoggedIn && (
@@ -685,18 +721,44 @@ export default function App() {
               )
             ) : (
               <div className="space-y-8">
-                <div className="text-center py-20">
+                <div className="text-center py-12">
                   <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
                   <p className="text-muted-foreground mb-8">
-                    Connectez-vous pour gérer vos événements partagés
+                    Créez ou rejoignez un événement pour partager vos dépenses
                   </p>
-                  <Button
-                    className="gap-2 button-glow"
-                    onClick={() => setIsAuthOpen(true)}
-                  >
-                    <LogIn className="w-4 h-4" />
-                    Commencer
-                  </Button>
+                  <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
+                    <Button
+                      className="gap-2 button-glow"
+                      onClick={() => {
+                        console.log('[App] Create event button clicked from home');
+                        setIsAuthOpen(true);
+                        // Après connexion, l'utilisateur verra EventCreation
+                      }}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Créer un événement
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="gap-2 neon-border"
+                      onClick={() => {
+                        console.log('[App] Join event button clicked from home');
+                        setCurrentView('join');
+                        window.location.hash = '#/join';
+                      }}
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      Rejoindre un évènement
+                    </Button>
+                  </div>
+                </div>
+                {/* Afficher EventCreation même si non connecté, mais avec un message d'auth */}
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Connectez-vous pour créer votre premier événement
+                    </p>
+                  </div>
                 </div>
                 <TesseractTest showEventSelection={true} />
               </div>

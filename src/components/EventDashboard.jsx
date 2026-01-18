@@ -75,6 +75,28 @@ export function EventDashboard({ onShowHistory }) {
   const deleteEvent = useEventStore((state) => state.deleteEvent);
   const updateParticipant = useEventStore((state) => state.updateParticipant);
 
+  // Fonction pour vérifier si l'utilisateur est l'organisateur d'un événement
+  const isOrganizer = (event) => {
+    const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+    if (!userData) return false;
+    try {
+      const user = JSON.parse(userData);
+      const currentUserId = user.email || null;
+      if (!currentUserId) return false;
+      return (
+        event.organizerId === currentUserId || 
+        event.organizerId === currentUserId?.toLowerCase() ||
+        event.organizerId === currentUserId?.toUpperCase() ||
+        event.participants?.some(p => 
+          (p.userId === currentUserId || p.email === currentUserId || p.email?.toLowerCase() === currentUserId?.toLowerCase()) &&
+          p.isOrganizer === true
+        )
+      );
+    } catch {
+      return false;
+    }
+  };
+
   const filteredEvents = events.filter(event => {
     switch (activeTab) {
       case 'active':
@@ -583,7 +605,11 @@ setPaymentMethod('card');
                         >
                           <span className="flex items-center gap-2">
                             <Sparkles className="w-3 h-3 animate-spin-slow" />
-                            <span className="font-mono font-bold tracking-wider">{event.code}</span>
+                            {isOrganizer(event) ? (
+                              <span className="font-mono font-bold tracking-wider">{event.code}</span>
+                            ) : (
+                              <span className="font-mono font-bold tracking-wider text-muted-foreground">••••••••</span>
+                            )}
                           </span>
                         </Badge>
                         
@@ -1356,7 +1382,11 @@ setPaymentMethod('card');
             <div className="space-y-4">
               <div className="p-3 rounded-lg bg-muted">
                 <p className="text-sm font-medium">{reminderEvent.title}</p>
-                <p className="text-xs text-muted-foreground">Code: {reminderEvent.code}</p>
+                {isOrganizer(reminderEvent) ? (
+                  <p className="text-xs text-muted-foreground">Code: {reminderEvent.code}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Code: ••••••••</p>
+                )}
               </div>
 
               <div className="space-y-2">

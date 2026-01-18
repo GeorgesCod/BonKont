@@ -77,6 +77,7 @@ export function PrivacyPolicy({ onBack }) {
                 <li>{t('privacyDataEventParticipants')}</li>
                 <li>{t('privacyDataEventTransactions')}</li>
                 <li>{t('privacyDataEventValidations')}</li>
+                <li>{t('privacyDataEventRequests')}</li>
               </ul>
             </div>
 

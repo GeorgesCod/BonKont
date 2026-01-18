@@ -30,7 +30,10 @@ import {
   ChevronUp,
   X,
   Check,
-  Rocket
+  Rocket,
+  Plus,
+  Mail,
+  RotateCcw
 } from 'lucide-react';
 import {
   Tooltip,
@@ -43,6 +46,8 @@ import { EventTicketScanner } from '@/components/EventTicketScanner';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers, getExpenseTraceability, getPaymentTraceability, getContributionToPot } from '@/utils/bonkontBalances';
@@ -107,9 +112,13 @@ export function EventManagement({ eventId, onBack }) {
   // Définir participants avant de l'utiliser
   const participants = Array.isArray(event.participants) ? event.participants : [];
 
-  // Séparer les participants confirmés et en attente
+  // Séparer les participants par statut (Confirmés / En attente / Refusés)
   // Pour la compatibilité avec les événements existants : si pas de status, considérer comme confirmé
   const confirmedParticipants = participants.filter(p => {
+    // Si le participant a explicitement status === 'pending' ou 'rejected', exclure
+    if (p.status === 'pending' || p.status === 'rejected') {
+      return false;
+    }
     // Si le participant a explicitement status === 'pending' et pas hasConfirmed, c'est en attente
     if (p.status === 'pending' && !p.hasConfirmed && !p.isOrganizer) {
       return false;
@@ -118,6 +127,15 @@ export function EventManagement({ eventId, onBack }) {
     return true;
   });
   const pendingParticipants = participants.filter(p => p.status === 'pending' && !p.hasConfirmed && !p.isOrganizer);
+  const rejectedParticipants = participants.filter(p => p.status === 'rejected');
+  
+  console.log('[EventManagement] Participants status:', {
+    total: participants.length,
+    confirmed: confirmedParticipants.length,
+    pending: pendingParticipants.length,
+    rejected: rejectedParticipants.length,
+    isOrganizer
+  });
 
   // Fonction pour valider un participant
   const handleValidateParticipant = (participantId) => {
@@ -133,14 +151,102 @@ export function EventManagement({ eventId, onBack }) {
     });
   };
 
-  // Fonction pour rejeter un participant
+  // Fonction pour rejeter un participant (changer le statut à 'rejected' au lieu de supprimer)
   const handleRejectParticipant = (participantId) => {
-    const updatedParticipants = event.participants.filter(p => p.id !== participantId);
+    console.log('[EventManagement] Rejecting participant:', participantId);
+    const updatedParticipants = event.participants.map(p => 
+      p.id === participantId 
+        ? { ...p, status: 'rejected' }
+        : p
+    );
     updateEvent(eventId, { participants: updatedParticipants });
     toast({
       title: "Participant rejeté",
-      description: "Le participant a été retiré de la liste."
+      description: "Le participant a été rejeté. Vous pouvez le réaccepter plus tard si besoin."
     });
+  };
+
+  // Fonction pour réaccepter un participant rejeté
+  const handleReacceptParticipant = (participantId) => {
+    console.log('[EventManagement] Reaccepting participant:', participantId);
+    const updatedParticipants = event.participants.map(p => 
+      p.id === participantId 
+        ? { ...p, status: 'confirmed', hasConfirmed: true }
+        : p
+    );
+    updateEvent(eventId, { participants: updatedParticipants });
+    toast({
+      title: "Participant réaccepté",
+      description: "Le participant a été ajouté à l'événement."
+    });
+  };
+
+  // Fonction pour ajouter manuellement un participant
+  const [showAddParticipantDialog, setShowAddParticipantDialog] = useState(false);
+  const [newParticipantName, setNewParticipantName] = useState('');
+  const [newParticipantEmail, setNewParticipantEmail] = useState('');
+
+  const handleAddParticipantManually = () => {
+    if (!newParticipantName.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Nom requis",
+        description: "Veuillez entrer un nom pour le participant."
+      });
+      return;
+    }
+
+    console.log('[EventManagement] Adding participant manually:', {
+      name: newParticipantName,
+      email: newParticipantEmail,
+      eventId
+    });
+
+    // Vérifier si le participant existe déjà
+    const existingParticipant = event.participants.find(
+      p => p.email === newParticipantEmail.trim() || p.name === newParticipantName.trim()
+    );
+
+    if (existingParticipant) {
+      toast({
+        variant: "destructive",
+        title: "Participant existant",
+        description: "Ce participant est déjà dans la liste."
+      });
+      return;
+    }
+
+    // Créer un nouveau participant confirmé directement (ajout manuel = accepté)
+    const newParticipantId = event.participants?.length 
+      ? Math.max(...event.participants.map(p => p.id)) + 1
+      : 2;
+
+    const newParticipant = {
+      id: newParticipantId,
+      name: newParticipantName.trim(),
+      email: newParticipantEmail.trim() || '',
+      hasConfirmed: true,
+      hasValidatedAmount: false,
+      hasValidatedDeadline: false,
+      hasAcceptedCharter: false,
+      status: 'confirmed', // Ajout manuel = confirmé directement
+      hasPaid: false,
+      paidAmount: 0
+    };
+
+    updateEvent(eventId, {
+      participants: [...(event.participants || []), newParticipant]
+    });
+
+    toast({
+      title: "Participant ajouté",
+      description: `${newParticipantName} a été ajouté à l'événement.`
+    });
+
+    // Réinitialiser le formulaire
+    setNewParticipantName('');
+    setNewParticipantEmail('');
+    setShowAddParticipantDialog(false);
   };
 
   // Fonction pour lancer l'événement officiellement
@@ -1837,47 +1943,111 @@ const handleExportPDF = () => {
               </Card>
             )}
 
-            {/* Participants en attente (pour l'organisateur) */}
-            {pendingParticipants.length > 0 && isOrganizer && (
-              <Card className="p-4 mb-4 neon-border bg-yellow-500/10 border-yellow-500/20">
-                <h3 className="font-semibold mb-3 flex items-center gap-2">
-                  <Bell className="w-5 h-5 text-yellow-500" />
-                  Demandes en attente ({pendingParticipants.length})
-                </h3>
-                <div className="space-y-2">
-                  {pendingParticipants.map((participant) => (
-                    <div
-                      key={participant.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-yellow-500/20 bg-background"
-                    >
-                      <div>
-                        <p className="font-medium">{participant.name}</p>
-                        {participant.email && (
-                          <p className="text-sm text-muted-foreground">{participant.email}</p>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRejectParticipant(participant.id)}
-                          className="gap-1"
-                        >
-                          <X className="w-4 h-4" />
-                          Rejeter
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleValidateParticipant(participant.id)}
-                          className="gap-1"
-                        >
-                          <Check className="w-4 h-4" />
-                          Valider
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+            {/* Interface Admin : Ajout manuel et gestion des participants */}
+            {isOrganizer && (
+              <Card className="p-4 mb-4 neon-border bg-primary/5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Users className="w-5 h-5 text-primary" />
+                    Gestion des participants
+                  </h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAddParticipantDialog(true)}
+                    className="gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Ajouter manuellement
+                  </Button>
                 </div>
+
+                {/* Participants en attente */}
+                {pendingParticipants.length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="font-semibold mb-2 flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
+                      <Bell className="w-4 h-4" />
+                      Demandes en attente ({pendingParticipants.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {pendingParticipants.map((participant) => (
+                        <div
+                          key={participant.id}
+                          className="flex items-center justify-between p-3 rounded-lg border border-yellow-500/20 bg-yellow-500/5"
+                        >
+                          <div>
+                            <p className="font-medium">{participant.name}</p>
+                            {participant.email && (
+                              <p className="text-sm text-muted-foreground">{participant.email}</p>
+                            )}
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                console.log('[EventManagement] Rejecting pending participant:', participant.id);
+                                handleRejectParticipant(participant.id);
+                              }}
+                              className="gap-1"
+                            >
+                              <X className="w-4 h-4" />
+                              Rejeter
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => {
+                                console.log('[EventManagement] Accepting pending participant:', participant.id);
+                                handleValidateParticipant(participant.id);
+                              }}
+                              className="gap-1"
+                            >
+                              <Check className="w-4 h-4" />
+                              Accepter
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Participants refusés (peuvent être réacceptés) */}
+                {rejectedParticipants.length > 0 && (
+                  <div>
+                    <h4 className="font-semibold mb-2 flex items-center gap-2 text-red-600 dark:text-red-400">
+                      <X className="w-4 h-4" />
+                      Participants refusés ({rejectedParticipants.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {rejectedParticipants.map((participant) => (
+                        <div
+                          key={participant.id}
+                          className="flex items-center justify-between p-3 rounded-lg border border-red-500/20 bg-red-500/5"
+                        >
+                          <div>
+                            <p className="font-medium">{participant.name}</p>
+                            {participant.email && (
+                              <p className="text-sm text-muted-foreground">{participant.email}</p>
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              console.log('[EventManagement] Reaccepting rejected participant:', participant.id);
+                              handleReacceptParticipant(participant.id);
+                            }}
+                            className="gap-1"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            Réaccepter
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </Card>
             )}
 
@@ -2895,6 +3065,71 @@ const handleExportPDF = () => {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog pour ajouter manuellement un participant */}
+      <Dialog open={showAddParticipantDialog} onOpenChange={setShowAddParticipantDialog}>
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-5 h-5 text-primary" />
+              Ajouter un participant
+            </DialogTitle>
+            <DialogDescription>
+              Ajoutez manuellement un participant à l'événement. Il sera automatiquement confirmé.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="newParticipantName">Nom *</Label>
+              <Input
+                id="newParticipantName"
+                value={newParticipantName}
+                onChange={(e) => setNewParticipantName(e.target.value)}
+                placeholder="Ex: Jean Dupont"
+                className="neon-border"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newParticipantEmail">Email (optionnel)</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <Input
+                  id="newParticipantEmail"
+                  type="email"
+                  value={newParticipantEmail}
+                  onChange={(e) => setNewParticipantEmail(e.target.value)}
+                  placeholder="jean.dupont@example.com"
+                  className="pl-10 neon-border"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                L'email permettra d'envoyer une invitation pour rejoindre l'événement.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setNewParticipantName('');
+                  setNewParticipantEmail('');
+                  setShowAddParticipantDialog(false);
+                }}
+              >
+                Annuler
+              </Button>
+              <Button
+                onClick={handleAddParticipantManually}
+                disabled={!newParticipantName.trim()}
+                className="gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Ajouter
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

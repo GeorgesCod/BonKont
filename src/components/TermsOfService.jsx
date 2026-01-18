@@ -53,6 +53,8 @@ export function TermsOfService({ onBack }) {
           <ul className="list-disc list-inside space-y-2 text-muted-foreground ml-4">
             <li>{t('termsAccess1')}</li>
             <li>{t('termsAccess2')}</li>
+            <li>{t('termsAccess3')}</li>
+            <li>{t('termsAccess4')}</li>
           </ul>
         </CardContent>
       </Card>
