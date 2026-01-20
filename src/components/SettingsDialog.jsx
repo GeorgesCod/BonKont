@@ -32,12 +32,15 @@ import {
   HelpCircle,
   Shield,
   ExternalLink,
-  Home
+  Home,
+  Info,
+  LogOut
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { useToast } from '@/hooks/use-toast';
 import { Badge } from '@/components/ui/badge';
 import { useI18nStore } from '@/lib/i18n';
+import { AboutDialog } from '@/components/AboutDialog';
 
 export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onNavigateToPublicPage, defaultTab = 'account' }) {
   const { theme, setTheme } = useTheme();
@@ -76,6 +79,7 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
   // État pour les dialogs de confirmation
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false);
+  const [showAboutDialog, setShowAboutDialog] = useState(false);
 
   // Charger les préférences au montage
   useEffect(() => {
@@ -337,6 +341,45 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                   {t('resetPassword')}
                 </Button>
               </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2">
+                      <LogOut className="w-5 h-5" />
+                      Déconnexion
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Déconnectez-vous de votre compte BONKONT
+                    </p>
+                  </div>
+                </div>
+
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/20"
+                  onClick={() => {
+                    if (onLogout) {
+                      onLogout();
+                      onClose();
+                      toast({
+                        title: "Déconnexion réussie",
+                        description: "Vous avez été déconnecté de votre compte."
+                      });
+                    } else {
+                      // Fallback : déconnexion manuelle
+                      localStorage.removeItem('bonkont-user');
+                      window.location.hash = '';
+                      window.location.reload();
+                    }
+                  }}
+                >
+                  <LogOut className="w-4 h-4" />
+                  Se déconnecter
+                </Button>
+              </div>
             </TabsContent>
 
             {/* Onglet Préférences */}
@@ -479,6 +522,15 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                     {t('contact')}
                     <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
                   </Button>
+
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => setShowAboutDialog(true)}
+                  >
+                    <Info className="w-4 h-4" />
+                    {t('about')}
+                  </Button>
                 </div>
               </div>
             </TabsContent>
@@ -486,16 +538,27 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
             {/* Onglet Aide */}
             <TabsContent value="help" className="space-y-6 mt-4">
               <div className="space-y-6">
-                <div>
-                  <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2 mb-2">
-                    <HelpCircle className="w-5 h-5" />
-                    {currentLanguage?.code === 'en' ? 'Bonkont Rule Guide' : 'Guide de la Règle Bonkont'}
-                  </h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    {currentLanguage?.code === 'en' 
-                      ? 'Understand how Bonkont ensures fair and transparent expense sharing'
-                      : 'Comprenez comment Bonkont garantit un partage équitable et transparent des dépenses'}
-                  </p>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2 mb-2">
+                      <HelpCircle className="w-5 h-5" />
+                      {currentLanguage?.code === 'en' ? 'Bonkont Rule Guide' : 'Guide de la Règle Bonkont'}
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      {currentLanguage?.code === 'en' 
+                        ? 'Understand how Bonkont ensures fair and transparent expense sharing'
+                        : 'Comprenez comment Bonkont garantit un partage équitable et transparent des dépenses'}
+                    </p>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start gap-2"
+                    onClick={() => setShowAboutDialog(true)}
+                  >
+                    <Info className="w-4 h-4" />
+                    {t('about')}
+                  </Button>
                 </div>
 
                 {/* Guide de la Règle Bonkont */}
@@ -845,6 +908,9 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dialog À Propos */}
+      <AboutDialog isOpen={showAboutDialog} onClose={() => setShowAboutDialog(false)} />
     </>
   );
 }

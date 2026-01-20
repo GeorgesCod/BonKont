@@ -17,7 +17,9 @@ import {
   Euro,
   Calendar,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  Settings,
+  ArrowRight
 } from 'lucide-react';
 
 
@@ -51,12 +53,10 @@ export function EventCode({ eventId }) {
   );
 
   // URL pour rejoindre l'événement - utilisable depuis mobile via QR code
-  // Utiliser l'URL de production en production, ou localhost en dev
-  const baseUrl = window.location.hostname === 'localhost' 
-    ? window.location.origin 
-    : 'https://bonkont-48a2c.web.app';
-  const joinUrl = `${baseUrl}/#/join/${event.code}`;
-  const shareUrl = joinUrl; // Le QR code pointe directement vers la page de rejoindre
+  // Le QR code doit toujours utiliser l'URL de production pour être accessible par tous
+  const productionUrl = 'https://bonkont-48a2c.web.app';
+  const joinUrl = `${productionUrl}/#/join/${event.code}`;
+  const shareUrl = joinUrl; // Le QR code pointe directement vers la page de rejoindre en production
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(event.code);
@@ -280,6 +280,25 @@ Lien : ${shareUrl}
             </div>
           )}
         </div>
+
+        {isOrganizer && (
+          <div className="mt-4 mb-4">
+            <Button
+              onClick={() => {
+                window.location.hash = `#event/${eventId}`;
+                window.dispatchEvent(new HashChangeEvent('hashchange'));
+              }}
+              className="w-full gap-2 button-glow"
+            >
+              <Settings className="w-4 h-4" />
+              Gérer l'événement
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              Accédez à la gestion des participants et des transactions
+            </p>
+          </div>
+        )}
 
         <div className="mt-6 space-y-2">
           <h4 className="font-medium">Participants</h4>

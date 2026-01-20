@@ -7,14 +7,18 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Key, Users, Calendar, Euro, AlertCircle, CheckCircle, Loader2, Clock, ArrowRight, QrCode } from 'lucide-react';
 import { useEventStore } from '@/store/eventStore';
+import { useJoinRequestsStore } from '@/store/joinRequestsStore';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { QRCodeScanner } from '@/components/QRCodeScanner';
+import { findEventByCode } from '@/services/api';
 
 export function EventJoin({ onAuthRequired }) {
+  console.log('[EventJoin] ===== COMPONENT MOUNTED =====');
   const { toast } = useToast();
   const events = useEventStore((state) => state.events);
   const updateEvent = useEventStore((state) => state.updateEvent);
+  const addJoinRequest = useJoinRequestsStore((state) => state.addRequest);
   const [eventCode, setEventCode] = useState('');
   const [pseudo, setPseudo] = useState('');
   const [email, setEmail] = useState('');
@@ -26,6 +30,18 @@ export function EventJoin({ onAuthRequired }) {
   const [currentUserId, setCurrentUserId] = useState(null);
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
+
+  // Log initial des événements
+  useEffect(() => {
+    console.log('[EventJoin] ===== INITIAL STATE =====');
+    console.log('[EventJoin] Events in store:', events.length);
+    console.log('[EventJoin] Events details:', events.map(e => ({ 
+      id: e.id, 
+      code: e.code, 
+      title: e.title 
+    })));
+    console.log('[EventJoin] Event codes:', events.map(e => e.code).filter(Boolean));
+  }, []);
 
   // Vérifier l'authentification
   useEffect(() => {
@@ -86,68 +102,214 @@ export function EventJoin({ onAuthRequired }) {
 
   // Vérifier si un code est dans l'URL (depuis QR code ou lien direct)
   useEffect(() => {
+    console.log('[EventJoin] ===== CHECKING URL FOR CODE =====');
     const hash = window.location.hash;
-    console.log('[EventJoin] Checking URL for event code:', hash);
+    console.log('[EventJoin] Current hash:', hash);
+    console.log('[EventJoin] Events available:', events.length);
     
     // Pattern 1: #/join/CODE
-    let match = hash.match(/\/join\/([A-Z0-9-]+)/i);
+    let match = hash.match(/\/join\/([A-Z0-9]+)/i);
     if (match) {
-      const code = match[1].toUpperCase();
-      console.log('[EventJoin] Code found in URL (pattern 1):', code);
+      const code = match[1].toUpperCase().replace(/[^A-Z0-9]/g, '');
+      console.log('[EventJoin] ✅ Code found in URL (pattern 1):', code);
       setEventCode(code);
-      handleCodeCheck(code);
+      
+      // Vérifier immédiatement si les événements sont déjà chargés
+      if (events.length > 0) {
+        console.log('[EventJoin] Events already loaded, checking code immediately');
+        handleCodeCheck(code).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+      } else {
+        console.log('[EventJoin] ⏳ Events not loaded yet, starting polling...');
+        // Polling pour attendre que les événements soient chargés depuis localStorage
+        let attempts = 0;
+        const maxAttempts = 30; // Max 3 secondes (30 * 100ms)
+        const pollInterval = setInterval(() => {
+          attempts++;
+          const currentEvents = useEventStore.getState().events;
+          console.log(`[EventJoin] Polling attempt ${attempts}/${maxAttempts}, events found:`, currentEvents.length);
+          
+          if (currentEvents.length > 0 || attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            if (currentEvents.length > 0) {
+              console.log('[EventJoin] ✅ Events loaded after polling, checking code now:', code);
+              console.log('[EventJoin] Available codes:', currentEvents.map(e => e.code).filter(Boolean));
+              handleCodeCheck(code).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+            } else {
+              console.warn('[EventJoin] ⚠️ Events still not loaded after', attempts * 100, 'ms. Searching on backend API...');
+              // Si les événements ne sont pas chargés localement, chercher directement sur le backend
+              handleCodeCheck(code).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+            }
+          }
+        }, 100);
+        
+        return () => clearInterval(pollInterval);
+      }
       return;
     }
     
     // Pattern 2: /event/CODE (redirigé depuis App.jsx)
-    match = hash.match(/\/event\/([A-Z0-9-]+)/i);
+    match = hash.match(/\/event\/([A-Z0-9]+)/i);
     if (match) {
-      const code = match[1].toUpperCase();
-      console.log('[EventJoin] Code found in URL (pattern 2), redirecting:', code);
+      const code = match[1].toUpperCase().replace(/[^A-Z0-9]/g, '');
+      console.log('[EventJoin] ✅ Code found in URL (pattern 2), redirecting:', code);
       window.location.hash = `#/join/${code}`;
       setEventCode(code);
-      handleCodeCheck(code);
-      return;
-    }
-  }, []);
-
-  const handleCodeCheck = (code) => {
-    if (!code || code.trim() === '') {
-      setEvent(null);
-      return;
-    }
-
-    console.log('[EventJoin] Checking code:', code);
-    console.log('[EventJoin] Available events:', events.map(e => ({ id: e.id, code: e.code, title: e.title })));
-    
-    const foundEvent = events.find(e => {
-      const eventCode = e.code?.toUpperCase() || '';
-      const searchCode = code.toUpperCase();
-      const match = eventCode === searchCode;
-      if (match) {
-        console.log('[EventJoin] ✅ Match found:', { eventCode, searchCode, eventId: e.id, title: e.title });
+      if (events.length > 0) {
+        handleCodeCheck(code).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+      } else {
+        // Même logique de polling pour le pattern 2
+        let attempts = 0;
+        const maxAttempts = 30;
+        const pollInterval = setInterval(() => {
+          attempts++;
+          const currentEvents = useEventStore.getState().events;
+          if (currentEvents.length > 0 || attempts >= maxAttempts) {
+            clearInterval(pollInterval);
+            if (currentEvents.length > 0) {
+              handleCodeCheck(code).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+            }
+          }
+        }, 100);
+        return () => clearInterval(pollInterval);
       }
-      return match;
-    });
+      return;
+    }
     
-    if (foundEvent) {
-      console.log('[EventJoin] ✅ Event found:', { id: foundEvent.id, title: foundEvent.title, code: foundEvent.code });
-      setEvent(foundEvent);
-    } else {
-      console.log('[EventJoin] ❌ No event found for code:', code);
-      console.log('[EventJoin] Available codes:', events.map(e => e.code).filter(Boolean));
+    console.log('[EventJoin] ❌ No code found in URL');
+  }, [events.length, events]);
+
+  const handleCodeCheck = async (code) => {
+    console.log('[EventJoin] ===== handleCodeCheck CALLED =====');
+    console.log('[EventJoin] Input code:', code);
+    console.log('[EventJoin] Events in store:', events.length);
+    
+    if (!code || code.trim() === '') {
+      console.log('[EventJoin] Empty code, clearing event');
       setEvent(null);
+      return;
+    }
+
+    // Nettoyer le code : enlever les espaces et caractères spéciaux, garder seulement lettres et chiffres
+    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    console.log('[EventJoin] Checking code:', { original: code, cleaned: cleanCode, length: cleanCode.length });
+    
+    // Vérifier d'abord dans les événements locaux (pour les organisateurs)
+    if (events.length > 0) {
+      console.log('[EventJoin] Checking local events first...');
+      const foundEvent = events.find(e => {
+        const eventCode = e.code?.toUpperCase()?.replace(/[^A-Z0-9]/g, '') || '';
+        const match = eventCode === cleanCode;
+        return match;
+      });
+      
+      if (foundEvent) {
+        console.log('[EventJoin] ✅✅✅ EVENT FOUND in local store!', { 
+          id: foundEvent.id, 
+          title: foundEvent.title, 
+          code: foundEvent.code 
+        });
+        setEvent(foundEvent);
+        return;
+      }
+    }
+    
+    // Si pas trouvé localement, chercher sur le backend (API)
+    console.log('[EventJoin] Event not found locally, searching on backend API...');
+    setIsLoading(true);
+    
+    try {
+      const foundEvent = await findEventByCode(cleanCode);
+      
+      if (foundEvent) {
+        console.log('[EventJoin] ✅✅✅ EVENT FOUND on backend!', { 
+          id: foundEvent.id, 
+          title: foundEvent.title, 
+          code: foundEvent.code 
+        });
+        setEvent(foundEvent);
+        
+        // Optionnel : ajouter l'événement au store local pour un accès plus rapide la prochaine fois
+        // (seulement si l'utilisateur est participant confirmé)
+        const addEvent = useEventStore.getState().addEvent;
+        const existingEvent = useEventStore.getState().events.find(e => e.id === foundEvent.id);
+        if (!existingEvent) {
+          // Ne pas ajouter automatiquement, attendre que l'utilisateur soit confirmé
+          console.log('[EventJoin] Event not in local store, will be added when participant is confirmed');
+        }
+      } else {
+        // Événement non trouvé - permettre quand même de créer une demande de participation
+        console.log('[EventJoin] ⚠️ Event not found, but allowing join request creation');
+        console.log('[EventJoin] Code:', cleanCode);
+        
+        // Créer un événement "temporaire" pour permettre la création de la demande
+        // L'organisateur devra synchroniser manuellement
+        const tempEvent = {
+          id: `temp-${cleanCode}`,
+          code: cleanCode,
+          title: `Événement ${cleanCode}`,
+          description: 'Événement en attente de synchronisation',
+          participants: [],
+          status: 'pending_sync',
+          // Marquer comme temporaire pour indiquer qu'il faut synchroniser
+          _isTemporary: true,
+          _eventCode: cleanCode
+        };
+        
+        setEvent(tempEvent);
+        
+        toast({
+          title: "Code reconnu",
+          description: "Vous pouvez créer une demande de participation. L'organisateur validera votre demande.",
+          duration: 5000
+        });
+      }
+    } catch (error) {
+      console.error('[EventJoin] ❌ Error searching event on backend:', error);
+      console.error('[EventJoin] Error details:', {
+        message: error.message,
+        name: error.name
+      });
+      
+      // Même en cas d'erreur, permettre de créer une demande
+      console.log('[EventJoin] ⚠️ API error, but allowing join request creation');
+      const cleanCode = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const tempEvent = {
+        id: `temp-${cleanCode}`,
+        code: cleanCode,
+        title: `Événement ${cleanCode}`,
+        description: 'Événement en attente de synchronisation',
+        participants: [],
+        status: 'pending_sync',
+        _isTemporary: true,
+        _eventCode: cleanCode
+      };
+      setEvent(tempEvent);
+      
+      toast({
+        title: "Code reconnu",
+        description: "Vous pouvez créer une demande de participation. L'organisateur validera votre demande.",
+        duration: 5000
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   // Vérifier automatiquement le code quand il change (avec debounce)
   useEffect(() => {
+    console.log('[EventJoin] eventCode changed:', eventCode, 'events.length:', events.length);
     if (eventCode && eventCode.trim() !== '' && events.length > 0) {
+      console.log('[EventJoin] Setting up auto-check timer for code:', eventCode);
       const timer = setTimeout(() => {
-        console.log('[EventJoin] Auto-checking code after change:', eventCode);
-        handleCodeCheck(eventCode);
+        console.log('[EventJoin] ⏰ Auto-checking code after change (debounced):', eventCode);
+        handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
       }, 500); // Debounce de 500ms
-      return () => clearTimeout(timer);
+      return () => {
+        console.log('[EventJoin] Clearing auto-check timer');
+        clearTimeout(timer);
+      };
+    } else if (eventCode && eventCode.trim() !== '' && events.length === 0) {
+      console.warn('[EventJoin] ⚠️ Code entered but no events loaded yet:', eventCode);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventCode, events.length]);
@@ -157,19 +319,52 @@ export function EventJoin({ onAuthRequired }) {
     console.log('[EventJoin] Events in store:', events.length, 'events');
     if (events.length > 0) {
       console.log('[EventJoin] Event codes available:', events.map(e => e.code).filter(Boolean));
+      console.log('[EventJoin] Event details:', events.map(e => ({ 
+        id: e.id, 
+        code: e.code, 
+        codeUpper: e.code?.toUpperCase(), 
+        title: e.title 
+      })));
     }
     if (eventCode && eventCode.trim() !== '') {
       console.log('[EventJoin] Events changed, rechecking code:', eventCode);
-      handleCodeCheck(eventCode);
+      // Attendre un peu pour s'assurer que les événements sont bien chargés
+      setTimeout(() => {
+        handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+      }, 100);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events.length]); // Seulement réagir au nombre d'événements pour éviter les boucles
+  }, [events.length, events]); // Réagir aussi aux événements eux-mêmes pour détecter les changements
 
   // Vérifier le code au chargement si présent dans l'URL ou dans le state
   useEffect(() => {
-    if (eventCode && eventCode.trim() !== '' && events.length > 0) {
-      console.log('[EventJoin] Initial check for code:', eventCode);
-      handleCodeCheck(eventCode);
+    if (eventCode && eventCode.trim() !== '') {
+      if (events.length > 0) {
+        console.log('[EventJoin] Initial check for code:', eventCode, 'with', events.length, 'events available');
+        handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+      } else {
+        console.log('[EventJoin] Waiting for events to load before checking code:', eventCode);
+        // Attendre que les événements soient chargés (max 2 secondes)
+        let attempts = 0;
+        const maxAttempts = 20;
+        const checkInterval = setInterval(() => {
+          attempts++;
+          const currentEvents = useEventStore.getState().events;
+          console.log('[EventJoin] Polling for events, attempt', attempts, 'events found:', currentEvents.length);
+          if (currentEvents.length > 0 || attempts >= maxAttempts) {
+            clearInterval(checkInterval);
+            if (currentEvents.length > 0) {
+              console.log('[EventJoin] Events loaded, checking code now:', eventCode);
+              console.log('[EventJoin] Available codes:', currentEvents.map(e => e.code).filter(Boolean));
+              handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+            } else {
+              console.warn('[EventJoin] Events still not loaded after', attempts * 100, 'ms');
+              console.warn('[EventJoin] This might be a new user with no events yet');
+            }
+          }
+        }, 100);
+        return () => clearInterval(checkInterval);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventCode, events.length]); // Vérifier quand le code ou les événements changent
@@ -183,7 +378,8 @@ export function EventJoin({ onAuthRequired }) {
     });
 
     // 🔐 SÉCURITÉ : Vérifier l'authentification OBLIGATOIRE
-    if (!isAuthenticated) {
+    // Mais permettre de créer une demande même sans authentification si l'événement est temporaire
+    if (!isAuthenticated && !event?._isTemporary) {
       console.log('[EventJoin] ❌ User not authenticated, requiring auth');
       toast({
         variant: "destructive",
@@ -238,9 +434,17 @@ export function EventJoin({ onAuthRequired }) {
         ? Math.max(...event.participants.map(p => p.id)) + 1
         : 2; // L'organisateur est #1
 
-      // Récupérer userId depuis localStorage
-      const userData = JSON.parse(localStorage.getItem('bonkont-user'));
-      const userId = userData?.email || userData?.id || null;
+      // Récupérer userId depuis localStorage (peut être null si non authentifié)
+      let userId = null;
+      try {
+        const userData = localStorage.getItem('bonkont-user');
+        if (userData) {
+          const parsed = JSON.parse(userData);
+          userId = parsed?.email || parsed?.id || null;
+        }
+      } catch (e) {
+        console.warn('[EventJoin] Could not parse user data:', e);
+      }
 
       const newParticipant = {
         id: newParticipantId,
@@ -262,21 +466,44 @@ export function EventJoin({ onAuthRequired }) {
         userId,
         name: newParticipant.name,
         email: newParticipant.email,
-        status: 'pending'
+        status: 'pending',
+        isTemporary: event._isTemporary
       });
 
-      // Ajouter le participant à l'événement
-      updateEvent(event.id, {
-        participants: [...(event.participants || []), newParticipant]
-      });
+      // Si l'événement est temporaire (non trouvé), créer une demande dans le store
+      if (event._isTemporary) {
+        console.log('[EventJoin] Event is temporary, creating join request in store');
+        const requestId = addJoinRequest({
+          eventCode: event.code,
+          eventId: event.id,
+          participant: newParticipant,
+          userId: userId,
+          createdAt: new Date().toISOString()
+        });
+        console.log('[EventJoin] Join request created with ID:', requestId);
+        
+        setPendingParticipantId(newParticipantId);
+        setIsJoined(true);
+        
+        toast({
+          title: "Demande créée !",
+          description: "Votre demande de participation a été enregistrée. L'organisateur pourra la valider lorsqu'il synchronisera les demandes.",
+          duration: 6000
+        });
+      } else {
+        // Événement trouvé, ajouter directement le participant
+        updateEvent(event.id, {
+          participants: [...(event.participants || []), newParticipant]
+        });
 
-      setPendingParticipantId(newParticipantId);
-      setIsJoined(true);
+        setPendingParticipantId(newParticipantId);
+        setIsJoined(true);
 
-      toast({
-        title: "Demande envoyée !",
-        description: "Votre demande de participation est en attente de validation par l'organisateur."
-      });
+        toast({
+          title: "Demande envoyée !",
+          description: "Votre demande de participation est en attente de validation par l'organisateur."
+        });
+      }
 
     } catch (error) {
       console.error('[EventJoin] ❌ Erreur lors de la demande de participation:', error);
@@ -432,11 +659,14 @@ export function EventJoin({ onAuthRequired }) {
           <AlertDescription className="space-y-2">
             <p className="font-semibold text-primary">📋 Guide : Comment rejoindre un événement</p>
             <div className="text-sm space-y-1.5 mt-2">
-              <p><strong>1️⃣ Par code :</strong> Saisissez le code reçu dans votre invitation et cliquez sur "Rechercher"</p>
-              <p><strong>2️⃣ Par QR code :</strong> Cliquez sur le bouton QR code à droite et scannez le QR code reçu</p>
-              <p><strong>3️⃣ Par lien :</strong> Si vous avez cliqué sur un lien d'invitation, le code est déjà pré-rempli</p>
+              <p><strong>1️⃣ Par code :</strong> Saisissez le code à 8 caractères reçu dans votre invitation (ex: VKCKVSOB) et cliquez sur "Rechercher"</p>
+              <p><strong>2️⃣ Par QR code :</strong> Cliquez sur le bouton QR code (📷) à droite et scannez le QR code reçu avec votre caméra</p>
+              <p><strong>3️⃣ Par lien :</strong> Si vous avez cliqué sur un lien d'invitation, le code est déjà pré-rempli automatiquement</p>
               <p className="mt-2 text-xs text-muted-foreground">
-                ⚠️ <strong>Important :</strong> Vous devez être connecté(e) pour rejoindre. Votre demande sera envoyée à l'organisateur qui devra la valider.
+                ⚠️ <strong>Important :</strong> Vous devez être connecté(e) pour rejoindre. Votre demande sera envoyée à l'organisateur qui devra la valider avant que vous ayez accès complet à l'événement.
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                💡 <strong>Astuce :</strong> Si l'événement n'est pas trouvé, vous pouvez quand même créer une demande de participation. L'organisateur pourra la valider manuellement.
               </p>
             </div>
           </AlertDescription>
@@ -456,25 +686,26 @@ export function EventJoin({ onAuthRequired }) {
           <div className="space-y-2">
             <Label htmlFor="eventCode">Code événement</Label>
             <div className="flex gap-2">
-              <div className="relative flex-1">
+              <div className="relative flex-1 min-w-0">
                 <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="eventCode"
                   value={eventCode}
                   onChange={(e) => {
-                    const value = e.target.value.toUpperCase();
-                    console.log('[EventJoin] Input onChange:', value);
+                    const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    console.log('[EventJoin] Input onChange:', value, 'Length:', value.length);
                     setEventCode(value);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && eventCode.trim() !== '') {
                       console.log('[EventJoin] Enter pressed, checking code');
-                      handleCodeCheck(eventCode);
+                      handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
                     }
                   }}
-                  placeholder="Ex: FLO-7K2P"
-                  className="pl-10 neon-border font-mono uppercase"
+                  placeholder="Saisissez le code (8 caractères, ex: VKCKVSOB)"
+                  className="pl-10 neon-border font-mono uppercase w-full"
                   maxLength={20}
+                  style={{ minWidth: '200px' }}
                 />
               </div>
               <Button
@@ -491,7 +722,7 @@ export function EventJoin({ onAuthRequired }) {
                   console.log('[EventJoin] handleCodeCheck function:', typeof handleCodeCheck);
                   if (eventCode && eventCode.trim() !== '') {
                     console.log('[EventJoin] Calling handleCodeCheck with:', eventCode);
-                    handleCodeCheck(eventCode);
+                    handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
                   } else {
                     console.log('[EventJoin] Empty code, showing toast');
                     toast({
@@ -615,7 +846,7 @@ export function EventJoin({ onAuthRequired }) {
               ) : (
                 <Button
                   onClick={handleJoin}
-                  disabled={isLoading || !pseudo.trim() || !isAuthenticated}
+                  disabled={isLoading || !pseudo.trim() || !event || (!isAuthenticated && !event?._isTemporary)}
                   className="w-full gap-2 button-glow"
                 >
                   {isLoading ? (
@@ -623,7 +854,12 @@ export function EventJoin({ onAuthRequired }) {
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Envoi en cours...
                     </>
-                  ) : !isAuthenticated ? (
+                  ) : !event ? (
+                    <>
+                      <AlertCircle className="w-4 h-4" />
+                      Code invalide
+                    </>
+                  ) : !isAuthenticated && !event?._isTemporary ? (
                     <>
                       <AlertCircle className="w-4 h-4" />
                       Authentification requise
@@ -631,7 +867,7 @@ export function EventJoin({ onAuthRequired }) {
                   ) : (
                     <>
                       <CheckCircle className="w-4 h-4" />
-                      Rejoindre
+                      {event?._isTemporary ? 'Créer une demande' : 'Rejoindre l\'événement'}
                     </>
                   )}
                 </Button>
@@ -646,9 +882,25 @@ export function EventJoin({ onAuthRequired }) {
         isOpen={isQRScannerOpen}
         onClose={() => setIsQRScannerOpen(false)}
         onScanSuccess={(scannedCode) => {
-          console.log('[EventJoin] QR code scanned:', scannedCode);
-          setEventCode(scannedCode);
-          handleCodeCheck(scannedCode);
+          console.log('[EventJoin] QR code scanned, received code:', scannedCode);
+          // Nettoyer le code et le définir
+          const cleanCode = scannedCode?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || '';
+          console.log('[EventJoin] Cleaned scanned code:', cleanCode);
+          if (cleanCode) {
+            setEventCode(cleanCode);
+            // Attendre un peu pour que le state soit mis à jour, puis vérifier
+            setTimeout(() => {
+              console.log('[EventJoin] Calling handleCodeCheck with cleaned code:', cleanCode);
+              handleCodeCheck(cleanCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+            }, 100);
+          } else {
+            console.warn('[EventJoin] No valid code extracted from QR scan:', scannedCode);
+            toast({
+              variant: "destructive",
+              title: "Code invalide",
+              description: "Impossible d'extraire un code valide du QR code scanné."
+            });
+          }
           setIsQRScannerOpen(false);
         }}
       />

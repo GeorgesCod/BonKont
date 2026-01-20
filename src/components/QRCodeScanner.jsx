@@ -115,18 +115,34 @@ export function QRCodeScanner({ isOpen, onClose, onScanSuccess }) {
               setIsScanning(false);
               
               // Extraire le code de l'URL si c'est une URL
-              let eventCode = decodedText;
-              if (decodedText.includes('/join/')) {
-                const match = decodedText.match(/\/join\/([A-Z0-9-]+)/);
+              let eventCode = decodedText.trim();
+              console.log('[QRCodeScanner] Raw decoded text:', eventCode);
+              
+              // Pattern 1: URL complète avec #/join/CODE
+              let match = eventCode.match(/#\/join\/([A-Z0-9]+)/i);
+              if (match) {
+                eventCode = match[1].toUpperCase();
+                console.log('[QRCodeScanner] Extracted from #/join/ pattern:', eventCode);
+              } else {
+                // Pattern 2: URL avec /join/CODE (sans #)
+                match = eventCode.match(/\/join\/([A-Z0-9]+)/i);
                 if (match) {
                   eventCode = match[1].toUpperCase();
-                }
-              } else if (decodedText.includes('#')) {
-                const match = decodedText.match(/#\/join\/([A-Z0-9-]+)/);
-                if (match) {
-                  eventCode = match[1].toUpperCase();
+                  console.log('[QRCodeScanner] Extracted from /join/ pattern:', eventCode);
+                } else {
+                  // Pattern 3: Code seul (8 caractères)
+                  const codeOnly = eventCode.replace(/[^A-Z0-9]/g, '').toUpperCase();
+                  if (codeOnly.length >= 8) {
+                    eventCode = codeOnly.substring(0, 8);
+                    console.log('[QRCodeScanner] Extracted code only:', eventCode);
+                  } else {
+                    eventCode = eventCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    console.log('[QRCodeScanner] Cleaned code:', eventCode);
+                  }
                 }
               }
+              
+              console.log('[QRCodeScanner] Final event code:', eventCode);
 
               toast({
                 title: "Code QR scanné !",
@@ -143,18 +159,26 @@ export function QRCodeScanner({ isOpen, onClose, onScanSuccess }) {
               setIsScanning(false);
               // Appeler quand même le callback
               if (onScanSuccess) {
-                let eventCode = decodedText;
-                if (decodedText.includes('/join/')) {
-                  const match = decodedText.match(/\/join\/([A-Z0-9-]+)/);
+                let eventCode = decodedText.trim();
+                console.log('[QRCodeScanner] Error handler - Raw decoded text:', eventCode);
+                
+                // Pattern 1: URL complète avec #/join/CODE
+                let match = eventCode.match(/#\/join\/([A-Z0-9]+)/i);
+                if (match) {
+                  eventCode = match[1].toUpperCase();
+                } else {
+                  // Pattern 2: URL avec /join/CODE
+                  match = eventCode.match(/\/join\/([A-Z0-9]+)/i);
                   if (match) {
                     eventCode = match[1].toUpperCase();
-                  }
-                } else if (decodedText.includes('#')) {
-                  const match = decodedText.match(/#\/join\/([A-Z0-9-]+)/);
-                  if (match) {
-                    eventCode = match[1].toUpperCase();
+                  } else {
+                    // Pattern 3: Code seul
+                    const codeOnly = eventCode.replace(/[^A-Z0-9]/g, '').toUpperCase();
+                    eventCode = codeOnly.length >= 8 ? codeOnly.substring(0, 8) : codeOnly;
                   }
                 }
+                
+                console.log('[QRCodeScanner] Error handler - Final event code:', eventCode);
                 onScanSuccess(eventCode);
               }
               onClose();

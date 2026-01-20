@@ -7,7 +7,11 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar, Euro, Users, Clock, Plus, ArrowRight, Copy, Check, FileText, Shield, Globe } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarIcon, Euro, Users, Clock, Plus, ArrowRight, Copy, Check, FileText, Shield, Globe } from 'lucide-react';
+import { Calendar } from '@/components/ui/calendar';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 import { ParticipantForm } from '@/components/ParticipantForm';
 import { EventLocation } from '@/components/EventLocation';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -27,6 +31,8 @@ export function EventCreation({ onEventCreated }) {
   const [amount, setAmount] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [startDatePickerOpen, setStartDatePickerOpen] = useState(false);
+  const [endDatePickerOpen, setEndDatePickerOpen] = useState(false);
   const [useDuration, setUseDuration] = useState(true); // true = durée en jours, false = date limite
   const [duration, setDuration] = useState(1);
   const [deadline, setDeadline] = useState(30);
@@ -43,16 +49,20 @@ export function EventCreation({ onEventCreated }) {
 
   // Récupérer l'utilisateur connecté (organisateur)
   useEffect(() => {
+    console.log('[EventCreation] ===== COMPONENT MOUNTED =====');
     const userData = localStorage.getItem('bonkont-user');
+    console.log('[EventCreation] User data from localStorage:', userData ? 'Found' : 'Not found');
+    
     if (userData) {
       try {
         const user = JSON.parse(userData);
         const userId = user.email || nanoid(); // Utiliser l'email comme ID unique
+        console.log('[EventCreation] Setting organizer:', { userId, name: user.name, email: user.email });
         setOrganizerId(userId);
         setOrganizerName(user.name || user.email?.split('@')[0] || 'Organisateur');
         
         // L'organisateur devient automatiquement participant #1
-        setParticipants([{
+        const organizerParticipant = {
           id: 1,
           name: user.name || user.email?.split('@')[0] || 'Organisateur',
           email: user.email || '',
@@ -61,12 +71,35 @@ export function EventCreation({ onEventCreated }) {
           hasValidatedDeadline: false,
           hasAcceptedCharter: false,
           isOrganizer: true
-        }]);
+        };
+        console.log('[EventCreation] Setting organizer as participant:', organizerParticipant);
+        setParticipants([organizerParticipant]);
       } catch (e) {
         console.error('[EventCreation] Erreur lors de la récupération de l\'utilisateur:', e);
       }
+    } else {
+      console.warn('[EventCreation] ⚠️ No user data found in localStorage');
     }
   }, []);
+  
+  // Log de l'état quand step change
+  useEffect(() => {
+    console.log('[EventCreation] Step changed to:', step);
+    if (step === 5) {
+      console.log('[EventCreation] ===== STEP 5 - FINAL STEP =====');
+      const validationResult = canProceed();
+      console.log('[EventCreation] Step 5 state:', {
+        title,
+        description,
+        amount,
+        startDate,
+        participantsCount: participants.length,
+        organizerId,
+        canProceed: validationResult
+      });
+      console.log('[EventCreation] Step 5 button should be:', validationResult ? 'ENABLED' : 'DISABLED');
+    }
+  }, [step, title, description, amount, startDate, participants, organizerId]);
 
   // Log de la taille d'écran pour vérifier la responsivité
   useEffect(() => {
@@ -166,6 +199,23 @@ export function EventCreation({ onEventCreated }) {
           result 
         });
         return result;
+      case 5: {
+        // Étape de récapitulatif - validation très permissive
+        // Si on arrive à l'étape 5, toutes les étapes précédentes sont validées
+        // On vérifie juste que les données minimales existent
+        result = !!(title && description && amount && startDate && participants && participants.length > 0);
+        
+        console.log('[EventCreation] Step 5 validation (simplified):', { 
+          title: !!title,
+          description: !!description,
+          amount: !!amount,
+          startDate: !!startDate,
+          participants: participants?.length || 0,
+          result 
+        });
+        
+        return result;
+      }
       default:
         console.log('[EventCreation] Step', step, 'validation: default true');
         return true;
@@ -173,9 +223,19 @@ export function EventCreation({ onEventCreated }) {
   };
 
   // Fonction pour vérifier les chevauchements de dates
-  const checkDateOverlaps = (newStart, newEnd, organizerId, newParticipants) => {
+  // IMPORTANT: Le code de l'événement est l'identité unique
+  // Si les codes sont différents, c'est un événement différent et c'est autorisé
+  const checkDateOverlaps = (newStart, newEnd, organizerId, newParticipants, newEventCode) => {
     const events = useEventStore.getState().events;
     const overlaps = [];
+    
+    console.log('[EventCreation] checkDateOverlaps called:', {
+      newStart: newStart.toISOString(),
+      newEnd: newEnd.toISOString(),
+      organizerId,
+      newParticipantsCount: newParticipants?.length || 0,
+      existingEventsCount: events.length
+    });
     
     // Normaliser les dates (ignorer l'heure, seulement la date)
     const normalizeDate = (date) => {
@@ -187,8 +247,24 @@ export function EventCreation({ onEventCreated }) {
     const newStartNorm = normalizeDate(newStart);
     const newEndNorm = normalizeDate(newEnd);
     
-    events.forEach(existingEvent => {
-      if (!existingEvent.startDate || !existingEvent.endDate) return;
+    events.forEach((existingEvent, index) => {
+      if (!existingEvent.startDate || !existingEvent.endDate) {
+        console.log(`[EventCreation] Event ${index} skipped: missing dates`);
+        return;
+      }
+      
+      // Ignorer les événements terminés ou annulés
+      if (existingEvent.status === 'completed' || existingEvent.status === 'cancelled') {
+        console.log(`[EventCreation] Event ${index} "${existingEvent.title}" skipped: status is ${existingEvent.status}`);
+        return;
+      }
+      
+      // IMPORTANT: Le code de l'événement est l'identité unique
+      // Si les codes sont différents, c'est un événement différent = AUTORISÉ
+      if (existingEvent.code && newEventCode && existingEvent.code !== newEventCode) {
+        console.log(`[EventCreation] Event ${index} "${existingEvent.title}" (${existingEvent.code}) skipped: different code (${newEventCode}) - OK`);
+        return;
+      }
       
       const existingStart = normalizeDate(existingEvent.startDate);
       const existingEnd = normalizeDate(existingEvent.endDate);
@@ -196,26 +272,47 @@ export function EventCreation({ onEventCreated }) {
       // Vérifier si les dates se chevauchent
       const datesOverlap = (newStartNorm <= existingEnd && newEndNorm >= existingStart);
       
+      console.log(`[EventCreation] Event ${index} "${existingEvent.title}":`, {
+        existingStart: existingStart.toISOString(),
+        existingEnd: existingEnd.toISOString(),
+        datesOverlap,
+        organizerId: existingEvent.organizerId
+      });
+      
       if (!datesOverlap) return;
       
-      // Vérifier si l'organisateur est impliqué dans l'événement existant
-      const organizerInvolved = existingEvent.organizerId === organizerId ||
-        existingEvent.organizerId === organizerId?.toLowerCase() ||
-        existingEvent.organizerId === organizerId?.toUpperCase() ||
-        existingEvent.participants?.some(p => {
-          const pEmail = p.email?.toLowerCase() || '';
-          const pUserId = p.userId?.toLowerCase() || '';
-          const orgId = organizerId?.toLowerCase() || '';
-          return (pEmail === orgId || pUserId === orgId) &&
-                 (p.isOrganizer === true || p.status === 'confirmed' || p.status === 'pending');
-        });
+      // Normaliser les IDs pour la comparaison
+      const normalizedOrganizerId = organizerId?.toLowerCase()?.trim() || '';
+      const existingOrganizerId = existingEvent.organizerId?.toLowerCase()?.trim() || '';
       
-      // Vérifier si un participant est impliqué dans l'événement existant
+      // Vérifier si le MÊME organisateur crée deux événements qui se chevauchent
+      const sameOrganizer = normalizedOrganizerId && existingOrganizerId && 
+                            normalizedOrganizerId === existingOrganizerId;
+      
+      // IMPORTANT: Ne pas bloquer si l'organisateur est seulement participant dans l'autre événement
+      // Une personne peut être organisateur d'un événement et participant d'un autre
+      // On bloque seulement si c'est le MÊME organisateur avec le MÊME code d'événement
+      const organizerInvolved = sameOrganizer;
+      
+      console.log(`[EventCreation] Event ${index} "${existingEvent.title}" (${existingEvent.code}):`, {
+        existingOrganizerId,
+        currentOrganizerId: normalizedOrganizerId,
+        sameOrganizer,
+        organizerIsParticipant,
+        organizerInvolved
+      });
+      
+      // Vérifier si un participant du nouvel événement est déjà impliqué dans l'événement existant
+      // IMPORTANT: Ignorer l'organisateur dans cette vérification (déjà vérifié ci-dessus)
       let participantInvolved = null;
       for (const newParticipant of newParticipants) {
         const newEmail = newParticipant.email?.toLowerCase()?.trim() || '';
-        const newName = newParticipant.name?.toLowerCase()?.trim() || '';
-        const newUserId = newParticipant.userId?.toLowerCase() || '';
+        const newUserId = newParticipant.userId?.toLowerCase()?.trim() || '';
+        
+        // Ignorer l'organisateur dans la vérification des participants
+        if (newEmail === normalizedOrganizerId || newUserId === normalizedOrganizerId) {
+          continue;
+        }
         
         const found = existingEvent.participants?.find(p => {
           const pEmail = p.email?.toLowerCase()?.trim() || '';
@@ -242,144 +339,197 @@ export function EventCreation({ onEventCreated }) {
             participant: newParticipant,
             existingParticipant: found
           };
+          console.log(`[EventCreation] Event ${index} participantInvolved:`, participantInvolved);
           break;
         }
       }
       
+      // Bloquer seulement si le même organisateur ou participant est impliqué
+      // Différents organisateurs avec dates communes = AUTORISÉ (code événement = identité unique)
       if (organizerInvolved || participantInvolved) {
         overlaps.push({
           event: existingEvent,
           reason: organizerInvolved ? 'organizer' : 'participant',
           participantInfo: participantInvolved
         });
+        console.log(`[EventCreation] ⚠️ Overlap detected with event "${existingEvent.title}" (${existingEvent.code})`);
+      } else {
+        // Pas de conflit : différents organisateurs avec dates communes = OK
+        console.log(`[EventCreation] ✓ Event "${existingEvent.title}" (${existingEvent.code}) has overlapping dates but different organizer - OK`);
       }
     });
     
+    console.log('[EventCreation] Total overlaps found:', overlaps.length);
     return overlaps;
   };
 
   const handleSubmit = () => {
-    console.log('[EventCreation] ===== SUBMITTING EVENT =====');
-    
-    if (!organizerId) {
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: "Vous devez être connecté pour créer un événement."
-      });
-      return;
-    }
-
-    // Calculer la date de fin
-    const start = new Date(startDate);
-    const end = useDuration 
-      ? new Date(start.getTime() + duration * 24 * 60 * 60 * 1000)
-      : new Date(endDate);
-    
-    // Vérifier les chevauchements de dates
-    const overlaps = checkDateOverlaps(start, end, organizerId, participants);
-    
-    if (overlaps.length > 0) {
-      console.warn('[EventCreation] ❌ Date overlaps detected:', overlaps);
+    try {
+      console.log('[EventCreation] ===== SUBMITTING EVENT =====');
       
-      // Construire le message d'erreur
-      const overlapMessages = overlaps.map(overlap => {
-        const event = overlap.event;
-        const eventStart = new Date(event.startDate).toLocaleDateString('fr-FR');
-        const eventEnd = new Date(event.endDate).toLocaleDateString('fr-FR');
-        const eventTitle = event.title || 'Sans titre';
-        const location = event.location?.address || event.location?.city || 'Lieu non spécifié';
+      if (!organizerId) {
+        toast({
+          variant: "destructive",
+          title: "Erreur",
+          description: "Vous devez être connecté pour créer un événement."
+        });
+        return;
+      }
+
+      // Calculer la date de fin
+      const start = new Date(startDate);
+      const end = useDuration 
+        ? new Date(start.getTime() + duration * 24 * 60 * 60 * 1000)
+        : new Date(endDate);
+      
+      // Vérifier les chevauchements de dates
+      console.log('[EventCreation] Before checkDateOverlaps:', {
+        organizerId,
+        organizerIdType: typeof organizerId,
+        eventCode,
+        participantsCount: participants.length,
+        participants: participants.map(p => ({ name: p.name, email: p.email, isOrganizer: p.isOrganizer }))
+      });
+      const overlaps = checkDateOverlaps(start, end, organizerId, participants, eventCode);
+      
+      if (overlaps.length > 0) {
+        console.warn('[EventCreation] ❌ Date overlaps detected:', overlaps);
+        console.warn('[EventCreation] Overlap details:', JSON.stringify(overlaps, null, 2));
+        console.warn('[EventCreation] Current organizerId:', organizerId, 'Type:', typeof organizerId);
+        console.warn('[EventCreation] Overlapping events:', overlaps.map(o => ({
+          title: o.event.title,
+          code: o.event.code,
+          organizerId: o.event.organizerId,
+          organizerIdType: typeof o.event.organizerId,
+          reason: o.reason,
+          participantInfo: o.participantInfo
+        })));
         
-        if (overlap.reason === 'organizer') {
-          return `• Vous êtes déjà organisateur de "${eventTitle}" du ${eventStart} au ${eventEnd} à ${location}`;
-        } else {
-          const participantName = overlap.participantInfo?.participant?.name || 
-                                  overlap.participantInfo?.participant?.email || 
-                                  'un participant';
-          return `• Le participant "${participantName}" est déjà impliqué dans "${eventTitle}" du ${eventStart} au ${eventEnd} à ${location}`;
-        }
+        // Construire le message d'erreur
+        const overlapMessages = overlaps.map((overlap, idx) => {
+          const event = overlap.event;
+          const eventStart = new Date(event.startDate).toLocaleDateString('fr-FR');
+          const eventEnd = new Date(event.endDate).toLocaleDateString('fr-FR');
+          const eventTitle = event.title || 'Sans titre';
+          const location = event.location?.address || event.location?.city || 'Lieu non spécifié';
+          const eventCode = event.code || 'N/A';
+          
+          console.log(`[EventCreation] Overlap ${idx + 1}:`, {
+            eventTitle,
+            eventCode,
+            eventStart,
+            eventEnd,
+            location,
+            reason: overlap.reason,
+            organizerId: event.organizerId,
+            currentOrganizerId: organizerId
+          });
+          
+          if (overlap.reason === 'organizer') {
+            return `• Vous êtes déjà organisateur de "${eventTitle}" (Code: ${eventCode}) du ${eventStart} au ${eventEnd} à ${location}`;
+          } else {
+            const participantName = overlap.participantInfo?.participant?.name || 
+                                    overlap.participantInfo?.participant?.email || 
+                                    'un participant';
+            return `• Le participant "${participantName}" est déjà impliqué dans "${eventTitle}" (Code: ${eventCode}) du ${eventStart} au ${eventEnd} à ${location}`;
+          }
+        });
+        
+        const errorMessage = `Impossible de créer cet événement :\n\n${overlapMessages.join('\n')}\n\nUne personne ne peut pas être à deux endroits différents en même temps.`;
+        
+        console.error('[EventCreation] Blocking event creation due to overlaps:', {
+          overlapsCount: overlaps.length,
+          errorMessage
+        });
+        
+        toast({
+          variant: "destructive",
+          title: "Conflit de dates",
+          description: errorMessage,
+          duration: 15000 // Afficher plus longtemps pour que l'utilisateur puisse lire
+        });
+        return;
+      }
+      
+      // Calculer la durée de l'événement (jours entre startDate et endDate)
+      const eventDuration = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      
+      console.log('[EventCreation] Event data:', { 
+        title, 
+        description, 
+        amount, 
+        startDate,
+        endDate: end.toISOString(),
+        duration,
+        useDuration,
+        eventDuration,
+        paymentDeadline: deadline,
+        expectedParticipants,
+        currency,
+        eventCode, 
+        location, 
+        organizerId,
+        organizerName,
+        participantsCount: participants.length,
+        charterAccepted 
       });
       
-      const errorMessage = `Impossible de créer cet événement :\n\n${overlapMessages.join('\n')}\n\nUne personne ne peut pas être à deux endroits différents en même temps.`;
+      const newEvent = {
+        title,
+        description,
+        amount: parseFloat(amount),
+        deadline: deadline, // Délai de paiement configuré par l'utilisateur
+        eventDuration: eventDuration, // Durée de l'événement (pour référence)
+        startDate: start,
+        endDate: end,
+        expectedParticipants: expectedParticipants ? parseInt(expectedParticipants) : null,
+        currency,
+        code: eventCode,
+        location,
+        organizerId,
+        organizerName,
+        participants: participants.map((p, index) => ({
+          ...p,
+          id: index + 1,
+          hasPaid: false,
+          paidAmount: 0,
+          hasAcceptedCharter: true,
+          status: p.isOrganizer ? 'confirmed' : 'pending' // L'organisateur est confirmé, les autres en attente
+        })),
+        status: 'draft', // Événement en brouillon jusqu'au démarrage officiel
+        totalPaid: 0
+      };
+
+      console.log('[EventCreation] Event object created:', newEvent);
+      console.log('[EventCreation] Adding event to store...');
+      const eventId = addEvent(newEvent);
+      console.log('[EventCreation] ✅ Event added to store successfully, eventId:', eventId);
+
+      // Effet de confetti
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+
+      toast({
+        title: "Événement créé !",
+        description: "Partagez maintenant le code avec vos amis."
+      });
+
+      // Afficher l'écran de partage du code
+      setCreatedEventId(eventId);
+      setShowShareCode(true);
       
+      console.log('[EventCreation] ✅ Event creation process complete');
+    } catch (error) {
+      console.error('[EventCreation] ❌ Error submitting event:', error);
       toast({
         variant: "destructive",
-        title: "Conflit de dates",
-        description: errorMessage,
-        duration: 10000 // Afficher plus longtemps pour que l'utilisateur puisse lire
+        title: "Erreur lors de la création",
+        description: error.message || "Une erreur est survenue lors de la création de l'événement. Veuillez réessayer."
       });
-      return;
     }
-    
-    // Calculer le délai de remboursement (jours entre startDate et endDate)
-    const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-    
-    console.log('[EventCreation] Event data:', { 
-      title, 
-      description, 
-      amount, 
-      startDate,
-      endDate: end.toISOString(),
-      duration,
-      useDuration,
-      deadline: daysDiff,
-      expectedParticipants,
-      currency,
-      eventCode, 
-      location, 
-      organizerId,
-      organizerName,
-      participantsCount: participants.length,
-      charterAccepted 
-    });
-    
-    const newEvent = {
-      title,
-      description,
-      amount: parseFloat(amount),
-      deadline: daysDiff,
-      startDate: start,
-      endDate: end,
-      expectedParticipants: expectedParticipants ? parseInt(expectedParticipants) : null,
-      currency,
-      code: eventCode,
-      location,
-      organizerId,
-      organizerName,
-      participants: participants.map((p, index) => ({
-        ...p,
-        id: index + 1,
-        hasPaid: false,
-        paidAmount: 0,
-        hasAcceptedCharter: true,
-        status: p.isOrganizer ? 'confirmed' : 'pending' // L'organisateur est confirmé, les autres en attente
-      })),
-      status: 'draft', // Événement en brouillon jusqu'au démarrage officiel
-      totalPaid: 0
-    };
-
-    console.log('[EventCreation] Event object created:', newEvent);
-    console.log('[EventCreation] Adding event to store...');
-    const eventId = addEvent(newEvent);
-    console.log('[EventCreation] ✅ Event added to store successfully, eventId:', eventId);
-
-    // Effet de confetti
-    confetti({
-      particleCount: 100,
-      spread: 70,
-      origin: { y: 0.6 }
-    });
-
-    toast({
-      title: "Événement créé !",
-      description: "Partagez maintenant le code avec vos amis."
-    });
-
-    // Afficher l'écran de partage du code
-    setCreatedEventId(eventId);
-    setShowShareCode(true);
-    
-    console.log('[EventCreation] ✅ Event creation process complete');
   };
 
   // Si on affiche l'écran de partage du code
@@ -393,7 +543,17 @@ export function EventCreation({ onEventCreated }) {
           </div>
         </div>
         <EventCode eventId={createdEventId} />
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button
+            onClick={() => {
+              window.location.hash = `#event/${createdEventId}`;
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
+            }}
+            className="gap-2 button-glow"
+          >
+            <Users className="w-4 h-4" />
+            Gérer les participants
+          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -447,6 +607,12 @@ export function EventCreation({ onEventCreated }) {
           e.stopPropagation();
           console.log('[EventCreation] Enter key prevented, target:', e.target);
         }
+      }}
+      onClick={(e) => {
+        // Log pour déboguer les clics sur la Card
+        if (e.target.tagName === 'BUTTON') {
+          console.log('[EventCreation] Button clicked inside Card:', e.target);
+        }
       }}>
         {step === 1 && (
           <div className="space-y-4">
@@ -472,14 +638,42 @@ export function EventCreation({ onEventCreated }) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="startDate">Date de début</Label>
-              <Input
-                id="startDate"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="neon-border"
-                min={new Date().toISOString().split('T')[0]}
-              />
+              <Popover open={startDatePickerOpen} onOpenChange={setStartDatePickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={`
+                      w-full justify-start text-left font-normal neon-border
+                      ${!startDate && 'text-muted-foreground'}
+                    `}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {startDate ? (
+                      format(new Date(startDate), 'PPP', { locale: fr })
+                    ) : (
+                      <span>Choisir une date</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={startDate ? new Date(startDate) : undefined}
+                    onSelect={(date) => {
+                      if (date) {
+                        // Utiliser le format local pour éviter les problèmes de fuseau horaire
+                        const year = date.getFullYear();
+                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                        const day = String(date.getDate()).padStart(2, '0');
+                        setStartDate(`${year}-${month}-${day}`);
+                        setStartDatePickerOpen(false);
+                      }
+                    }}
+                    disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="p-4 rounded-lg neon-border bg-primary/5">
               <Label className="text-sm text-muted-foreground mb-2 block">Code de l'événement</Label>
@@ -580,15 +774,68 @@ export function EventCreation({ onEventCreated }) {
                   />
                 </div>
               ) : (
-                <Input
-                  id="endDate"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="neon-border"
-                  min={startDate || new Date().toISOString().split('T')[0]}
-                />
+                <Popover open={endDatePickerOpen} onOpenChange={setEndDatePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={`
+                        w-full justify-start text-left font-normal neon-border
+                        ${!endDate && 'text-muted-foreground'}
+                      `}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {endDate ? (
+                        format(new Date(endDate), 'PPP', { locale: fr })
+                      ) : (
+                        <span>Choisir une date</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={endDate ? new Date(endDate) : undefined}
+                      onSelect={(date) => {
+                        if (date) {
+                          // Utiliser le format local pour éviter les problèmes de fuseau horaire
+                          const year = date.getFullYear();
+                          const month = String(date.getMonth() + 1).padStart(2, '0');
+                          const day = String(date.getDate()).padStart(2, '0');
+                          setEndDate(`${year}-${month}-${day}`);
+                          setEndDatePickerOpen(false);
+                        }
+                      }}
+                      disabled={(date) => {
+                        const minDate = startDate ? new Date(startDate) : new Date();
+                        minDate.setHours(0, 0, 0, 0);
+                        return date < minDate;
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="paymentDeadline">Délai de paiement (jours après la fin de l'événement)</Label>
+              <div className="relative">
+                <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="paymentDeadline"
+                  type="number"
+                  min="1"
+                  value={deadline}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 1;
+                    setDeadline(value);
+                  }}
+                  className="pl-10 neon-border"
+                  placeholder="Ex: 30"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Délai accordé aux participants pour effectuer leurs paiements après la fin de l'événement
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="expectedParticipants">Nombre prévu de participants (optionnel)</Label>
@@ -706,22 +953,80 @@ export function EventCreation({ onEventCreated }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="p-3 sm:p-4 rounded-lg neon-border space-y-2">
                 <div className="flex items-center gap-2 text-primary">
-                  <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                   <h3 className="font-semibold text-sm sm:text-base">Événement</h3>
                 </div>
                 <p className="font-medium text-sm sm:text-base break-words">{title}</p>
                 <p className="text-xs sm:text-sm text-muted-foreground break-words">{description}</p>
               </div>
-              <div className="p-3 sm:p-4 rounded-lg neon-border space-y-2">
-                <div className="flex items-center gap-2 text-primary">
-                  <Euro className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <h3 className="font-semibold text-sm sm:text-base">Montant</h3>
+              <div className="p-3 sm:p-4 rounded-lg neon-border bg-primary/5">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-primary">
+                    <Euro className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <h3 className="font-semibold text-sm sm:text-base">Budget total</h3>
+                    <Badge variant="outline" className="text-xs">Saisi</Badge>
+                  </div>
+                  <div>
+                    <p className="font-bold text-2xl sm:text-3xl text-foreground">{amount}€</p>
+                    <p className="text-xs text-muted-foreground mt-1">Montant total que vous avez saisi à l'étape 2</p>
+                  </div>
                 </div>
-                <p className="font-medium text-sm sm:text-base">{amount}€</p>
-                <p className="text-xs sm:text-sm text-muted-foreground">
-                  {(parseFloat(amount) / participants.length).toFixed(2)}€ par personne
-                </p>
               </div>
+              {(() => {
+                const totalAmount = parseFloat(amount) || 0;
+                // Utiliser expectedParticipants si rempli, sinon utiliser le nombre réel de participants
+                const expectedCount = expectedParticipants && parseInt(expectedParticipants) > 0 
+                  ? parseInt(expectedParticipants) 
+                  : null;
+                const actualParticipantsCount = participants?.length || 1;
+                // Utiliser le nombre prévu si disponible, sinon le nombre réel
+                const participantsCount = expectedCount || actualParticipantsCount;
+                const amountPerPerson = participantsCount > 0 ? totalAmount / participantsCount : 0;
+                
+                console.log('[EventCreation] Amount calculation:', {
+                  totalAmount,
+                  expectedParticipants,
+                  expectedCount,
+                  actualParticipantsCount: actualParticipantsCount,
+                  participantsCountUsed: participantsCount,
+                  amountPerPerson: amountPerPerson.toFixed(2),
+                  calculation: `${totalAmount} / ${participantsCount} = ${amountPerPerson.toFixed(2)}`,
+                  note: expectedCount ? 'Using expected participants count' : 'Using actual participants count'
+                });
+                
+                return (
+                  <div className="p-3 sm:p-4 rounded-lg neon-border bg-muted/30">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Euro className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
+                        <h3 className="font-semibold text-sm sm:text-base text-muted-foreground">Montant par personne</h3>
+                        <Badge variant="outline" className="text-xs">Calculé</Badge>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-baseline gap-2">
+                          <p className="font-semibold text-lg sm:text-xl text-foreground">
+                            {amountPerPerson.toFixed(2)}€
+                          </p>
+                          <p className="text-sm text-muted-foreground">par personne</p>
+                        </div>
+                        <p className="text-xs text-muted-foreground italic">
+                          {totalAmount.toFixed(2)}€ ÷ {participantsCount} participant{participantsCount > 1 ? 's' : ''} = {amountPerPerson.toFixed(2)}€
+                        </p>
+                        {expectedCount && (
+                          <p className="text-xs text-muted-foreground">
+                            Basé sur le nombre prévu de {expectedCount} participant{expectedCount > 1 ? 's' : ''}
+                          </p>
+                        )}
+                        {!expectedCount && (
+                          <p className="text-xs text-muted-foreground">
+                            Basé sur {actualParticipantsCount} participant{actualParticipantsCount > 1 ? 's' : ''} actuel{actualParticipantsCount > 1 ? 's' : ''}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
             <div className="p-3 sm:p-4 rounded-lg neon-border space-y-2">
               <div className="flex items-center gap-2 text-primary">
@@ -747,7 +1052,7 @@ export function EventCreation({ onEventCreated }) {
             {location && (
               <div className="p-3 sm:p-4 rounded-lg neon-border space-y-2">
                 <div className="flex items-center gap-2 text-primary">
-                  <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <Globe className="w-4 h-4 sm:w-5 sm:h-5" />
                   <h3 className="font-semibold text-sm sm:text-base">Lieu</h3>
                 </div>
                 <p className="font-medium text-sm sm:text-base break-words">{location.address}</p>
@@ -774,6 +1079,26 @@ export function EventCreation({ onEventCreated }) {
             </Button>
           )}
           <div className="ml-auto w-full sm:w-auto order-1 sm:order-2">
+            {step === 5 && (() => {
+              const canProceedVal = canProceed();
+              console.log('[EventCreation] 🔍 RENDERING STEP 5 - Button state:', {
+                step,
+                canProceed: canProceedVal,
+                disabled: !canProceedVal,
+                title: title?.substring(0, 30) || 'empty',
+                description: description?.substring(0, 30) || 'empty',
+                amount: amount || 'empty',
+                startDate: startDate || 'empty',
+                participantsCount: participants?.length || 0,
+                organizerId: organizerId ? 'present' : 'missing',
+                titleExists: !!title,
+                descriptionExists: !!description,
+                amountExists: !!amount,
+                startDateExists: !!startDate,
+                participantsExist: participants && participants.length > 0
+              });
+              return null;
+            })()}
             {step < 5 ? (
               <Button
                 type="button"
@@ -830,18 +1155,47 @@ export function EventCreation({ onEventCreated }) {
               <Button
                 type="button"
                 onClick={(e) => {
+                  console.log('[EventCreation] ===== SUBMIT BUTTON CLICKED =====');
+                  console.log('[EventCreation] Button click event:', e);
+                  console.log('[EventCreation] Current step:', step);
+                  
                   e.preventDefault();
                   e.stopPropagation();
                   
-                  console.log('[EventCreation] ===== SUBMIT BUTTON CLICKED =====');
-                  console.log('[EventCreation] Event:', e);
-                  console.log('[EventCreation] Final step, submitting event...');
-                  handleSubmit();
-                  console.log('[EventCreation] ===== SUBMIT HANDLER END =====');
+                  // Log de l'état actuel
+                  const currentCanProceed = canProceed();
+                  console.log('[EventCreation] Current state:', {
+                    step,
+                    title,
+                    description,
+                    amount,
+                    startDate,
+                    participantsCount: participants?.length || 0,
+                    organizerId,
+                    canProceedResult: currentCanProceed
+                  });
                   
-                  return false;
+                  // Appeler handleSubmit directement - la validation est déjà faite par le disabled
+                  console.log('[EventCreation] ✅ Calling handleSubmit...');
+                  try {
+                    handleSubmit();
+                    console.log('[EventCreation] ✅ handleSubmit completed');
+                  } catch (error) {
+                    console.error('[EventCreation] ❌ Error in handleSubmit:', error);
+                    toast({
+                      variant: "destructive",
+                      title: "Erreur",
+                      description: error.message || "Une erreur est survenue lors de la création de l'événement."
+                    });
+                  }
+                  console.log('[EventCreation] ===== SUBMIT HANDLER END =====');
                 }}
+                disabled={!canProceed()}
                 className="gap-2 button-glow w-full sm:w-auto"
+                style={{
+                  cursor: canProceed() ? 'pointer' : 'not-allowed',
+                  opacity: canProceed() ? 1 : 0.5
+                }}
               >
                 <span className="text-xs sm:text-sm">Créer l'événement</span>
                 <ArrowRight className="w-4 h-4" />

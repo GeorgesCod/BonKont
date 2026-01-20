@@ -12,7 +12,6 @@ import { AuthDialog } from '@/components/AuthDialog';
 import { UserProfile } from '@/components/UserProfile';
 import { InviteFriends } from '@/components/InviteFriends';
 import { ScrollToTop } from '@/components/ScrollToTop';
-import { TesseractTest } from '@/components/TesseractTest';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { PrivacyPolicy } from '@/components/PrivacyPolicy';
 import { TermsOfService } from '@/components/TermsOfService';
@@ -164,6 +163,7 @@ export default function App() {
 
   const handleHashChange = () => {
     const hash = window.location.hash;
+    console.log('[App] ===== handleHashChange CALLED =====');
     console.log('[App] Hash changed:', hash);
     console.log('[App] Current state:', { 
       isLoggedIn, 
@@ -214,10 +214,13 @@ export default function App() {
     }
     // Route pour rejoindre un événement (seulement si hash explicite #/join ou #/join/CODE)
     if (hash.startsWith('#/join/') || hash === '#/join') {
+      console.log('[App] ✅✅✅ Navigating to JOIN view, hash:', hash);
+      console.log('[App] Setting currentView to "join"');
       setCurrentView('join');
       setSelectedEventId(null);
       setShowHistory(false);
       setShowStats(false);
+      console.log('[App] Navigation to join complete, currentView should be "join"');
       return;
     }
     // Route pour rejoindre via code événement direct: /event/:code
@@ -295,12 +298,7 @@ export default function App() {
   };
 
   // Init + listeners
-  // Si l'URL contient #/join sans code, rediriger vers la page d'accueil
-  const initialHash = window.location.hash;
-  if (initialHash === '#/join' && !initialHash.includes('/join/')) {
-    console.log('[App] Redirecting from #/join to home page');
-    window.location.hash = '';
-  }
+  // Note: #/join (sans code) est maintenant autorisé - il affiche la page EventJoin où l'utilisateur peut saisir le code
   handleHashChange();
   window.addEventListener('resize', handleResize);
   window.addEventListener('hashchange', handleHashChange);
@@ -465,9 +463,13 @@ export default function App() {
                 variant="outline"
                 className="neon-border gap-2 min-h-[44px] px-3 sm:px-4 border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground"
                 onClick={() => {
-                  console.log('[App] Join event button clicked');
-                  setCurrentView('join');
+                  console.log('[App] ===== JOIN EVENT BUTTON CLICKED =====');
+                  console.log('[App] Current view before:', currentView);
+                  console.log('[App] Setting hash to: #/join');
                   window.location.hash = '#/join';
+                  setCurrentView('join');
+                  console.log('[App] Current view after setState:', currentView);
+                  console.log('[App] Hash after setState:', window.location.hash);
                 }}
                 title="Rejoindre un évènement"
               >
@@ -552,6 +554,13 @@ export default function App() {
 
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full overflow-y-auto" style={{ minHeight: 'calc(100vh - 80px)' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
+          {(() => {
+            console.log('[App] ===== RENDERING MAIN CONTENT =====');
+            console.log('[App] currentView:', currentView);
+            console.log('[App] window.location.hash:', window.location.hash);
+            console.log('[App] Checking if currentView === "join":', currentView === 'join');
+            return null;
+          })()}
           {/* Pages publiques */}
           {currentView === 'privacy' ? (
             <PrivacyPolicy onBack={() => {
@@ -582,10 +591,16 @@ export default function App() {
               setIsSettingsOpen(true);
             }} />
           ) : currentView === 'join' ? (
-            <EventJoin onAuthRequired={() => {
-              console.log('[App] Auth required for joining event');
-              setIsAuthOpen(true);
-            }} />
+            (() => {
+              console.log('[App] ✅✅✅ RENDERING EventJoin component, currentView:', currentView);
+              console.log('[App] EventJoin will be mounted now');
+              return (
+                <EventJoin onAuthRequired={() => {
+                  console.log('[App] Auth required for joining event');
+                  setIsAuthOpen(true);
+                }} />
+              );
+            })()
           ) : currentView === 'event' && selectedEventId ? (
             <div className="space-y-4 animate-fade-in">
               {!isLoggedIn && (
@@ -742,13 +757,28 @@ export default function App() {
                       variant="outline"
                       className="gap-2 neon-border"
                       onClick={() => {
-                        console.log('[App] Join event button clicked from home');
-                        setCurrentView('join');
+                        console.log('[App] ===== JOIN EVENT BUTTON CLICKED FROM HOME =====');
+                        console.log('[App] Current view before:', currentView);
+                        console.log('[App] Setting hash to: #/join');
                         window.location.hash = '#/join';
+                        setCurrentView('join');
+                        console.log('[App] Current view after setState:', currentView);
+                        console.log('[App] Hash after setState:', window.location.hash);
                       }}
                     >
                       <UserPlus className="w-4 h-4" />
                       Rejoindre un évènement
+                    </Button>
+                    <Button
+                      variant="default"
+                      className="gap-2"
+                      onClick={() => {
+                        console.log('[App] Login button clicked from home');
+                        setIsAuthOpen(true);
+                      }}
+                    >
+                      <LogIn className="w-4 h-4" />
+                      Se connecter
                     </Button>
                   </div>
                 </div>
@@ -760,7 +790,6 @@ export default function App() {
                     </p>
                   </div>
                 </div>
-                <TesseractTest showEventSelection={true} />
               </div>
             )
           ) : (
@@ -778,7 +807,6 @@ export default function App() {
                   Commencer
                 </Button>
               </div>
-              <TesseractTest showEventSelection={true} />
             </div>
           )}
         </div>

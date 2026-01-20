@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useEventStore } from '@/store/eventStore';
 import { useTransactionsStore } from '@/store/transactionsStore';
+import { useJoinRequestsStore } from '@/store/joinRequestsStore';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -95,11 +96,9 @@ export function EventManagement({ eventId, onBack }) {
   const [scannerParticipantId, setScannerParticipantId] = useState(null);
   const [showHelpIncompleteDistribution, setShowHelpIncompleteDistribution] = useState(false);
   const [showBonkontRule, setShowBonkontRule] = useState(true);
-  const [accordionValue, setAccordionValue] = useState(['event', 'bonkont-rule']); // Par défaut, événement et règle Bonkont ouverts
-
-  // Vérifier si l'utilisateur actuel est l'organisateur
+  // Ouvrir la section participants par défaut pour les organisateurs
   const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
-  const currentUserId = userData ? (() => {
+  const currentUserIdForAccordion = userData ? (() => {
     try {
       const user = JSON.parse(userData);
       return user.email || null;
@@ -107,7 +106,17 @@ export function EventManagement({ eventId, onBack }) {
       return null;
     }
   })() : null;
-  const isOrganizer = currentUserId && event?.organizerId === currentUserId;
+  const isOrganizerForAccordion = currentUserIdForAccordion && event?.organizerId === currentUserIdForAccordion;
+  
+  const [accordionValue, setAccordionValue] = useState(
+    isOrganizerForAccordion 
+      ? ['event', 'bonkont-rule', 'participants'] // Ouvrir participants pour les organisateurs
+      : ['event', 'bonkont-rule'] // Par défaut, événement et règle Bonkont ouverts
+  );
+
+  // Vérifier si l'utilisateur actuel est l'organisateur (réutiliser les valeurs calculées plus haut)
+  const currentUserId = currentUserIdForAccordion;
+  const isOrganizer = isOrganizerForAccordion;
 
   // Définir participants avant de l'utiliser
   const participants = Array.isArray(event.participants) ? event.participants : [];
@@ -196,15 +205,31 @@ export function EventManagement({ eventId, onBack }) {
       return;
     }
 
+    if (!event) {
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: "L'événement n'a pas été trouvé. Veuillez réessayer."
+      });
+      return;
+    }
+
     console.log('[EventManagement] Adding participant manually:', {
       name: newParticipantName,
       email: newParticipantEmail,
-      eventId
+      eventId,
+      eventCode: event.code
     });
 
-    // Vérifier si le participant existe déjà
-    const existingParticipant = event.participants.find(
-      p => p.email === newParticipantEmail.trim() || p.name === newParticipantName.trim()
+    // Vérifier si le participant existe déjà (par email ou nom)
+    const existingParticipant = event.participants?.find(
+      p => {
+        const emailMatch = newParticipantEmail.trim() && p.email && 
+          p.email.toLowerCase() === newParticipantEmail.trim().toLowerCase();
+        const nameMatch = p.name && 
+          p.name.toLowerCase() === newParticipantName.trim().toLowerCase();
+        return emailMatch || nameMatch;
+      }
     );
 
     if (existingParticipant) {
@@ -217,8 +242,9 @@ export function EventManagement({ eventId, onBack }) {
     }
 
     // Créer un nouveau participant confirmé directement (ajout manuel = accepté)
-    const newParticipantId = event.participants?.length 
-      ? Math.max(...event.participants.map(p => p.id)) + 1
+    const currentParticipants = event.participants || [];
+    const newParticipantId = currentParticipants.length > 0
+      ? Math.max(...currentParticipants.map(p => Number(p.id) || 0)) + 1
       : 2;
 
     const newParticipant = {
@@ -234,19 +260,33 @@ export function EventManagement({ eventId, onBack }) {
       paidAmount: 0
     };
 
-    updateEvent(eventId, {
-      participants: [...(event.participants || []), newParticipant]
-    });
+    console.log('[EventManagement] Creating new participant:', newParticipant);
+    console.log('[EventManagement] Current participants count:', currentParticipants.length);
 
-    toast({
-      title: "Participant ajouté",
-      description: `${newParticipantName} a été ajouté à l'événement.`
-    });
+    try {
+      updateEvent(eventId, {
+        participants: [...currentParticipants, newParticipant]
+      });
 
-    // Réinitialiser le formulaire
-    setNewParticipantName('');
-    setNewParticipantEmail('');
-    setShowAddParticipantDialog(false);
+      console.log('[EventManagement] ✅ Participant added successfully');
+
+      toast({
+        title: "Participant ajouté",
+        description: `${newParticipantName} a été ajouté à l'événement.`
+      });
+
+      // Réinitialiser le formulaire
+      setNewParticipantName('');
+      setNewParticipantEmail('');
+      setShowAddParticipantDialog(false);
+    } catch (error) {
+      console.error('[EventManagement] ❌ Error adding participant:', error);
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: "Impossible d'ajouter le participant. Veuillez réessayer."
+      });
+    }
   };
 
   // Fonction pour lancer l'événement officiellement
@@ -292,6 +332,18 @@ export function EventManagement({ eventId, onBack }) {
       </div>
     );
   }
+
+  // Ouvrir automatiquement la section participants pour les organisateurs
+  useEffect(() => {
+    if (event && isOrganizer) {
+      setAccordionValue(prev => {
+        if (!prev.includes('participants')) {
+          return [...prev, 'participants'];
+        }
+        return prev;
+      });
+    }
+  }, [event, isOrganizer]);
 
   console.log('[EventManagement] Event loaded:', {
     id: event.id,
@@ -1961,6 +2013,93 @@ const handleExportPDF = () => {
                     Ajouter manuellement
                   </Button>
                 </div>
+
+                {/* Demandes de participation depuis le store (participants qui n'ont pas trouvé l'événement) */}
+                {(() => {
+                  if (!event || !event.code) return null;
+                  const joinRequests = useJoinRequestsStore.getState().getRequestsByEventCode(event.code);
+                  if (joinRequests.length > 0) {
+                    return (
+                      <div className="mb-4 p-3 rounded-lg border border-primary/30 bg-primary/5">
+                        <h4 className="font-semibold mb-2 flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-primary" />
+                          Demandes de participation en attente ({joinRequests.length})
+                        </h4>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Ces participants ont créé une demande mais n'ont pas trouvé l'événement dans leur application.
+                        </p>
+                        <div className="space-y-2">
+                          {joinRequests.map((request) => (
+                            <Card key={request.id} className="p-3 neon-border">
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <p className="font-medium">{request.participant?.name || 'Sans nom'}</p>
+                                  {request.participant?.email && (
+                                    <p className="text-xs text-muted-foreground">{request.participant.email}</p>
+                                  )}
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Code: {request.eventCode}
+                                  </p>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      // Ajouter le participant à l'événement
+                                      const newParticipantId = event.participants?.length 
+                                        ? Math.max(...event.participants.map(p => p.id)) + 1
+                                        : 2;
+                                      
+                                      const newParticipant = {
+                                        ...request.participant,
+                                        id: newParticipantId,
+                                        status: 'confirmed',
+                                        hasConfirmed: true
+                                      };
+                                      
+                                      updateEvent(eventId, {
+                                        participants: [...(event.participants || []), newParticipant]
+                                      });
+                                      
+                                      // Marquer la demande comme acceptée
+                                      useJoinRequestsStore.getState().acceptRequest(request.id);
+                                      
+                                      toast({
+                                        title: "Participant ajouté",
+                                        description: `${request.participant?.name || 'Le participant'} a été ajouté à l'événement.`
+                                      });
+                                    }}
+                                    className="gap-1"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    Accepter
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      useJoinRequestsStore.getState().rejectRequest(request.id);
+                                      toast({
+                                        title: "Demande rejetée",
+                                        description: "La demande a été rejetée."
+                                      });
+                                    }}
+                                    className="gap-1"
+                                  >
+                                    <X className="w-3 h-3" />
+                                    Rejeter
+                                  </Button>
+                                </div>
+                              </div>
+                            </Card>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Participants en attente */}
                 {pendingParticipants.length > 0 && (
