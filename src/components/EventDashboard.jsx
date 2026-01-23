@@ -606,7 +606,7 @@ setPaymentMethod('card');
                           <span className="flex items-center gap-2">
                             <Sparkles className="w-3 h-3 animate-spin-slow" />
                             {isOrganizer(event) ? (
-                              <span className="font-mono font-bold tracking-wider">{event.code}</span>
+                            <span className="font-mono font-bold tracking-wider">{event.code}</span>
                             ) : (
                               <span className="font-mono font-bold tracking-wider text-muted-foreground">••••••••</span>
                             )}
@@ -713,20 +713,20 @@ setPaymentMethod('card');
 
   {/* Scanner un ticket - Innovation mise en avant */}
   <div className="relative">
-    <Button
-      variant="outline"
+  <Button
+    variant="outline"
       className="relative gap-2 neon-border scanner-ticket-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300 border-primary/50 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-        console.log('[EventDashboard] ===== SCANNER BUTTON CLICKED =====');
-        localStorage.setItem('bonkont_scanner_eventId', event.id);
+      console.log('[EventDashboard] ===== SCANNER BUTTON CLICKED =====');
+      localStorage.setItem('bonkont_scanner_eventId', event.id);
 
-        setScannerEventId(event.id);
-        setShowScannerDialog(true);
-      }}
-    >
+      setScannerEventId(event.id);
+      setShowScannerDialog(true);
+    }}
+  >
       <div className="relative">
         <Scan className="w-4 h-4 relative z-10" />
         <span className="absolute -top-1 -right-1 flex h-2 w-2">
@@ -735,7 +735,7 @@ setPaymentMethod('card');
         </span>
       </div>
       <span className="font-semibold">Scanner un ticket CB</span>
-    </Button>
+  </Button>
     <Badge 
       variant="outline" 
       className="absolute -top-2 -right-2 bg-gradient-to-r from-primary to-purple-600 text-white border-0 text-[10px] px-1.5 py-0.5 shadow-lg animate-bounce"
@@ -1383,7 +1383,7 @@ setPaymentMethod('card');
               <div className="p-3 rounded-lg bg-muted">
                 <p className="text-sm font-medium">{reminderEvent.title}</p>
                 {isOrganizer(reminderEvent) ? (
-                  <p className="text-xs text-muted-foreground">Code: {reminderEvent.code}</p>
+                <p className="text-xs text-muted-foreground">Code: {reminderEvent.code}</p>
                 ) : (
                   <p className="text-xs text-muted-foreground">Code: ••••••••</p>
                 )}

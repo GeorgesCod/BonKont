@@ -119,24 +119,24 @@ export function QRCodeScanner({ isOpen, onClose, onScanSuccess }) {
               console.log('[QRCodeScanner] Raw decoded text:', eventCode);
               
               // Pattern 1: URL complète avec #/join/CODE
-              let match = eventCode.match(/#\/join\/([A-Z0-9]+)/i);
+              let match = eventCode.match(/#\/join\/([A-Z]+)/i);
               if (match) {
-                eventCode = match[1].toUpperCase();
+                eventCode = match[1].toUpperCase().replace(/[^A-Z]/g, '');
                 console.log('[QRCodeScanner] Extracted from #/join/ pattern:', eventCode);
               } else {
                 // Pattern 2: URL avec /join/CODE (sans #)
-                match = eventCode.match(/\/join\/([A-Z0-9]+)/i);
+                match = eventCode.match(/\/join\/([A-Z]+)/i);
                 if (match) {
-                  eventCode = match[1].toUpperCase();
+                  eventCode = match[1].toUpperCase().replace(/[^A-Z]/g, '');
                   console.log('[QRCodeScanner] Extracted from /join/ pattern:', eventCode);
                 } else {
-                  // Pattern 3: Code seul (8 caractères)
-                  const codeOnly = eventCode.replace(/[^A-Z0-9]/g, '').toUpperCase();
+                  // Pattern 3: Code seul (8 lettres majuscules uniquement)
+                  const codeOnly = eventCode.replace(/[^A-Z]/g, '').toUpperCase();
                   if (codeOnly.length >= 8) {
                     eventCode = codeOnly.substring(0, 8);
                     console.log('[QRCodeScanner] Extracted code only:', eventCode);
                   } else {
-                    eventCode = eventCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    eventCode = codeOnly;
                     console.log('[QRCodeScanner] Cleaned code:', eventCode);
                   }
                 }
@@ -163,17 +163,17 @@ export function QRCodeScanner({ isOpen, onClose, onScanSuccess }) {
                 console.log('[QRCodeScanner] Error handler - Raw decoded text:', eventCode);
                 
                 // Pattern 1: URL complète avec #/join/CODE
-                let match = eventCode.match(/#\/join\/([A-Z0-9]+)/i);
+                let match = eventCode.match(/#\/join\/([A-Z]+)/i);
                 if (match) {
-                  eventCode = match[1].toUpperCase();
+                  eventCode = match[1].toUpperCase().replace(/[^A-Z]/g, '');
                 } else {
                   // Pattern 2: URL avec /join/CODE
-                  match = eventCode.match(/\/join\/([A-Z0-9]+)/i);
+                  match = eventCode.match(/\/join\/([A-Z]+)/i);
                   if (match) {
-                    eventCode = match[1].toUpperCase();
+                    eventCode = match[1].toUpperCase().replace(/[^A-Z]/g, '');
                   } else {
-                    // Pattern 3: Code seul
-                    const codeOnly = eventCode.replace(/[^A-Z0-9]/g, '').toUpperCase();
+                    // Pattern 3: Code seul (8 lettres majuscules uniquement)
+                    const codeOnly = eventCode.replace(/[^A-Z]/g, '').toUpperCase();
                     eventCode = codeOnly.length >= 8 ? codeOnly.substring(0, 8) : codeOnly;
                   }
                 }

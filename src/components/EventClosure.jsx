@@ -788,9 +788,9 @@ export function EventClosure({ eventId, onBack }) {
       
       // Ajouter mention de validation si applicable
       if (isValidated) {
-        const pageCount = doc.internal.pages.length - 1;
-        for (let i = 1; i <= pageCount; i++) {
-          doc.setPage(i);
+      const pageCount = doc.internal.pages.length - 1;
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
           doc.setFontSize(7);
           doc.setTextColor(34, 197, 94);
           doc.setFont(undefined, 'bold');
@@ -875,7 +875,7 @@ export function EventClosure({ eventId, onBack }) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-4 pb-6">
-            <Card className="p-4 border-2">
+      <Card className="p-4 border-2">
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -1024,7 +1024,7 @@ export function EventClosure({ eventId, onBack }) {
             </div>
           )}
         </div>
-            </Card>
+      </Card>
           </AccordionContent>
         </AccordionItem>
 
@@ -1037,23 +1037,23 @@ export function EventClosure({ eventId, onBack }) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-4 pb-6">
-            {/* Note importante */}
+      {/* Note importante */}
             <Card className="p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800 mb-4">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-1">
-                    Répartition finale
-                  </h3>
-                  <p className="text-sm text-blue-800 dark:text-blue-200">
-                    Cette répartition est calculée à partir de toutes les dépenses validées et des paiements enregistrés. 
-                    Elle détermine les ajustements finaux entre participants.
-                  </p>
-                </div>
-              </div>
-            </Card>
+        <div className="flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-1">
+              Répartition finale
+            </h3>
+            <p className="text-sm text-blue-800 dark:text-blue-200">
+              Cette répartition est calculée à partir de toutes les dépenses validées et des paiements enregistrés. 
+              Elle détermine les ajustements finaux entre participants.
+            </p>
+          </div>
+        </div>
+      </Card>
 
-            <Card className="p-6 neon-border">
+      <Card className="p-6 neon-border">
         <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
           <Users className="w-6 h-6 text-primary" />
           Soldes finaux par participant
@@ -1139,7 +1139,7 @@ export function EventClosure({ eventId, onBack }) {
             })}
           </div>
         </ScrollArea>
-            </Card>
+      </Card>
           </AccordionContent>
         </AccordionItem>
 
@@ -1157,7 +1157,7 @@ export function EventClosure({ eventId, onBack }) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-4 pb-6">
-            <Card className="p-6 neon-border">
+      <Card className="p-6 neon-border">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-primary" />
@@ -1192,8 +1192,8 @@ export function EventClosure({ eventId, onBack }) {
               <div className="flex-1">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
-                    ⚠️ Répartition incomplète
-                  </p>
+                  ⚠️ Répartition incomplète
+                </p>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1236,7 +1236,7 @@ export function EventClosure({ eventId, onBack }) {
                     <div className="text-xs text-yellow-800 dark:text-yellow-200 mb-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded">
                       <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". 
                       Si toutes les transactions sont <strong>validées collectivement</strong> et équilibrées, alors la répartition devrait être équilibrée automatiquement.
-                    </div>
+              </div>
                     
                     <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
                       🔍 Causes possibles :
@@ -1424,7 +1424,7 @@ export function EventClosure({ eventId, onBack }) {
             )}
           </div>
         )}
-            </Card>
+      </Card>
           </AccordionContent>
         </AccordionItem>
 
@@ -1442,136 +1442,136 @@ export function EventClosure({ eventId, onBack }) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-4 pb-6">
-            {/* Bouton de validation de clôture */}
-            {!isValidated && (
-              <Card className="p-6 neon-border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-purple-100 dark:bg-purple-900/50">
-                      <Lock className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100">
-                        🎊 Finaliser ensemble
-                      </h3>
-                      <p className="text-sm text-purple-800 dark:text-purple-200 mt-1">
-                        Une fois validé, les comptes seront figés. C'est le moment de clôturer en beauté !
-                      </p>
-                    </div>
-                  </div>
-                  
-                  {/* Conditions de validation */}
-                  <div className="space-y-2 p-4 rounded-lg bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">✅ Validations collectives</span>
-                      {allSigned ? (
-                        <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          {signedCount} / {participants.length} ✨
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300">
-                          {signedCount} / {participants.length}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">⏰ Temps de réflexion</span>
-                      {closureDeadline && new Date() >= closureDeadline ? (
-                        <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Prêt
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300">
-                          En cours
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <Button
-                    onClick={() => {
-                      // Vérification avant d'ouvrir le dialog
-                      const closureDeadline = calculateClosureDeadline();
-                      const now = new Date();
-                      
-                      if (!closureDeadline) {
-                        toast({
-                          variant: "destructive",
-                          title: "Erreur",
-                          description: "Impossible de calculer la date de clôture. Vérifiez les dates de l'événement.",
-                        });
-                        return;
-                      }
-                      
-                      if (now < closureDeadline) {
-                        const diff = closureDeadline.getTime() - now.getTime();
-                        const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
-                        toast({
-                          variant: "destructive",
-                          title: "Temps de réflexion en cours",
-                          description: `Il reste encore ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion avant de pouvoir finaliser la clôture.`,
-                        });
-                        return;
-                      }
-                      
-                      if (!allSigned) {
-                        toast({
-                          variant: "destructive",
-                          title: "Validations manquantes",
-                          description: "Tous les participants doivent valider avant de finaliser.",
-                        });
-                        return;
-                      }
-                      
-                      // Toutes les vérifications sont passées, on peut ouvrir le dialog
-                      setShowValidationDialog(true);
-                    }}
-                    disabled={!canValidate}
-                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg disabled:shadow-none transition-all"
-                    size="lg"
-                  >
-                    {canValidate ? (
-                      <>
-                        <span className="text-lg mr-2">🎉</span>
-                        Finaliser la clôture ensemble
-                      </>
-                    ) : (
-                      <>
-                        <Clock className="w-4 h-4 mr-2" />
-                        En attente des conditions
-                      </>
-                    )}
-                  </Button>
-                  
-                  {!canValidate && (
-                    <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
-                      <p className="text-xs text-center text-yellow-800 dark:text-yellow-200">
-                        {(() => {
-                          const closureDeadline = calculateClosureDeadline();
-                          const now = new Date();
-                          const allSignedCheck = allSigned;
-                          
-                          if (!allSignedCheck && closureDeadline && now < closureDeadline) {
-                            const diff = closureDeadline.getTime() - now.getTime();
-                            const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
-                            return `💬 Il manque encore les validations de chacun et il reste ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion. Bonkont prend le temps de bien faire.`;
-                          } else if (!allSignedCheck) {
-                            return `💬 Il manque encore les validations de chacun. Tous les participants doivent valider avant de finaliser.`;
-                          } else if (closureDeadline && now < closureDeadline) {
-                            const diff = closureDeadline.getTime() - now.getTime();
-                            const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
-                            return `⏰ Il reste encore ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion avant de pouvoir finaliser la clôture.`;
-                          }
-                          return `💬 Les conditions ne sont pas encore remplies pour finaliser la clôture.`;
-                        })()}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </Card>
+      {/* Bouton de validation de clôture */}
+      {!isValidated && (
+        <Card className="p-6 neon-border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-full bg-purple-100 dark:bg-purple-900/50">
+                <Lock className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100">
+                  🎊 Finaliser ensemble
+                </h3>
+                <p className="text-sm text-purple-800 dark:text-purple-200 mt-1">
+                  Une fois validé, les comptes seront figés. C'est le moment de clôturer en beauté !
+                </p>
+              </div>
+            </div>
+            
+            {/* Conditions de validation */}
+            <div className="space-y-2 p-4 rounded-lg bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">✅ Validations collectives</span>
+                {allSigned ? (
+                  <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    {signedCount} / {participants.length} ✨
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300">
+                    {signedCount} / {participants.length}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">⏰ Temps de réflexion</span>
+                {closureDeadline && new Date() >= closureDeadline ? (
+                  <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300">
+                    <CheckCircle className="w-3 h-3 mr-1" />
+                    Prêt
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300">
+                    En cours
+                  </Badge>
+                )}
+              </div>
+            </div>
+            
+            <Button
+              onClick={() => {
+                // Vérification avant d'ouvrir le dialog
+                const closureDeadline = calculateClosureDeadline();
+                const now = new Date();
+                
+                if (!closureDeadline) {
+                  toast({
+                    variant: "destructive",
+                    title: "Erreur",
+                    description: "Impossible de calculer la date de clôture. Vérifiez les dates de l'événement.",
+                  });
+                  return;
+                }
+                
+                if (now < closureDeadline) {
+                  const diff = closureDeadline.getTime() - now.getTime();
+                  const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
+                  toast({
+                    variant: "destructive",
+                    title: "Temps de réflexion en cours",
+                    description: `Il reste encore ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion avant de pouvoir finaliser la clôture.`,
+                  });
+                  return;
+                }
+                
+                if (!allSigned) {
+                  toast({
+                    variant: "destructive",
+                    title: "Validations manquantes",
+                    description: "Tous les participants doivent valider avant de finaliser.",
+                  });
+                  return;
+                }
+                
+                // Toutes les vérifications sont passées, on peut ouvrir le dialog
+                setShowValidationDialog(true);
+              }}
+              disabled={!canValidate}
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-lg disabled:shadow-none transition-all"
+              size="lg"
+            >
+              {canValidate ? (
+                <>
+                  <span className="text-lg mr-2">🎉</span>
+                  Finaliser la clôture ensemble
+                </>
+              ) : (
+                <>
+                  <Clock className="w-4 h-4 mr-2" />
+                  En attente des conditions
+                </>
+              )}
+            </Button>
+            
+            {!canValidate && (
+              <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
+                <p className="text-xs text-center text-yellow-800 dark:text-yellow-200">
+                  {(() => {
+                    const closureDeadline = calculateClosureDeadline();
+                    const now = new Date();
+                    const allSignedCheck = allSigned;
+                    
+                    if (!allSignedCheck && closureDeadline && now < closureDeadline) {
+                      const diff = closureDeadline.getTime() - now.getTime();
+                      const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
+                      return `💬 Il manque encore les validations de chacun et il reste ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion. Bonkont prend le temps de bien faire.`;
+                    } else if (!allSignedCheck) {
+                      return `💬 Il manque encore les validations de chacun. Tous les participants doivent valider avant de finaliser.`;
+                    } else if (closureDeadline && now < closureDeadline) {
+                      const diff = closureDeadline.getTime() - now.getTime();
+                      const hoursRemaining = Math.ceil(diff / (1000 * 60 * 60));
+                      return `⏰ Il reste encore ${hoursRemaining} heure${hoursRemaining > 1 ? 's' : ''} de réflexion avant de pouvoir finaliser la clôture.`;
+                    }
+                    return `💬 Les conditions ne sont pas encore remplies pour finaliser la clôture.`;
+                  })()}
+                </p>
+              </div>
             )}
+          </div>
+        </Card>
+      )}
           </AccordionContent>
         </AccordionItem>
 

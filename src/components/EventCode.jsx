@@ -79,9 +79,9 @@ export function EventCode({ eventId }) {
     const guideText = `📋 GUIDE POUR REJOINDRE L'ÉVÉNEMENT :
 
 1️⃣ Méthode 1 - Par code :
-   • Ouvrez l'application BONKONT (ou allez sur ${baseUrl})
+   • Ouvrez l'application BONKONT (ou allez sur ${productionUrl})
    • Cliquez sur "Rejoindre un événement"
-   • Saisissez le code : ${event.code}
+   • Saisissez le code COMPLET (8 lettres majuscules) : ${event.code}
    • Cliquez sur "Rechercher"
 
 2️⃣ Méthode 2 - Par QR code :
@@ -121,7 +121,7 @@ export function EventCode({ eventId }) {
   const handleShareSMS = () => {
     const shortGuide = `Rejoignez "${event.title}" sur BONKONT :
 
-Code : ${event.code}
+Code (8 lettres majuscules) : ${event.code}
 Lien : ${shareUrl}
 
 📋 Comment faire :
@@ -188,30 +188,30 @@ Lien : ${shareUrl}
 
         <div className="space-y-4">
           {isOrganizer ? (
-            <div className="flex items-center justify-between p-4 rounded-lg neon-border">
-              <div>
-                <p className="font-medium">Code événement</p>
-                <p className="text-2xl font-mono font-bold text-primary">{event.code}</p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="neon-border"
-                  onClick={handleCopyCode}
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="neon-border"
-                  onClick={() => setIsQRDialogOpen(true)}
-                >
-                  <QrCode className="w-4 h-4" />
-                </Button>
-              </div>
+          <div className="flex items-center justify-between p-4 rounded-lg neon-border">
+            <div>
+              <p className="font-medium">Code événement</p>
+              <p className="text-2xl font-mono font-bold text-primary">{event.code}</p>
             </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                className="neon-border"
+                onClick={handleCopyCode}
+              >
+                <Copy className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                className="neon-border"
+                onClick={() => setIsQRDialogOpen(true)}
+              >
+                <QrCode className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
           ) : (
             <div className="flex items-center justify-between p-4 rounded-lg neon-border bg-muted/50">
               <div>
@@ -223,39 +223,39 @@ Lien : ${shareUrl}
           )}
 
           {isOrganizer && (
-            <div className="grid grid-cols-2 gap-4">
-              <Button
-                variant="outline"
-                className="gap-2 neon-border"
-                onClick={handleShareEmail}
-              >
-                <Mail className="w-4 h-4" />
-                Email
-              </Button>
-              <Button
-                variant="outline"
-                className="gap-2 neon-border"
-                onClick={handleShareSMS}
-              >
-                <MessageSquare className="w-4 h-4" />
-                SMS
-              </Button>
-              <Button
-                variant="outline"
-                className="gap-2 neon-border"
-                onClick={handleCopyLink}
-              >
-                <Copy className="w-4 h-4" />
-                Copier le lien
-              </Button>
-              <Button
-                variant="outline"
-                className="gap-2 neon-border"
-                onClick={() => {
-                  if (navigator.share) {
+          <div className="grid grid-cols-2 gap-4">
+            <Button
+              variant="outline"
+              className="gap-2 neon-border"
+              onClick={handleShareEmail}
+            >
+              <Mail className="w-4 h-4" />
+              Email
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2 neon-border"
+              onClick={handleShareSMS}
+            >
+              <MessageSquare className="w-4 h-4" />
+              SMS
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2 neon-border"
+              onClick={handleCopyLink}
+            >
+              <Copy className="w-4 h-4" />
+              Copier le lien
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2 neon-border"
+              onClick={() => {
+                if (navigator.share) {
                     const shareText = `Rejoignez l'événement "${event.title}" sur BONKONT
 
-Code : ${event.code}
+Code (8 lettres majuscules) : ${event.code}
 Lien : ${shareUrl}
 
 📋 Pour rejoindre :
@@ -266,18 +266,18 @@ Lien : ${shareUrl}
 5. Attendez la validation de l'organisateur
 
 💡 Besoin d'aide ? Consultez la FAQ dans l'application.`;
-                    navigator.share({
-                      title: `Invitation à ${event.title}`,
+                  navigator.share({
+                    title: `Invitation à ${event.title}`,
                       text: shareText,
                       url: shareUrl
-                    });
-                  }
-                }}
-              >
-                <Share2 className="w-4 h-4" />
-                Partager
-              </Button>
-            </div>
+                  });
+                }
+              }}
+            >
+              <Share2 className="w-4 h-4" />
+              Partager
+            </Button>
+          </div>
           )}
         </div>
 

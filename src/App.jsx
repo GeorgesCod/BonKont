@@ -442,8 +442,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground" style={{ touchAction: 'pan-y' }}>
-      <header className="py-3 sm:py-6 border-b border-border/50 backdrop-blur-sm bg-background/80 sticky top-0 z-50 safe-top w-full">
+     <div className="h-screen flex flex-col bg-background text-foreground" style={{ touchAction: 'pan-y' }}>
+       <header className="shrink-0 py-3 sm:py-6 border-b border-border/50 backdrop-blur-sm bg-background/80 z-50 safe-top w-full">
         <div className="container mx-auto px-3 sm:px-4 max-w-full">
           <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -479,7 +479,10 @@ export default function App() {
               
               {!isLoggedIn ? (
                 <>
-                  <InviteFriends />
+                  <InviteFriends eventCode={selectedEventId ? (() => {
+                    const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
+                    return event?.code;
+                  })() : null} />
                   <Button
                     variant="outline"
                     className="neon-border gap-2 min-h-[44px] px-3 sm:px-4"
@@ -492,7 +495,10 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <InviteFriends />
+                  <InviteFriends eventCode={selectedEventId ? (() => {
+                    const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
+                    return event?.code;
+                  })() : null} />
                   <Button
                     variant="outline"
                     className="neon-border gap-2 min-h-[44px] px-3 sm:px-4 touch-manipulation"
@@ -560,7 +566,8 @@ export default function App() {
             console.log('[App] window.location.hash:', window.location.hash);
             console.log('[App] Checking if currentView === "join":', currentView === 'join');
             return null;
-          })()}
+          }
+          )()}
           {/* Pages publiques */}
           {currentView === 'privacy' ? (
             <PrivacyPolicy onBack={() => {
@@ -742,8 +749,8 @@ export default function App() {
                     Créez ou rejoignez un événement pour partager vos dépenses
                   </p>
                   <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
-                    <Button
-                      className="gap-2 button-glow"
+                  <Button
+                    className="gap-2 button-glow"
                       onClick={() => {
                         console.log('[App] Create event button clicked from home');
                         setIsAuthOpen(true);
@@ -776,10 +783,10 @@ export default function App() {
                         console.log('[App] Login button clicked from home');
                         setIsAuthOpen(true);
                       }}
-                    >
-                      <LogIn className="w-4 h-4" />
+                  >
+                    <LogIn className="w-4 h-4" />
                       Se connecter
-                    </Button>
+                  </Button>
                   </div>
                 </div>
                 {/* Afficher EventCreation même si non connecté, mais avec un message d'auth */}

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
+import { generateEventCode } from '@/lib/auth';
 
 export const useEventStore = create()(
   persist(
@@ -13,7 +14,7 @@ export const useEventStore = create()(
         const newEvent = {
           ...eventData,
           id: eventId,
-          code: eventData.code || nanoid(8).toUpperCase(),
+          code: eventData.code || generateEventCode(),
           createdAt: now,
           updatedAt: now,
           ratings: [],

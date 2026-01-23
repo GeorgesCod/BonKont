@@ -32,6 +32,8 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png'];
 export function AvatarUpload({ currentAvatar, onAvatarChange }) {
   const { toast } = useToast();
   const [previewUrl, setPreviewUrl] = useState(currentAvatar || null);
+  const [tempAvatar, setTempAvatar] = useState(currentAvatar || null); // Avatar temporaire avant sauvegarde
+  const [isOpen, setIsOpen] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleFileSelect = (event) => {
@@ -57,25 +59,49 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }) {
       return;
     }
 
-    // Prévisualisation
+    // Prévisualisation (temporaire, pas encore sauvegardé)
     const reader = new FileReader();
     reader.onloadend = () => {
-      setPreviewUrl(reader.result);
-      onAvatarChange(reader.result);
+      const result = reader.result;
+      setPreviewUrl(result);
+      setTempAvatar(result); // Sauvegarder temporairement
     };
     reader.readAsDataURL(file);
   };
 
   const handleRemoveAvatar = () => {
     setPreviewUrl(null);
-    onAvatarChange(null);
+    setTempAvatar(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
+  const handleSave = () => {
+    // Sauvegarder l'avatar temporaire
+    onAvatarChange(tempAvatar);
+    setPreviewUrl(tempAvatar);
+    
+    toast({
+      title: "Avatar enregistré",
+      description: "Votre avatar a été modifié avec succès.",
+    });
+    
+    // Fermer le dialog
+    setIsOpen(false);
+  };
+
+  const handleOpenChange = (open) => {
+    setIsOpen(open);
+    // Réinitialiser l'avatar temporaire à l'avatar actuel quand on ouvre
+    if (open) {
+      setTempAvatar(currentAvatar || null);
+      setPreviewUrl(currentAvatar || null);
+    }
+  };
+
   return (
-    <Dialog>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <div className="relative cursor-pointer group">
           <Avatar className="w-24 h-24 border-2 border-primary">
@@ -135,8 +161,9 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }) {
                     key={index}
                     type="button"
                     onClick={() => {
-                      setPreviewUrl(`data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text y="50" font-size="50">${emoji}</text></svg>`);
-                      onAvatarChange(`data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text y="50" font-size="50">${emoji}</text></svg>`);
+                      const emojiAvatar = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text y="50" font-size="50">${emoji}</text></svg>`;
+                      setPreviewUrl(emojiAvatar);
+                      setTempAvatar(emojiAvatar); // Sauvegarder temporairement
                     }}
                     className="w-12 h-12 rounded-full border-2 border-border hover:border-primary transition-colors text-2xl flex items-center justify-center bg-background hover:bg-primary/10"
                   >
@@ -178,7 +205,10 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }) {
               </AlertDialogContent>
             </AlertDialog>
 
-            <Button className="gap-2 button-glow">
+            <Button 
+              className="gap-2 button-glow"
+              onClick={handleSave}
+            >
               <Upload className="w-4 h-4" />
               Enregistrer
             </Button>

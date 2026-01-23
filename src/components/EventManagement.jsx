@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useEventStore } from '@/store/eventStore';
 import { useTransactionsStore } from '@/store/transactionsStore';
 import { useJoinRequestsStore } from '@/store/joinRequestsStore';
+import { getJoinRequests, updateJoinRequest } from '@/services/api';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -96,6 +97,8 @@ export function EventManagement({ eventId, onBack }) {
   const [scannerParticipantId, setScannerParticipantId] = useState(null);
   const [showHelpIncompleteDistribution, setShowHelpIncompleteDistribution] = useState(false);
   const [showBonkontRule, setShowBonkontRule] = useState(true);
+  const [firestoreJoinRequests, setFirestoreJoinRequests] = useState([]);
+  const [loadingJoinRequests, setLoadingJoinRequests] = useState(false);
   // Ouvrir la section participants par défaut pour les organisateurs
   const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
   const currentUserIdForAccordion = userData ? (() => {
@@ -345,6 +348,28 @@ export function EventManagement({ eventId, onBack }) {
     }
   }, [event, isOrganizer]);
 
+  // Charger les demandes de participation depuis Firestore
+  useEffect(() => {
+    if (!event || !event.id || !isOrganizer) return;
+
+    const loadJoinRequests = async () => {
+      setLoadingJoinRequests(true);
+      try {
+        console.log('[EventManagement] Loading join requests from Firestore for event:', event.id);
+        const requests = await getJoinRequests(event.id, 'pending');
+        console.log('[EventManagement] Join requests loaded:', requests);
+        setFirestoreJoinRequests(requests);
+      } catch (error) {
+        console.error('[EventManagement] Error loading join requests:', error);
+        // En cas d'erreur, continuer avec les demandes locales
+      } finally {
+        setLoadingJoinRequests(false);
+      }
+    };
+
+    loadJoinRequests();
+  }, [event?.id, isOrganizer]);
+
   console.log('[EventManagement] Event loaded:', {
     id: event.id,
     code: event.code,
@@ -420,11 +445,11 @@ export function EventManagement({ eventId, onBack }) {
         }
         
         return {
-          name: poi.name,
-          rating: poi.rating,
+        name: poi.name,
+        rating: poi.rating,
           category: category,
           distance: distance,
-          totalReviews: poi.totalReviews || 0
+        totalReviews: poi.totalReviews || 0
         };
       });
 
@@ -1818,9 +1843,9 @@ const handleExportPDF = () => {
             </p>
           </div>
         ) : (
-          <ScrollArea className="h-64">
-            <div className="space-y-3 pr-4">
-              {spots.map((spot, index) => (
+        <ScrollArea className="h-64">
+          <div className="space-y-3 pr-4">
+            {spots.map((spot, index) => (
               <div
                 key={index}
                 className="p-4 rounded-lg border border-border hover:border-primary/50 transition-colors cursor-pointer"
@@ -1856,9 +1881,9 @@ const handleExportPDF = () => {
                   <ExternalLink className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
-              ))}
-            </div>
-          </ScrollArea>
+            ))}
+          </div>
+        </ScrollArea>
         )}
       </Card>
             </div>
@@ -1902,7 +1927,7 @@ const handleExportPDF = () => {
                   <li><strong>Transferts directs</strong> : Validés pour traçabilité (paiement direct, pas de partage)</li>
                   <li><strong>Remboursements POT</strong> : Validés pour traçabilité (remboursement direct, pas de partage)</li>
                 </ul>
-              </div>
+            </div>
               <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
                 Pour les <strong>dépenses/avances</strong> : seuls les participants qui valident sont redevables au payeur au prorata. 
                 La validation (complète ou partielle) détermine la répartition et les transferts.
@@ -1933,8 +1958,8 @@ const handleExportPDF = () => {
                     <p className="flex items-start gap-2">
                       <span className="text-primary font-bold">→</span>
                       <span>Les 7 autres participants ne valident pas (ils sont restés sur site)</span>
-                    </p>
-                  </div>
+                  </p>
+                </div>
                   <div className="mt-3 p-3 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800">
                     <p className="font-semibold text-green-900 dark:text-green-100 mb-1">
                       Résultat selon la règle Bonkont :
@@ -1946,11 +1971,11 @@ const handleExportPDF = () => {
                       <li>Bob et Charlie doivent chacun <strong>10€</strong> à Alice</li>
                       <li>Les 7 autres participants sont <strong>exemptés</strong> (ils n'ont pas validé)</li>
                     </ul>
-                  </div>
+              </div>
                   <p className="mt-3 text-xs italic text-blue-700 dark:text-blue-300">
                     💡 <strong>La validation détermine qui consomme et qui doit rembourser.</strong> C'est transparent, équitable, et tout le monde est quitte !
                   </p>
-                </div>
+            </div>
               </div>
             </div>
           </div>
@@ -1994,7 +2019,7 @@ const handleExportPDF = () => {
                 </div>
               </Card>
             )}
-
+            
             {/* Interface Admin : Ajout manuel et gestion des participants */}
             {isOrganizer && (
               <Card className="p-4 mb-4 neon-border bg-primary/5">
@@ -2014,61 +2039,94 @@ const handleExportPDF = () => {
                   </Button>
                 </div>
 
-                {/* Demandes de participation depuis le store (participants qui n'ont pas trouvé l'événement) */}
+                {/* Demandes de participation depuis Firestore et le store local */}
                 {(() => {
                   if (!event || !event.code) return null;
-                  const joinRequests = useJoinRequestsStore.getState().getRequestsByEventCode(event.code);
-                  if (joinRequests.length > 0) {
+                  const localJoinRequests = useJoinRequestsStore.getState().getRequestsByEventCode(event.code);
+                  const allJoinRequests = [...firestoreJoinRequests, ...localJoinRequests];
+                  if (allJoinRequests.length > 0) {
                     return (
                       <div className="mb-4 p-3 rounded-lg border border-primary/30 bg-primary/5">
                         <h4 className="font-semibold mb-2 flex items-center gap-2">
                           <Clock className="w-4 h-4 text-primary" />
-                          Demandes de participation en attente ({joinRequests.length})
+                          Demandes de participation en attente ({allJoinRequests.length})
+                          {loadingJoinRequests && <Loader2 className="w-4 h-4 animate-spin" />}
                         </h4>
                         <p className="text-xs text-muted-foreground mb-3">
-                          Ces participants ont créé une demande mais n'ont pas trouvé l'événement dans leur application.
+                          Ces participants ont créé une demande de participation. Validez ou refusez leurs demandes.
                         </p>
                         <div className="space-y-2">
-                          {joinRequests.map((request) => (
-                            <Card key={request.id} className="p-3 neon-border">
+                          {allJoinRequests.map((request) => {
+                            // Adapter le format selon la source (Firestore ou local)
+                            const participant = request.participant || { name: request.name, email: request.email };
+                            const requestId = request.id;
+                            const isFirestoreRequest = !request.participant; // Les requêtes Firestore n'ont pas de .participant
+                            
+                            return (
+                            <Card key={requestId} className="p-3 neon-border">
                               <div className="flex items-center justify-between">
-                                <div className="flex-1">
-                                  <p className="font-medium">{request.participant?.name || 'Sans nom'}</p>
-                                  {request.participant?.email && (
-                                    <p className="text-xs text-muted-foreground">{request.participant.email}</p>
+                          <div className="flex-1">
+                                  <p className="font-medium">{participant.name || 'Sans nom'}</p>
+                                  {participant.email && (
+                                    <p className="text-xs text-muted-foreground">{participant.email}</p>
                                   )}
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Code: {request.eventCode}
-                                  </p>
-                                </div>
+                                  {request.eventCode && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Code: {request.eventCode}
+                                    </p>
+                                  )}
+                            </div>
                                 <div className="flex gap-2">
-                                  <Button
-                                    size="sm"
+                            <Button
+                              size="sm"
                                     variant="outline"
-                                    onClick={() => {
-                                      // Ajouter le participant à l'événement
-                                      const newParticipantId = event.participants?.length 
-                                        ? Math.max(...event.participants.map(p => p.id)) + 1
-                                        : 2;
-                                      
-                                      const newParticipant = {
-                                        ...request.participant,
-                                        id: newParticipantId,
-                                        status: 'confirmed',
-                                        hasConfirmed: true
-                                      };
-                                      
-                                      updateEvent(eventId, {
-                                        participants: [...(event.participants || []), newParticipant]
-                                      });
-                                      
-                                      // Marquer la demande comme acceptée
-                                      useJoinRequestsStore.getState().acceptRequest(request.id);
-                                      
-                                      toast({
-                                        title: "Participant ajouté",
-                                        description: `${request.participant?.name || 'Le participant'} a été ajouté à l'événement.`
-                                      });
+                              onClick={async () => {
+                                      try {
+                                        // Si c'est une demande Firestore, utiliser l'API
+                                        if (isFirestoreRequest) {
+                                          await updateJoinRequest(eventId, requestId, 'approve', event.organizerId);
+                                        } else {
+                                          // Marquer la demande locale comme acceptée
+                                          useJoinRequestsStore.getState().acceptRequest(requestId);
+                                        }
+                                        
+                                        // Ajouter le participant à l'événement
+                                        const newParticipantId = event.participants?.length 
+                                          ? Math.max(...event.participants.map(p => p.id)) + 1
+                                          : 2;
+                                        
+                                        const newParticipant = {
+                                          ...participant,
+                                          id: newParticipantId,
+                                          userId: request.userId || participant.email,
+                                          status: 'confirmed',
+                                          hasConfirmed: true,
+                                          hasPaid: false,
+                                          paidAmount: 0
+                                        };
+                                        
+                                        updateEvent(eventId, {
+                                          participants: [...(event.participants || []), newParticipant]
+                                        });
+                                        
+                                        // Recharger les demandes Firestore
+                                        if (isFirestoreRequest) {
+                                          const requests = await getJoinRequests(eventId, 'pending');
+                                          setFirestoreJoinRequests(requests);
+                                        }
+                                        
+                                        toast({
+                                          title: "Participant ajouté",
+                                          description: `${participant.name || 'Le participant'} a été ajouté à l'événement.`
+                                        });
+                                      } catch (error) {
+                                        console.error('[EventManagement] Error approving request:', error);
+                                        toast({
+                                          variant: "destructive",
+                                          title: "Erreur",
+                                          description: "Impossible d'approuver la demande. Veuillez réessayer."
+                                        });
+                                      }
                                     }}
                                     className="gap-1"
                                   >
@@ -2078,24 +2136,44 @@ const handleExportPDF = () => {
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => {
-                                      useJoinRequestsStore.getState().rejectRequest(request.id);
-                                      toast({
-                                        title: "Demande rejetée",
-                                        description: "La demande a été rejetée."
-                                      });
+                                    onClick={async () => {
+                                      try {
+                                        // Si c'est une demande Firestore, utiliser l'API
+                                        if (isFirestoreRequest) {
+                                          await updateJoinRequest(eventId, requestId, 'reject', event.organizerId);
+                                          // Recharger les demandes Firestore
+                                          const requests = await getJoinRequests(eventId, 'pending');
+                                          setFirestoreJoinRequests(requests);
+                                        } else {
+                                          // Marquer la demande locale comme rejetée
+                                          useJoinRequestsStore.getState().rejectRequest(requestId);
+                                        }
+                                        
+                                        toast({
+                                          title: "Demande rejetée",
+                                          description: "La demande a été rejetée."
+                                        });
+                                      } catch (error) {
+                                        console.error('[EventManagement] Error rejecting request:', error);
+                                        toast({
+                                          variant: "destructive",
+                                          title: "Erreur",
+                                          description: "Impossible de rejeter la demande. Veuillez réessayer."
+                                        });
+                                      }
                                     }}
                                     className="gap-1"
                                   >
                                     <X className="w-3 h-3" />
                                     Rejeter
-                                  </Button>
-                                </div>
-                              </div>
-                            </Card>
-                          ))}
+                            </Button>
+                          </div>
                         </div>
-                      </div>
+                      </Card>
+                            );
+                          })}
+                  </div>
+                </div>
                     );
                   }
                   return null;
@@ -2108,7 +2186,7 @@ const handleExportPDF = () => {
                       <Bell className="w-4 h-4" />
                       Demandes en attente ({pendingParticipants.length})
                     </h4>
-                    <div className="space-y-2">
+                              <div className="space-y-2">
                       {pendingParticipants.map((participant) => (
                         <div
                           key={participant.id}
@@ -2119,7 +2197,7 @@ const handleExportPDF = () => {
                             {participant.email && (
                               <p className="text-sm text-muted-foreground">{participant.email}</p>
                             )}
-                          </div>
+                                    </div>
                           <div className="flex gap-2">
                             <Button
                               variant="outline"
@@ -2145,20 +2223,20 @@ const handleExportPDF = () => {
                               Accepter
                             </Button>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
                 {/* Participants refusés (peuvent être réacceptés) */}
                 {rejectedParticipants.length > 0 && (
-                  <div>
+                            <div>
                     <h4 className="font-semibold mb-2 flex items-center gap-2 text-red-600 dark:text-red-400">
                       <X className="w-4 h-4" />
                       Participants refusés ({rejectedParticipants.length})
                     </h4>
-                    <div className="space-y-2">
+                              <div className="space-y-2">
                       {rejectedParticipants.map((participant) => (
                         <div
                           key={participant.id}
@@ -2169,7 +2247,7 @@ const handleExportPDF = () => {
                             {participant.email && (
                               <p className="text-sm text-muted-foreground">{participant.email}</p>
                             )}
-                          </div>
+                                    </div>
                           <Button
                             variant="outline"
                             size="sm"
@@ -2182,55 +2260,55 @@ const handleExportPDF = () => {
                             <RotateCcw className="w-4 h-4" />
                             Réaccepter
                           </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </Card>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </Card>
             )}
 
-            <Card className="p-6 neon-border">
-              <ScrollArea className="h-96">
-                <div className="space-y-3 pr-4">
+      <Card className="p-6 neon-border">
+        <ScrollArea className="h-96">
+          <div className="space-y-3 pr-4">
                   {confirmedParticipants.map((participant) => {
-                    const stats = getParticipantStats(participant);
-                    
-                    return (
-                      <div
-                        key={participant.id}
-                        className="p-4 rounded-lg border border-border hover:border-primary/50 transition-colors"
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-lg">{participant.name}</h3>
-                            <p className="text-sm text-muted-foreground">{participant.email}</p>
-                          </div>
-                          {stats.hasPaid && (
-                            <Badge className="bg-green-500/20 text-green-500 border-green-500/50">
-                              <CheckCircle className="w-3 h-3 mr-1" />
-                              Payé
-                            </Badge>
-                          )}
-                        </div>
+              const stats = getParticipantStats(participant);
+              
+              return (
+                <div
+                  key={participant.id}
+                  className="p-4 rounded-lg border border-border hover:border-primary/50 transition-colors"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-lg">{participant.name}</h3>
+                      <p className="text-sm text-muted-foreground">{participant.email}</p>
+                    </div>
+                    {stats.hasPaid && (
+                      <Badge className="bg-green-500/20 text-green-500 border-green-500/50">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Payé
+                      </Badge>
+                    )}
+                  </div>
 
-                        <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-3">
                           <div className="relative">
-                            <Button
-                              variant="outline"
-                              size="sm"
+                    <Button
+                      variant="outline"
+                      size="sm"
                               className="relative gap-2 scanner-ticket-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300 border-primary/50 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                console.log('[EventManagement] Scanner button clicked for participant:', {
-                                  participantId: participant.id,
-                                  participantName: participant.name,
-                                  eventId
-                                });
-                                setScannerParticipantId(participant.id);
-                                setIsScannerOpen(true);
-                              }}
-                            >
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('[EventManagement] Scanner button clicked for participant:', {
+                          participantId: participant.id,
+                          participantName: participant.name,
+                          eventId
+                        });
+                        setScannerParticipantId(participant.id);
+                        setIsScannerOpen(true);
+                      }}
+                    >
                               <div className="relative">
                                 <Scan className="w-4 h-4 relative z-10" />
                                 <span className="absolute -top-1 -right-1 flex h-2 w-2">
@@ -2239,7 +2317,7 @@ const handleExportPDF = () => {
                                 </span>
                               </div>
                               <span className="font-semibold">Scanner un ticket CB</span>
-                            </Button>
+                    </Button>
                             <Badge 
                               variant="outline" 
                               className="absolute -top-2 -right-2 bg-gradient-to-r from-primary to-purple-600 text-white border-0 text-[10px] px-1.5 py-0.5 shadow-lg animate-bounce"
@@ -2248,86 +2326,86 @@ const handleExportPDF = () => {
                               ✨ Innovation
                             </Badge>
                           </div>
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="default"
-                                  size="sm"
-                                  className="relative gap-2 mes-participations-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300"
-                                  onClick={() => {
-                                    console.log('[EventManagement] Participant clicked:', {
-                                      id: participant.id,
-                                      name: participant.name,
-                                      stats
-                                    });
-                                    setSelectedParticipant(participant);
-                                  }}
-                                >
-                                  <div className="relative">
-                                    <UserCircle className="w-4 h-4" />
-                                    {/* Badge d'alerte animé */}
-                                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
-                                    </span>
-                                  </div>
-                                  <span className="font-semibold">Mes Participations</span>
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="bg-primary text-primary-foreground">
-                                <p className="font-medium">Voir tout en détail</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="relative gap-2 mes-participations-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300"
+                            onClick={() => {
+                              console.log('[EventManagement] Participant clicked:', {
+                                id: participant.id,
+                                name: participant.name,
+                                stats
+                              });
+                              setSelectedParticipant(participant);
+                            }}
+                          >
+                            <div className="relative">
+                              <UserCircle className="w-4 h-4" />
+                              {/* Badge d'alerte animé */}
+                              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+                              </span>
+                            </div>
+                            <span className="font-semibold">Mes Participations</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="bg-primary text-primary-foreground">
+                          <p className="font-medium">Voir tout en détail</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-sm">
-                          <div>
-                            <p className="text-muted-foreground">Montant dû</p>
-                            <p className="font-semibold">{stats.totalDue.toFixed(2)}€</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Payé</p>
-                            <p className="font-semibold text-green-500">{stats.paid.toFixed(2)}€</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Reste à payer</p>
-                            <p className="font-semibold text-destructive">{stats.remaining.toFixed(2)}€</p>
-                          </div>
-                          <div>
-                            <p className="text-muted-foreground">Score</p>
-                            <p className="font-semibold flex items-center gap-1">
-                              <TrendingUp className="w-4 h-4" />
-                              {stats.score}/100
-                            </p>
-                          </div>
-                        </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Montant dû</p>
+                      <p className="font-semibold">{stats.totalDue.toFixed(2)}€</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Payé</p>
+                      <p className="font-semibold text-green-500">{stats.paid.toFixed(2)}€</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Reste à payer</p>
+                      <p className="font-semibold text-destructive">{stats.remaining.toFixed(2)}€</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Score</p>
+                      <p className="font-semibold flex items-center gap-1">
+                        <TrendingUp className="w-4 h-4" />
+                        {stats.score}/100
+                      </p>
+                    </div>
+                  </div>
 
-                        <div className="mt-3">
-                          <div className="flex items-center justify-between text-xs mb-1">
-                            <span className="text-muted-foreground">Progression du paiement</span>
-                            <span>{stats.paymentProgress.toFixed(0)}%</span>
-                          </div>
-                          <div className="h-2 bg-background rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary transition-all"
-                              style={{ width: `${stats.paymentProgress}%` }}
-                            />
-                          </div>
-                        </div>
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-muted-foreground">Progression du paiement</span>
+                      <span>{stats.paymentProgress.toFixed(0)}%</span>
+                    </div>
+                    <div className="h-2 bg-background rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${stats.paymentProgress}%` }}
+                      />
+                    </div>
+                  </div>
 
-                        {stats.paymentRank && (
-                          <div className="mt-2 text-xs text-muted-foreground">
-                            Classement: {stats.paymentRank}ème participant à avoir payé
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {stats.paymentRank && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Classement: {stats.paymentRank}ème participant à avoir payé
+                    </div>
+                  )}
                 </div>
-              </ScrollArea>
-            </Card>
+              );
+            })}
+          </div>
+        </ScrollArea>
+      </Card>
           </AccordionContent>
         </AccordionItem>
 
@@ -3198,6 +3276,84 @@ const handleExportPDF = () => {
                           </div>
                         </div>
                       </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog pour ajouter manuellement un participant */}
+      <Dialog open={showAddParticipantDialog} onOpenChange={setShowAddParticipantDialog}>
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-5 h-5 text-primary" />
+              Ajouter un participant
+            </DialogTitle>
+            <DialogDescription>
+              Ajoutez manuellement un participant à l'événement. Il sera automatiquement confirmé.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="newParticipantName">Nom *</Label>
+              <Input
+                id="newParticipantName"
+                value={newParticipantName}
+                onChange={(e) => setNewParticipantName(e.target.value)}
+                placeholder="Ex: Jean Dupont"
+                className="neon-border"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newParticipantEmail">Email (optionnel)</Label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <Input
+                  id="newParticipantEmail"
+                  type="email"
+                  value={newParticipantEmail}
+                  onChange={(e) => setNewParticipantEmail(e.target.value)}
+                  placeholder="jean.dupont@example.com"
+                  className="pl-10 neon-border"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                L'email permettra d'envoyer une invitation pour rejoindre l'événement.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setNewParticipantName('');
+                  setNewParticipantEmail('');
+                  setShowAddParticipantDialog(false);
+                }}
+              >
+                Annuler
+              </Button>
+              <Button
+                onClick={handleAddParticipantManually}
+                disabled={!newParticipantName.trim()}
+                className="gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Ajouter
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+
                     </>
                   );
                 })()}

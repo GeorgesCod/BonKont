@@ -11,7 +11,7 @@ import { useJoinRequestsStore } from '@/store/joinRequestsStore';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { QRCodeScanner } from '@/components/QRCodeScanner';
-import { findEventByCode } from '@/services/api';
+import { findEventByCode, createJoinRequest } from '@/services/api';
 
 export function EventJoin({ onAuthRequired }) {
   console.log('[EventJoin] ===== COMPONENT MOUNTED =====');
@@ -108,9 +108,9 @@ export function EventJoin({ onAuthRequired }) {
     console.log('[EventJoin] Events available:', events.length);
     
     // Pattern 1: #/join/CODE
-    let match = hash.match(/\/join\/([A-Z0-9]+)/i);
+    let match = hash.match(/\/join\/([A-Z]+)/i);
     if (match) {
-      const code = match[1].toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const code = match[1].toUpperCase().replace(/[^A-Z]/g, '');
       console.log('[EventJoin] ✅ Code found in URL (pattern 1):', code);
       setEventCode(code);
       
@@ -148,9 +148,9 @@ export function EventJoin({ onAuthRequired }) {
     }
     
     // Pattern 2: /event/CODE (redirigé depuis App.jsx)
-    match = hash.match(/\/event\/([A-Z0-9]+)/i);
+    match = hash.match(/\/event\/([A-Z]+)/i);
     if (match) {
-      const code = match[1].toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const code = match[1].toUpperCase().replace(/[^A-Z]/g, '');
       console.log('[EventJoin] ✅ Code found in URL (pattern 2), redirecting:', code);
       window.location.hash = `#/join/${code}`;
       setEventCode(code);
@@ -189,15 +189,15 @@ export function EventJoin({ onAuthRequired }) {
       return;
     }
 
-    // Nettoyer le code : enlever les espaces et caractères spéciaux, garder seulement lettres et chiffres
-    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // Nettoyer le code : garder uniquement les lettres majuscules
+    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
     console.log('[EventJoin] Checking code:', { original: code, cleaned: cleanCode, length: cleanCode.length });
     
     // Vérifier d'abord dans les événements locaux (pour les organisateurs)
     if (events.length > 0) {
       console.log('[EventJoin] Checking local events first...');
       const foundEvent = events.find(e => {
-        const eventCode = e.code?.toUpperCase()?.replace(/[^A-Z0-9]/g, '') || '';
+        const eventCode = e.code?.toUpperCase()?.replace(/[^A-Z]/g, '') || '';
         const match = eventCode === cleanCode;
         return match;
       });
@@ -272,7 +272,7 @@ export function EventJoin({ onAuthRequired }) {
       
       // Même en cas d'erreur, permettre de créer une demande
       console.log('[EventJoin] ⚠️ API error, but allowing join request creation');
-      const cleanCode = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
       const tempEvent = {
         id: `temp-${cleanCode}`,
         code: cleanCode,
@@ -470,9 +470,43 @@ export function EventJoin({ onAuthRequired }) {
         isTemporary: event._isTemporary
       });
 
-      // Si l'événement est temporaire (non trouvé), créer une demande dans le store
-      if (event._isTemporary) {
-        console.log('[EventJoin] Event is temporary, creating join request in store');
+      // Créer une demande de participation via l'API Firestore
+      try {
+        console.log('[EventJoin] Creating join request via API...');
+        const requestResult = await createJoinRequest(event.id, {
+          userId: userId || email || `guest-${nanoid(8)}`,
+          email: email.trim() || '',
+          name: pseudo.trim()
+        });
+        
+        console.log('[EventJoin] ✅ Join request created via API:', requestResult);
+        
+        // Si l'événement est temporaire, aussi créer une demande locale (fallback)
+        if (event._isTemporary) {
+          console.log('[EventJoin] Event is temporary, also creating local join request');
+          const requestId = addJoinRequest({
+            eventCode: event.code,
+            eventId: event.id,
+            participant: newParticipant,
+            userId: userId,
+            createdAt: new Date().toISOString()
+          });
+          console.log('[EventJoin] Local join request created with ID:', requestId);
+        }
+        
+        setPendingParticipantId(newParticipantId);
+        setIsJoined(true);
+        
+        toast({
+          title: "Demande envoyée !",
+          description: "Votre demande de participation a été envoyée. L'organisateur la validera prochainement.",
+          duration: 6000
+        });
+      } catch (apiError) {
+        console.error('[EventJoin] ⚠️ Error creating join request via API:', apiError);
+        
+        // Fallback : créer une demande locale si l'API échoue
+        console.log('[EventJoin] Falling back to local store');
         const requestId = addJoinRequest({
           eventCode: event.code,
           eventId: event.id,
@@ -480,28 +514,14 @@ export function EventJoin({ onAuthRequired }) {
           userId: userId,
           createdAt: new Date().toISOString()
         });
-        console.log('[EventJoin] Join request created with ID:', requestId);
         
         setPendingParticipantId(newParticipantId);
         setIsJoined(true);
         
         toast({
-          title: "Demande créée !",
-          description: "Votre demande de participation a été enregistrée. L'organisateur pourra la valider lorsqu'il synchronisera les demandes.",
+          title: "Demande créée (mode local) !",
+          description: "Votre demande a été enregistrée localement. Elle sera synchronisée avec le serveur dès que possible.",
           duration: 6000
-        });
-      } else {
-        // Événement trouvé, ajouter directement le participant
-        updateEvent(event.id, {
-          participants: [...(event.participants || []), newParticipant]
-        });
-
-        setPendingParticipantId(newParticipantId);
-        setIsJoined(true);
-
-        toast({
-          title: "Demande envoyée !",
-          description: "Votre demande de participation est en attente de validation par l'organisateur."
         });
       }
 
@@ -659,7 +679,7 @@ export function EventJoin({ onAuthRequired }) {
           <AlertDescription className="space-y-2">
             <p className="font-semibold text-primary">📋 Guide : Comment rejoindre un événement</p>
             <div className="text-sm space-y-1.5 mt-2">
-              <p><strong>1️⃣ Par code :</strong> Saisissez le code à 8 caractères reçu dans votre invitation (ex: VKCKVSOB) et cliquez sur "Rechercher"</p>
+              <p><strong>1️⃣ Par code :</strong> Saisissez le code à 8 lettres majuscules reçu dans votre invitation (ex: VKCKVSOB) et cliquez sur "Rechercher"</p>
               <p><strong>2️⃣ Par QR code :</strong> Cliquez sur le bouton QR code (📷) à droite et scannez le QR code reçu avec votre caméra</p>
               <p><strong>3️⃣ Par lien :</strong> Si vous avez cliqué sur un lien d'invitation, le code est déjà pré-rempli automatiquement</p>
               <p className="mt-2 text-xs text-muted-foreground">
@@ -684,7 +704,7 @@ export function EventJoin({ onAuthRequired }) {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="eventCode">Code événement</Label>
+            <Label htmlFor="eventCode">Code événement (8 caractères requis)</Label>
             <div className="flex gap-2">
               <div className="relative flex-1 min-w-0">
                 <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
@@ -692,7 +712,8 @@ export function EventJoin({ onAuthRequired }) {
                   id="eventCode"
                   value={eventCode}
                   onChange={(e) => {
-                    const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    // Permettre uniquement les lettres majuscules
+                    const value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
                     console.log('[EventJoin] Input onChange:', value, 'Length:', value.length);
                     setEventCode(value);
                   }}
@@ -702,10 +723,11 @@ export function EventJoin({ onAuthRequired }) {
                       handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
                     }
                   }}
-                  placeholder="Saisissez le code (8 caractères, ex: VKCKVSOB)"
-                  className="pl-10 neon-border font-mono uppercase w-full"
-                  maxLength={20}
-                  style={{ minWidth: '200px' }}
+                  placeholder="Ex: VKCKVSOB (8 lettres majuscules)"
+                  className="pl-10 neon-border font-mono uppercase w-full text-lg tracking-wider"
+                  maxLength={8}
+                  minLength={8}
+                  style={{ minWidth: '240px', letterSpacing: '0.1em' }}
                 />
               </div>
               <Button
@@ -739,7 +761,7 @@ export function EventJoin({ onAuthRequired }) {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              💡 Saisissez le code ou scannez le QR code reçu pour rejoindre l'événement
+              💡 Le code événement contient exactement 8 lettres majuscules (A-Z uniquement). Exemple : VKCKVSOB. Saisissez le code complet ou scannez le QR code reçu.
             </p>
             {eventCode && !event && (
               <Alert variant="destructive">
@@ -878,33 +900,44 @@ export function EventJoin({ onAuthRequired }) {
       </Card>
 
       {/* Scanner QR Code */}
-      <QRCodeScanner
-        isOpen={isQRScannerOpen}
-        onClose={() => setIsQRScannerOpen(false)}
-        onScanSuccess={(scannedCode) => {
-          console.log('[EventJoin] QR code scanned, received code:', scannedCode);
-          // Nettoyer le code et le définir
-          const cleanCode = scannedCode?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || '';
-          console.log('[EventJoin] Cleaned scanned code:', cleanCode);
-          if (cleanCode) {
-            setEventCode(cleanCode);
-            // Attendre un peu pour que le state soit mis à jour, puis vérifier
-            setTimeout(() => {
-              console.log('[EventJoin] Calling handleCodeCheck with cleaned code:', cleanCode);
-              handleCodeCheck(cleanCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
-            }, 100);
-          } else {
-            console.warn('[EventJoin] No valid code extracted from QR scan:', scannedCode);
-            toast({
-              variant: "destructive",
-              title: "Code invalide",
-              description: "Impossible d'extraire un code valide du QR code scanné."
-            });
-          }
-          setIsQRScannerOpen(false);
-        }}
-      />
-    </div>
-  );
-}
+<QRCodeScanner
+  isOpen={isQRScannerOpen}
+  onClose={() => setIsQRScannerOpen(false)}
+  onScanSuccess={(scannedCode) => {
+    console.log('[EventJoin] QR code scanned, received code:', scannedCode);
 
+    // Nettoyer le code : garder uniquement les lettres majuscules
+    const cleanCode =
+      scannedCode?.trim().toUpperCase().replace(/[^A-Z]/g, '') || '';
+
+    console.log('[EventJoin] Cleaned scanned code:', cleanCode);
+
+    if (cleanCode && cleanCode.length === 8) {
+      setEventCode(cleanCode);
+
+      // Attendre un peu pour que le state soit mis à jour, puis vérifier
+      setTimeout(() => {
+        console.log(
+          '[EventJoin] Calling handleCodeCheck with cleaned code:',
+          cleanCode
+        );
+        handleCodeCheck(cleanCode).catch((err) =>
+          console.error('[EventJoin] Error in handleCodeCheck:', err)
+        );
+      }, 100);
+    } else {
+      console.warn(
+        '[EventJoin] No valid code extracted from QR scan:',
+        scannedCode
+      );
+      toast({
+        variant: 'destructive',
+        title: 'Code invalide',
+        description: 'Le code doit contenir exactement 8 lettres majuscules (A-Z).',
+      });
+    }
+
+    setIsQRScannerOpen(false);
+  }}
+/></div>
+); }

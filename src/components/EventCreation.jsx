@@ -20,7 +20,9 @@ import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import confetti from 'canvas-confetti';
 import { nanoid } from 'nanoid';
+import { generateEventCode } from '@/lib/auth';
 import { EventCode } from '@/components/EventCode';
+import { createEvent as createEventAPI } from '@/services/api';
 
 export function EventCreation({ onEventCreated }) {
   const { toast } = useToast();
@@ -38,7 +40,7 @@ export function EventCreation({ onEventCreated }) {
   const [deadline, setDeadline] = useState(30);
   const [expectedParticipants, setExpectedParticipants] = useState('');
   const [currency, setCurrency] = useState('EUR');
-  const [eventCode, setEventCode] = useState(nanoid(8).toUpperCase());
+  const [eventCode, setEventCode] = useState(generateEventCode());
   const [location, setLocation] = useState(null);
   const [organizerId, setOrganizerId] = useState(null);
   const [organizerName, setOrganizerName] = useState('');
@@ -363,7 +365,7 @@ export function EventCreation({ onEventCreated }) {
     return overlaps;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     try {
       console.log('[EventCreation] ===== SUBMITTING EVENT =====');
       
@@ -501,9 +503,35 @@ export function EventCreation({ onEventCreated }) {
       };
 
       console.log('[EventCreation] Event object created:', newEvent);
-      console.log('[EventCreation] Adding event to store...');
-      const eventId = addEvent(newEvent);
-      console.log('[EventCreation] ✅ Event added to store successfully, eventId:', eventId);
+      
+      // Créer l'événement dans Firestore via l'API
+      let firestoreEventId = null;
+      try {
+        console.log('[EventCreation] Creating event in Firestore...');
+        const firestoreResult = await createEventAPI({
+          ...newEvent,
+          startDate: start.toISOString().split('T')[0], // Format YYYY-MM-DD
+          endDate: end.toISOString().split('T')[0]
+        });
+        firestoreEventId = firestoreResult.eventId;
+        console.log('[EventCreation] ✅ Event created in Firestore, eventId:', firestoreEventId);
+        
+        // Mettre à jour l'ID de l'événement local avec l'ID Firestore
+        newEvent.id = firestoreEventId;
+      } catch (error) {
+        console.error('[EventCreation] ⚠️ Error creating event in Firestore:', error);
+        // Continuer quand même avec le store local (fallback)
+        toast({
+          variant: "default",
+          title: "Avertissement",
+          description: "L'événement a été créé localement. La synchronisation avec le serveur sera effectuée automatiquement."
+        });
+      }
+      
+      // Ajouter aussi au store local pour compatibilité
+      console.log('[EventCreation] Adding event to local store...');
+      const eventId = firestoreEventId || addEvent(newEvent);
+      console.log('[EventCreation] ✅ Event added to local store successfully, eventId:', eventId);
 
       // Effet de confetti
       confetti({
@@ -570,7 +598,7 @@ export function EventCreation({ onEventCreated }) {
               setDeadline(30);
               setExpectedParticipants('');
               setCurrency('EUR');
-              setEventCode(nanoid(8).toUpperCase());
+              setEventCode(generateEventCode());
               setLocation(null);
               setCharterAccepted(false);
               if (onEventCreated) {
@@ -1179,6 +1207,34 @@ export function EventCreation({ onEventCreated }) {
                   console.log('[EventCreation] ✅ Calling handleSubmit...');
                   try {
                     handleSubmit();
+                    console.log('[EventCreation] ✅ handleSubmit completed');
+                  } catch (error) {
+                    console.error('[EventCreation] ❌ Error in handleSubmit:', error);
+                    toast({
+                      variant: "destructive",
+                      title: "Erreur",
+                      description: error.message || "Une erreur est survenue lors de la création de l'événement."
+                    });
+                  }
+                  console.log('[EventCreation] ===== SUBMIT HANDLER END =====');
+                }}
+                disabled={!canProceed()}
+                className="gap-2 button-glow w-full sm:w-auto"
+                style={{
+                  cursor: canProceed() ? 'pointer' : 'not-allowed',
+                  opacity: canProceed() ? 1 : 0.5
+                }}
+              >
+                <span className="text-xs sm:text-sm">Créer l'événement</span>
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
                     console.log('[EventCreation] ✅ handleSubmit completed');
                   } catch (error) {
                     console.error('[EventCreation] ❌ Error in handleSubmit:', error);
