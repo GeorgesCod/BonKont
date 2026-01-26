@@ -11,7 +11,17 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 
 export function EventTicketScanner({ eventId, participantId, isOpen, onClose, onPaymentProcessed }) {
-  console.log('[EventTicketScanner] Component mounted:', { eventId, participantId, isOpen });
+  // Ne logger que lors du montage initial ou quand isOpen change vraiment
+  const [hasLogged, setHasLogged] = useState(false);
+  
+  useEffect(() => {
+    if (isOpen && !hasLogged) {
+      console.log('[EventTicketScanner] Component mounted/opened:', { eventId, participantId, isOpen });
+      setHasLogged(true);
+    } else if (!isOpen && hasLogged) {
+      setHasLogged(false);
+    }
+  }, [isOpen, eventId, participantId, hasLogged]);
   
   const { toast } = useToast();
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
@@ -29,11 +39,11 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
       setIsProcessing(false);
     }
   }, [isOpen]);
-  
-  // Log pour debug
-  useEffect(() => {
-    console.log('[EventTicketScanner] Dialog state changed:', { isOpen, eventId, participantId });
-  }, [isOpen, eventId, participantId]);
+
+  // Ne pas rendre le composant si le dialog n'est pas ouvert
+  if (!isOpen) {
+    return null;
+  }
 
   if (!event) {
     console.error('[EventTicketScanner] Event not found:', eventId);
@@ -41,7 +51,6 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
   }
 
   if (!participantId) {
-    console.log('[EventTicketScanner] No participant selected yet');
     return null;
   }
 

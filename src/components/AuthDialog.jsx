@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,6 +19,21 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
   const [avatar, setAvatar] = useState(null);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+
+  // Réinitialiser le formulaire quand le dialogue s'ouvre
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab('login');
+      setEmail('');
+      setPassword('');
+      setName('');
+      setAvatar(null);
+      setRememberMe(false);
+      setIsLoading(false);
+      setAcceptedTerms(false);
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -56,12 +71,25 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           description: "Bienvenue sur BONKONT !",
         });
       } else {
+        // Vérifier l'acceptation des CGU pour l'inscription
+        if (!acceptedTerms) {
+          toast({
+            variant: "destructive",
+            title: "CGU requises",
+            description: "Vous devez accepter les conditions d'utilisation pour vous inscrire.",
+          });
+          setIsLoading(false);
+          return;
+        }
+        
         // Sauvegarder les données utilisateur
         const userData = {
           name,
           email,
           avatar: avatar || null,
-          createdAt: new Date()
+          createdAt: new Date(),
+          acceptedTerms: true,
+          termsAcceptedAt: new Date()
         };
         localStorage.setItem('bonkont-user', JSON.stringify(userData));
         
@@ -216,11 +244,48 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
             </Button>
 
             {activeTab === 'register' && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <AlertCircle className="w-4 h-4" />
-                <p>
-                  En vous inscrivant, vous acceptez nos conditions d'utilisation et notre politique de confidentialité.
-                </p>
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="acceptTerms"
+                    checked={acceptedTerms}
+                    onChange={(e) => setAcceptedTerms(e.target.checked)}
+                    className="mt-1"
+                  />
+                  <label htmlFor="acceptTerms" className="text-sm text-muted-foreground cursor-pointer">
+                    J'accepte les{' '}
+                    <a
+                      href="#/terms"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        window.location.hash = '#/terms';
+                        onClose();
+                      }}
+                      className="text-primary hover:underline"
+                    >
+                      conditions d'utilisation
+                    </a>
+                    {' '}et la{' '}
+                    <a
+                      href="#/privacy"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        window.location.hash = '#/privacy';
+                        onClose();
+                      }}
+                      className="text-primary hover:underline"
+                    >
+                      politique de confidentialité
+                    </a>
+                  </label>
+                </div>
+                {!acceptedTerms && (
+                  <p className="text-xs text-destructive flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Vous devez accepter les CGU pour vous inscrire
+                  </p>
+                )}
               </div>
             )}
           </form>

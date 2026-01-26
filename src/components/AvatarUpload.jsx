@@ -152,25 +152,55 @@ export function AvatarUpload({ currentAvatar, onAvatarChange }) {
 
             <div className="space-y-2">
               <Label>Ou choisir un avatar prédéfini</Label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-6 gap-2 max-h-48 overflow-y-auto p-2">
                 {[
+                  // Personnes
                   '👤', '👨', '👩', '🧑', '👨‍💼', '👩‍💼', '👨‍🎓', '👩‍🎓',
-                  '👨‍🔬', '👩‍🔬', '👨‍⚕️', '👩‍⚕️', '👨‍🍳', '👩‍🍳', '👨‍🏫', '👩‍🏫'
+                  '👨‍🔬', '👩‍🔬', '👨‍⚕️', '👩‍⚕️', '👨‍🍳', '👩‍🍳', '👨‍🏫', '👩‍🏫',
+                  '👨‍🎤', '👩‍🎤', '👨‍🎨', '👩‍🎨', '👨‍💻', '👩‍💻', '👨‍🚀', '👩‍🚀',
+                  // Animaux
+                  '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼',
+                  '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔',
+                  // Emojis fun
+                  '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂',
+                  '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩',
+                  '😎', '🤗', '🤔', '😐', '😑', '😶', '🙄', '😏',
+                  // Objets et symboles
+                  '⭐', '🌟', '💫', '✨', '🎉', '🎊', '🎈', '🎁',
+                  '🏆', '🥇', '🥈', '🥉', '🎖️', '🏅', '🎗️', '🎯'
                 ].map((emoji, index) => (
                   <button
                     key={index}
                     type="button"
                     onClick={() => {
-                      const emojiAvatar = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text y="50" font-size="50">${emoji}</text></svg>`;
+                      const emojiAvatar = `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="%23f0f0f0"/><text x="50" y="70" font-size="60" text-anchor="middle">${emoji}</text></svg>`;
                       setPreviewUrl(emojiAvatar);
-                      setTempAvatar(emojiAvatar); // Sauvegarder temporairement
+                      setTempAvatar(emojiAvatar);
                     }}
-                    className="w-12 h-12 rounded-full border-2 border-border hover:border-primary transition-colors text-2xl flex items-center justify-center bg-background hover:bg-primary/10"
+                    className={`w-12 h-12 rounded-full border-2 transition-all text-2xl flex items-center justify-center bg-background hover:scale-110 ${
+                      tempAvatar === `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="%23f0f0f0"/><text x="50" y="70" font-size="60" text-anchor="middle">${emoji}</text></svg>` 
+                        ? 'border-primary bg-primary/20' 
+                        : 'border-border hover:border-primary hover:bg-primary/10'
+                    }`}
                   >
                     {emoji}
                   </button>
                 ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                {[
+                  '👤', '👨', '👩', '🧑', '👨‍💼', '👩‍💼', '👨‍🎓', '👩‍🎓',
+                  '👨‍🔬', '👩‍🔬', '👨‍⚕️', '👩‍⚕️', '👨‍🍳', '👩‍🍳', '👨‍🏫', '👩‍🏫',
+                  '👨‍🎤', '👩‍🎤', '👨‍🎨', '👩‍🎨', '👨‍💻', '👩‍💻', '👨‍🚀', '👩‍🚀',
+                  '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼',
+                  '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔',
+                  '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂',
+                  '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩',
+                  '😎', '🤗', '🤔', '😐', '😑', '😶', '🙄', '😏',
+                  '⭐', '🌟', '💫', '✨', '🎉', '🎊', '🎈', '🎁',
+                  '🏆', '🥇', '🥈', '🥉', '🎖️', '🏅', '🎗️', '🎯'
+                ].length} avatars disponibles
+              </p>
             </div>
           </div>
 

@@ -13,5 +13,7 @@ export {
   createEvent,
   createJoinRequest,
   getJoinRequests,
-  updateJoinRequest
+  updateJoinRequest,
+  getNotifications,
+  markNotificationAsRead
 } from './firestoreService';

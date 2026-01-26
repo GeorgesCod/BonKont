@@ -32,36 +32,18 @@ service cloud.firestore {
       }
     }
     
-    // Par défaut, refuser tout accès aux autres collections
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
-}
-
-      allow create: if true; // Temporairement ouvert pour le développement
+    // Notifications : lecture pour le propriétaire, création pour tous
+    match /notifications/{notificationId} {
+      // Lecture : seulement le propriétaire de la notification
+      allow read: if true; // Temporairement ouvert pour le développement
+      // TODO: Restreindre avec : resource.data.userId == request.auth.uid
       
-      // Mise à jour/suppression : seulement l'organisateur
-      allow update, delete: if true; // Temporairement ouvert pour le développement
-      // TODO: Restreindre avec : resource.data.organizerId == request.auth.uid
+      // Création : pour tous (permettre la création de notifications)
+      allow create: if true;
       
-      // Participants : lecture publique, écriture pour tous (pour le développement)
-      match /participants/{participantId} {
-        allow read: if true;
-        allow create, update, delete: if true;
-      }
-      
-      // Demandes de participation : lecture pour tous, écriture pour tous
-      match /joinRequests/{requestId} {
-        allow read: if true;
-        allow create: if true; // Permettre aux invités de créer des demandes
-        allow update, delete: if true;
-      }
-      
-      // Transactions : lecture/écriture pour tous (pour le développement)
-      match /transactions/{transactionId} {
-        allow read, write: if true;
-      }
+      // Mise à jour : seulement le propriétaire (pour marquer comme lu)
+      allow update: if true; // Temporairement ouvert pour le développement
+      // TODO: Restreindre avec : resource.data.userId == request.auth.uid
     }
     
     // Par défaut, refuser tout accès aux autres collections

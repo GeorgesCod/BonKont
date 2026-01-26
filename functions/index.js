@@ -37,16 +37,23 @@ app.use((req, res, next) => {
 app.get("/api/events/code/:code", async (req, res) => {
   try {
     const { code } = req.params;
-    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const originalCode = code;
+    // Nettoyer le code : garder uniquement les lettres majuscules (cohérent avec firestoreService.js)
+    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
 
-    if (!cleanCode || cleanCode.length < 4) {
+    logger.info(`[API] 🔍 Searching event by code:`, {
+      original: originalCode,
+      cleaned: cleanCode,
+      length: cleanCode.length
+    });
+
+    if (!cleanCode || cleanCode.length < 8) {
+      logger.warn(`[API] ⚠️ Invalid code:`, { original: originalCode, cleaned: cleanCode, length: cleanCode.length });
       return res.status(400).json({ 
         error: "Code invalide",
-        message: "Le code événement doit contenir au moins 4 caractères"
+        message: "Le code événement doit contenir au moins 8 caractères alphabétiques"
       });
     }
-
-    logger.info(`[API] Searching event by code: ${cleanCode}`);
 
     // Rechercher l'événement par code
     const snapshot = await db
@@ -120,13 +127,14 @@ app.post("/api/events/:eventId/join", async (req, res) => {
 
     // Validation
     if (!userId || !name || !name.trim()) {
+      logger.warn(`[API] ⚠️ Missing required fields for join request:`, { userId, name });
       return res.status(400).json({ 
         error: "Données manquantes",
         message: "userId et name sont requis"
       });
     }
 
-    logger.info(`[API] Creating join request for event: ${eventId}`, {
+    logger.info(`[API] 📝 Creating join request for event: ${eventId}`, {
       userId,
       email,
       name
@@ -135,11 +143,20 @@ app.post("/api/events/:eventId/join", async (req, res) => {
     // Vérifier que l'événement existe
     const eventDoc = await db.collection("events").doc(eventId).get();
     if (!eventDoc.exists) {
+      logger.error(`[API] ❌ Event not found: ${eventId}`);
       return res.status(404).json({ 
         error: "Event not found",
         message: "L'événement n'existe pas"
       });
     }
+
+    const eventData = eventDoc.data();
+    logger.info(`[API] 📋 Event data retrieved:`, {
+      eventId,
+      title: eventData.title,
+      organizerId: eventData.organizerId,
+      organizerName: eventData.organizerName
+    });
 
     // Vérifier si l'utilisateur n'a pas déjà une demande en attente
     const existingRequest = await db
@@ -152,6 +169,7 @@ app.post("/api/events/:eventId/join", async (req, res) => {
       .get();
 
     if (!existingRequest.empty) {
+      logger.warn(`[API] ⚠️ Duplicate join request detected for userId: ${userId}`);
       return res.status(409).json({ 
         error: "Request already exists",
         message: "Vous avez déjà une demande en attente pour cet événement"
@@ -172,7 +190,38 @@ app.post("/api/events/:eventId/join", async (req, res) => {
         approvedAt: null
       });
 
-    logger.info(`[API] Join request created: ${joinRequestRef.id}`);
+    logger.info(`[API] ✅ Join request created: ${joinRequestRef.id}`);
+
+    // Créer une notification pour l'organisateur
+    const organizerId = eventData.organizerId;
+    if (organizerId) {
+      logger.info(`[API] 🔔 Creating notification for organizer: ${organizerId}`);
+      
+      try {
+        const notificationRef = await db.collection("notifications").add({
+          userId: organizerId,
+          type: "join_request",
+          title: "Nouvelle demande de participation",
+          message: `${name.trim()} souhaite rejoindre "${eventData.title}"`,
+          eventId: eventId,
+          relatedId: joinRequestRef.id,
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        logger.info(`[API] ✅ Notification sent to organizer:`, {
+          organizerId,
+          notificationId: notificationRef.id,
+          eventTitle: eventData.title,
+          participantName: name.trim()
+        });
+      } catch (notificationError) {
+        // Ne pas faire échouer la création de la demande si la notification échoue
+        logger.error(`[API] ⚠️ Failed to create notification for organizer:`, notificationError);
+      }
+    } else {
+      logger.warn(`[API] ⚠️ No organizerId found in event data, cannot send notification`);
+    }
 
     res.json({ 
       success: true,
@@ -180,7 +229,7 @@ app.post("/api/events/:eventId/join", async (req, res) => {
       message: "Demande de participation créée avec succès"
     });
   } catch (error) {
-    logger.error("[API] Error creating join request:", error);
+    logger.error("[API] ❌ Error creating join request:", error);
     res.status(500).json({ 
       error: "Internal server error",
       message: error.message 
@@ -341,25 +390,52 @@ app.post("/api/events", async (req, res) => {
       });
     }
 
-    logger.info(`[API] Creating event: ${title} (${code})`);
+    // Nettoyer le code de la même manière que dans findEventByCode
+    const originalCode = code;
+    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
+
+    logger.info(`[API] 📝 Creating event:`, {
+      title,
+      originalCode,
+      cleanedCode: cleanCode,
+      organizerId
+    });
+
+    if (!cleanCode || cleanCode.length < 8) {
+      logger.error(`[API] ❌ Invalid code:`, { original: originalCode, cleaned: cleanCode, length: cleanCode.length });
+      return res.status(400).json({ 
+        error: "Code invalide",
+        message: "Le code événement doit contenir au moins 8 caractères alphabétiques"
+      });
+    }
 
     // Vérifier que le code n'existe pas déjà
+    logger.info(`[API] 🔍 Checking if code already exists: ${cleanCode}`);
     const existingEvent = await db
       .collection("events")
-      .where("code", "==", code.toUpperCase())
+      .where("code", "==", cleanCode)
       .limit(1)
       .get();
 
+    logger.info(`[API] 📊 Code check result:`, {
+      empty: existingEvent.empty,
+      size: existingEvent.size,
+      codeChecked: cleanCode
+    });
+
     if (!existingEvent.empty) {
+      logger.warn(`[API] ⚠️ Code already exists: ${cleanCode}`);
       return res.status(409).json({ 
         error: "Code already exists",
         message: "Un événement avec ce code existe déjà"
       });
     }
+    logger.info(`[API] ✅ Code is available: ${cleanCode}`);
 
-    // Créer l'événement
+    // Créer l'événement avec le code nettoyé
+    logger.info(`[API] 💾 Saving event to Firestore with code: ${cleanCode}`);
     const eventRef = await db.collection("events").add({
-      code: code.toUpperCase(),
+      code: cleanCode, // Utiliser le code nettoyé
       title,
       description: description || '',
       location: location || null,
@@ -391,7 +467,11 @@ app.post("/api/events", async (req, res) => {
         approved: true
       });
 
-    logger.info(`[API] Event created: ${eventRef.id}`);
+    logger.info(`[API] ✅ Event created:`, {
+      eventId: eventRef.id,
+      code: cleanCode,
+      title
+    });
 
     res.status(201).json({ 
       success: true,
@@ -441,16 +521,23 @@ app.use((req, res, next) => {
 app.get("/api/events/code/:code", async (req, res) => {
   try {
     const { code } = req.params;
-    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const originalCode = code;
+    // Nettoyer le code : garder uniquement les lettres majuscules (cohérent avec firestoreService.js)
+    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
 
-    if (!cleanCode || cleanCode.length < 4) {
+    logger.info(`[API] 🔍 Searching event by code:`, {
+      original: originalCode,
+      cleaned: cleanCode,
+      length: cleanCode.length
+    });
+
+    if (!cleanCode || cleanCode.length < 8) {
+      logger.warn(`[API] ⚠️ Invalid code:`, { original: originalCode, cleaned: cleanCode, length: cleanCode.length });
       return res.status(400).json({ 
         error: "Code invalide",
-        message: "Le code événement doit contenir au moins 4 caractères"
+        message: "Le code événement doit contenir au moins 8 caractères alphabétiques"
       });
     }
-
-    logger.info(`[API] Searching event by code: ${cleanCode}`);
 
     // Rechercher l'événement par code
     const snapshot = await db
@@ -524,13 +611,14 @@ app.post("/api/events/:eventId/join", async (req, res) => {
 
     // Validation
     if (!userId || !name || !name.trim()) {
+      logger.warn(`[API] ⚠️ Missing required fields for join request:`, { userId, name });
       return res.status(400).json({ 
         error: "Données manquantes",
         message: "userId et name sont requis"
       });
     }
 
-    logger.info(`[API] Creating join request for event: ${eventId}`, {
+    logger.info(`[API] 📝 Creating join request for event: ${eventId}`, {
       userId,
       email,
       name
@@ -539,11 +627,20 @@ app.post("/api/events/:eventId/join", async (req, res) => {
     // Vérifier que l'événement existe
     const eventDoc = await db.collection("events").doc(eventId).get();
     if (!eventDoc.exists) {
+      logger.error(`[API] ❌ Event not found: ${eventId}`);
       return res.status(404).json({ 
         error: "Event not found",
         message: "L'événement n'existe pas"
       });
     }
+
+    const eventData = eventDoc.data();
+    logger.info(`[API] 📋 Event data retrieved:`, {
+      eventId,
+      title: eventData.title,
+      organizerId: eventData.organizerId,
+      organizerName: eventData.organizerName
+    });
 
     // Vérifier si l'utilisateur n'a pas déjà une demande en attente
     const existingRequest = await db
@@ -556,6 +653,7 @@ app.post("/api/events/:eventId/join", async (req, res) => {
       .get();
 
     if (!existingRequest.empty) {
+      logger.warn(`[API] ⚠️ Duplicate join request detected for userId: ${userId}`);
       return res.status(409).json({ 
         error: "Request already exists",
         message: "Vous avez déjà une demande en attente pour cet événement"
@@ -576,7 +674,38 @@ app.post("/api/events/:eventId/join", async (req, res) => {
         approvedAt: null
       });
 
-    logger.info(`[API] Join request created: ${joinRequestRef.id}`);
+    logger.info(`[API] ✅ Join request created: ${joinRequestRef.id}`);
+
+    // Créer une notification pour l'organisateur
+    const organizerId = eventData.organizerId;
+    if (organizerId) {
+      logger.info(`[API] 🔔 Creating notification for organizer: ${organizerId}`);
+      
+      try {
+        const notificationRef = await db.collection("notifications").add({
+          userId: organizerId,
+          type: "join_request",
+          title: "Nouvelle demande de participation",
+          message: `${name.trim()} souhaite rejoindre "${eventData.title}"`,
+          eventId: eventId,
+          relatedId: joinRequestRef.id,
+          read: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        logger.info(`[API] ✅ Notification sent to organizer:`, {
+          organizerId,
+          notificationId: notificationRef.id,
+          eventTitle: eventData.title,
+          participantName: name.trim()
+        });
+      } catch (notificationError) {
+        // Ne pas faire échouer la création de la demande si la notification échoue
+        logger.error(`[API] ⚠️ Failed to create notification for organizer:`, notificationError);
+      }
+    } else {
+      logger.warn(`[API] ⚠️ No organizerId found in event data, cannot send notification`);
+    }
 
     res.json({ 
       success: true,
@@ -584,7 +713,7 @@ app.post("/api/events/:eventId/join", async (req, res) => {
       message: "Demande de participation créée avec succès"
     });
   } catch (error) {
-    logger.error("[API] Error creating join request:", error);
+    logger.error("[API] ❌ Error creating join request:", error);
     res.status(500).json({ 
       error: "Internal server error",
       message: error.message 
@@ -745,25 +874,52 @@ app.post("/api/events", async (req, res) => {
       });
     }
 
-    logger.info(`[API] Creating event: ${title} (${code})`);
+    // Nettoyer le code de la même manière que dans findEventByCode
+    const originalCode = code;
+    const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
+
+    logger.info(`[API] 📝 Creating event:`, {
+      title,
+      originalCode,
+      cleanedCode: cleanCode,
+      organizerId
+    });
+
+    if (!cleanCode || cleanCode.length < 8) {
+      logger.error(`[API] ❌ Invalid code:`, { original: originalCode, cleaned: cleanCode, length: cleanCode.length });
+      return res.status(400).json({ 
+        error: "Code invalide",
+        message: "Le code événement doit contenir au moins 8 caractères alphabétiques"
+      });
+    }
 
     // Vérifier que le code n'existe pas déjà
+    logger.info(`[API] 🔍 Checking if code already exists: ${cleanCode}`);
     const existingEvent = await db
       .collection("events")
-      .where("code", "==", code.toUpperCase())
+      .where("code", "==", cleanCode)
       .limit(1)
       .get();
 
+    logger.info(`[API] 📊 Code check result:`, {
+      empty: existingEvent.empty,
+      size: existingEvent.size,
+      codeChecked: cleanCode
+    });
+
     if (!existingEvent.empty) {
+      logger.warn(`[API] ⚠️ Code already exists: ${cleanCode}`);
       return res.status(409).json({ 
         error: "Code already exists",
         message: "Un événement avec ce code existe déjà"
       });
     }
+    logger.info(`[API] ✅ Code is available: ${cleanCode}`);
 
-    // Créer l'événement
+    // Créer l'événement avec le code nettoyé
+    logger.info(`[API] 💾 Saving event to Firestore with code: ${cleanCode}`);
     const eventRef = await db.collection("events").add({
-      code: code.toUpperCase(),
+      code: cleanCode, // Utiliser le code nettoyé
       title,
       description: description || '',
       location: location || null,
@@ -795,7 +951,11 @@ app.post("/api/events", async (req, res) => {
         approved: true
       });
 
-    logger.info(`[API] Event created: ${eventRef.id}`);
+    logger.info(`[API] ✅ Event created:`, {
+      eventId: eventRef.id,
+      code: cleanCode,
+      title
+    });
 
     res.status(201).json({ 
       success: true,

@@ -28,28 +28,63 @@ import {
  * @returns {Promise<Object|null>} L'événement trouvé ou null
  */
 export async function findEventByCode(code) {
+  console.log('[Firestore] 🔍 findEventByCode called with:', { code, type: typeof code });
+  
   if (!code || !code.trim()) {
+    console.warn('[Firestore] ⚠️ Empty or invalid code provided');
     return null;
   }
 
   // Nettoyer le code : garder uniquement les lettres majuscules
+  const originalCode = code;
   const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
   
+  console.log('[Firestore] 🔍 Code processing:', {
+    original: originalCode,
+    cleaned: cleanCode,
+    length: cleanCode.length
+  });
+  
   if (cleanCode.length < 8) {
-    console.warn('[Firestore] Code trop court:', cleanCode);
+    console.warn('[Firestore] ⚠️ Code trop court:', { original: originalCode, cleaned: cleanCode, length: cleanCode.length });
     return null;
   }
 
   try {
-    console.log('[Firestore] Searching event by code:', cleanCode);
+    console.log('[Firestore] 🔍 Searching event by code in Firestore:', cleanCode);
     
     // Rechercher l'événement par code
     const eventsRef = collection(db, 'events');
     const q = query(eventsRef, where('code', '==', cleanCode));
+    
+    console.log('[Firestore] 📡 Executing Firestore query...');
     const querySnapshot = await getDocs(q);
 
+    console.log('[Firestore] 📊 Query result:', {
+      empty: querySnapshot.empty,
+      size: querySnapshot.size,
+      codeSearched: cleanCode
+    });
+
     if (querySnapshot.empty) {
-      console.log('[Firestore] Event not found for code:', cleanCode);
+      console.log('[Firestore] ❌ Event not found for code:', cleanCode);
+      console.log('[Firestore] 💡 Debug info: Check if code exists in Firestore with exact value:', cleanCode);
+      console.log('[Firestore] 🔍 Suggestion: Verify the code was saved correctly during event creation');
+      console.log('[Firestore] 🔍 Try querying all events to see what codes exist');
+      
+      // Log supplémentaire pour débogage : lister quelques événements pour voir les codes existants
+      try {
+        const allEventsSnapshot = await getDocs(collection(db, 'events'));
+        const allCodes = allEventsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          code: doc.data().code,
+          title: doc.data().title
+        }));
+        console.log('[Firestore] 📋 All events in database (first 10):', allCodes.slice(0, 10));
+      } catch (debugError) {
+        console.warn('[Firestore] ⚠️ Could not fetch all events for debug:', debugError);
+      }
+      
       return null;
     }
 
@@ -57,7 +92,15 @@ export async function findEventByCode(code) {
     const eventDoc = querySnapshot.docs[0];
     const eventData = eventDoc.data();
 
+    console.log('[Firestore] ✅ Event document found:', {
+      eventId: eventDoc.id,
+      code: eventData.code,
+      title: eventData.title,
+      organizerId: eventData.organizerId
+    });
+
     // Récupérer les participants
+    console.log('[Firestore] 👥 Fetching participants for event:', eventDoc.id);
     const participantsRef = collection(db, 'events', eventDoc.id, 'participants');
     const participantsSnapshot = await getDocs(participantsRef);
     const participants = participantsSnapshot.docs.map(pDoc => ({
@@ -65,6 +108,8 @@ export async function findEventByCode(code) {
       ...pDoc.data(),
       joinedAt: convertFirestoreDate(pDoc.data().joinedAt)
     }));
+
+    console.log('[Firestore] 👥 Participants found:', participants.length);
 
     // Formater la réponse selon le format attendu par le frontend
     const event = {
@@ -86,10 +131,20 @@ export async function findEventByCode(code) {
       closedAt: eventData.closedAt ? convertFirestoreDate(eventData.closedAt) : null
     };
 
-    console.log('[Firestore] Event found:', { id: event.id, code: event.code, title: event.title });
+    console.log('[Firestore] ✅✅✅ Event found and formatted:', { 
+      id: event.id, 
+      code: event.code, 
+      title: event.title,
+      participantsCount: event.participants.length
+    });
     return event;
   } catch (error) {
-    console.error('[Firestore] Error fetching event by code:', error);
+    console.error('[Firestore] ❌ Error fetching event by code:', error);
+    console.error('[Firestore] Error details:', {
+      message: error.message,
+      name: error.name,
+      code: cleanCode
+    });
     return null;
   }
 }
@@ -101,18 +156,41 @@ export async function findEventByCode(code) {
  */
 export async function createEvent(eventData) {
   try {
-    console.log('[Firestore] Creating event:', eventData);
+    console.log('[Firestore] 📝 Creating event:', {
+      title: eventData.title,
+      code: eventData.code,
+      organizerId: eventData.organizerId
+    });
 
-    // Vérifier que le code n'existe pas déjà
-    const existingEvent = await findEventByCode(eventData.code);
-    if (existingEvent) {
-      throw new Error('Un événement avec ce code existe déjà');
+    // Nettoyer le code de la même manière que dans findEventByCode
+    // Garder uniquement les lettres majuscules
+    const originalCode = eventData.code || '';
+    const cleanCode = originalCode.trim().toUpperCase().replace(/[^A-Z]/g, '');
+    
+    console.log('[Firestore] 🔍 Code processing:', {
+      original: originalCode,
+      cleaned: cleanCode,
+      length: cleanCode.length
+    });
+
+    if (!cleanCode || cleanCode.length < 8) {
+      console.error('[Firestore] ❌ Invalid code:', { original: originalCode, cleaned: cleanCode });
+      throw new Error('Le code événement doit contenir au moins 8 caractères alphabétiques');
     }
 
-    // Créer l'événement
+    // Vérifier que le code n'existe pas déjà
+    console.log('[Firestore] 🔍 Checking if code already exists:', cleanCode);
+    const existingEvent = await findEventByCode(cleanCode);
+    if (existingEvent) {
+      console.warn('[Firestore] ⚠️ Code already exists:', cleanCode);
+      throw new Error('Un événement avec ce code existe déjà');
+    }
+    console.log('[Firestore] ✅ Code is available:', cleanCode);
+
+    // Créer l'événement avec le code nettoyé
     const eventsRef = collection(db, 'events');
-    const eventDocRef = await addDoc(eventsRef, {
-      code: eventData.code.toUpperCase(),
+    const eventDataToSave = {
+      code: cleanCode, // Utiliser le code nettoyé
       title: eventData.title,
       description: eventData.description || '',
       location: eventData.location || null,
@@ -127,9 +205,21 @@ export async function createEvent(eventData) {
       status: 'open',
       createdAt: serverTimestamp(),
       closedAt: null
+    };
+
+    console.log('[Firestore] 💾 Saving event to Firestore:', {
+      code: eventDataToSave.code,
+      title: eventDataToSave.title,
+      organizerId: eventDataToSave.organizerId
     });
 
-    console.log('[Firestore] Event created with ID:', eventDocRef.id);
+    const eventDocRef = await addDoc(eventsRef, eventDataToSave);
+
+    console.log('[Firestore] ✅ Event created with ID:', eventDocRef.id, {
+      eventId: eventDocRef.id,
+      code: cleanCode,
+      title: eventData.title
+    });
 
     // Ajouter l'organisateur comme participant
     if (eventData.organizerId) {
@@ -156,309 +246,43 @@ export async function createEvent(eventData) {
 }
 
 /**
- * Crée une demande de participation pour un événement
- * @param {string} eventId - ID de l'événement
- * @param {Object} participantData - Données du participant { userId, email, name }
- * @returns {Promise<Object>} La demande créée
+ * Crée une notification pour un utilisateur
+ * @param {string} userId - ID de l'utilisateur destinataire
+ * @param {Object} notificationData - Données de la notification { type, title, message, eventId, relatedId }
+ * @returns {Promise<string>} ID de la notification créée
  */
-export async function createJoinRequest(eventId, participantData) {
+export async function createNotification(userId, notificationData) {
   try {
-    console.log('[Firestore] Creating join request:', { eventId, participantData });
+    console.log('[Firestore] Creating notification:', { userId, notificationData });
 
-    // Vérifier que l'événement existe
-    const eventDocRef = doc(db, 'events', eventId);
-    const eventDoc = await getDoc(eventDocRef);
-    
-    if (!eventDoc.exists()) {
-      throw new Error("L'événement n'existe pas");
-    }
-
-    // Vérifier si l'utilisateur n'a pas déjà une demande en attente
-    const joinRequestsRef = collection(db, 'events', eventId, 'joinRequests');
-    const existingQuery = query(
-      joinRequestsRef,
-      where('userId', '==', participantData.userId || participantData.email),
-      where('status', '==', 'pending')
-    );
-    const existingSnapshot = await getDocs(existingQuery);
-
-    if (!existingSnapshot.empty) {
-      throw new Error('Vous avez déjà une demande en attente pour cet événement');
-    }
-
-    // Créer la demande de participation
-    const requestDocRef = await addDoc(joinRequestsRef, {
-      userId: participantData.userId || participantData.email,
-      email: participantData.email || '',
-      name: participantData.name || participantData.pseudo,
-      status: 'pending',
-      requestedAt: serverTimestamp(),
-      approvedAt: null
-    });
-
-    console.log('[Firestore] Join request created:', requestDocRef.id);
-
-    return {
-      success: true,
-      requestId: requestDocRef.id,
-      message: 'Demande de participation créée avec succès'
-    };
-  } catch (error) {
-    console.error('[Firestore] Error creating join request:', error);
-    throw error;
-  }
-}
-
-/**
- * Récupère les demandes de participation pour un événement
- * @param {string} eventId - ID de l'événement
- * @param {string} status - Statut optionnel (pending, approved, rejected)
- * @returns {Promise<Array>} Liste des demandes
- */
-export async function getJoinRequests(eventId, status = null) {
-  try {
-    console.log('[Firestore] Fetching join requests:', { eventId, status });
-    
-    const joinRequestsRef = collection(db, 'events', eventId, 'joinRequests');
-    let q = query(joinRequestsRef);
-    
-    if (status) {
-      q = query(joinRequestsRef, where('status', '==', status));
-    }
-    
-    const snapshot = await getDocs(q);
-    const requests = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      requestedAt: convertFirestoreDate(doc.data().requestedAt),
-      approvedAt: doc.data().approvedAt ? convertFirestoreDate(doc.data().approvedAt) : null
-    }));
-
-    console.log('[Firestore] Join requests fetched:', requests.length);
-    return requests;
-  } catch (error) {
-    console.error('[Firestore] Error fetching join requests:', error);
-    throw error;
-  }
-}
-
-/**
- * Approuve ou refuse une demande de participation
- * @param {string} eventId - ID de l'événement
- * @param {string} requestId - ID de la demande
- * @param {string} action - "approve" ou "reject"
- * @param {string} organizerId - ID de l'organisateur
- * @returns {Promise<Object>} Résultat de l'action
- */
-export async function updateJoinRequest(eventId, requestId, action, organizerId) {
-  try {
-    console.log('[Firestore] Updating join request:', { eventId, requestId, action, organizerId });
-
-    // Vérifier que l'événement existe et que l'utilisateur est l'organisateur
-    const eventDocRef = doc(db, 'events', eventId);
-    const eventDoc = await getDoc(eventDocRef);
-    
-    if (!eventDoc.exists()) {
-      throw new Error("L'événement n'existe pas");
-    }
-
-    const eventData = eventDoc.data();
-    if (eventData.organizerId !== organizerId) {
-      throw new Error("Seul l'organisateur peut approuver ou refuser les demandes");
-    }
-
-    // Mettre à jour la demande
-    const requestDocRef = doc(db, 'events', eventId, 'joinRequests', requestId);
-    const requestDoc = await getDoc(requestDocRef);
-    
-    if (!requestDoc.exists()) {
-      throw new Error("La demande n'existe pas");
-    }
-
-    const updateData = {
-      status: action === 'approve' ? 'approved' : 'rejected',
-      approvedAt: action === 'approve' ? serverTimestamp() : null
-    };
-
-    await updateDoc(requestDocRef, updateData);
-
-    // Si approuvé, ajouter le participant à la collection participants
-    if (action === 'approve') {
-      const requestData = requestDoc.data();
-      const participantsRef = collection(db, 'events', eventId, 'participants');
-      await addDoc(participantsRef, {
-        userId: requestData.userId,
-        name: requestData.name,
-        email: requestData.email || '',
-        role: 'participant',
-        joinedAt: serverTimestamp(),
-        approved: true
-      });
-    }
-
-    return {
-      success: true,
-      message: `Demande ${action === 'approve' ? 'approuvée' : 'refusée'} avec succès`
-    };
-  } catch (error) {
-    console.error('[Firestore] Error updating join request:', error);
-    throw error;
-  }
-}
-
-
- * Remplace les Firebase Functions par des appels Firestore directs
- * Compatible avec le plan Spark gratuit
- */
-
-import { 
-  db, 
-  convertFirestoreDate, 
-  toFirestoreDate 
-} from '@/lib/firebase';
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  addDoc,
-  updateDoc,
-  query,
-  where,
-  serverTimestamp,
-  Timestamp
-} from 'firebase/firestore';
-
-/**
- * Cherche un événement par son code
- * @param {string} code - Code de l'événement (8 caractères)
- * @returns {Promise<Object|null>} L'événement trouvé ou null
- */
-export async function findEventByCode(code) {
-  if (!code || !code.trim()) {
-    return null;
-  }
-
-  // Nettoyer le code : garder uniquement les lettres majuscules
-  const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
-  
-  if (cleanCode.length < 8) {
-    console.warn('[Firestore] Code trop court:', cleanCode);
-    return null;
-  }
-
-  try {
-    console.log('[Firestore] Searching event by code:', cleanCode);
-    
-    // Rechercher l'événement par code
-    const eventsRef = collection(db, 'events');
-    const q = query(eventsRef, where('code', '==', cleanCode));
-    const querySnapshot = await getDocs(q);
-
-    if (querySnapshot.empty) {
-      console.log('[Firestore] Event not found for code:', cleanCode);
+    if (!userId) {
+      console.warn('[Firestore] ⚠️ Cannot create notification: userId is missing');
       return null;
     }
 
-    // Récupérer le premier résultat
-    const eventDoc = querySnapshot.docs[0];
-    const eventData = eventDoc.data();
-
-    // Récupérer les participants
-    const participantsRef = collection(db, 'events', eventDoc.id, 'participants');
-    const participantsSnapshot = await getDocs(participantsRef);
-    const participants = participantsSnapshot.docs.map(pDoc => ({
-      id: pDoc.id,
-      ...pDoc.data(),
-      joinedAt: convertFirestoreDate(pDoc.data().joinedAt)
-    }));
-
-    // Formater la réponse selon le format attendu par le frontend
-    const event = {
-      id: eventDoc.id,
-      code: eventData.code,
-      title: eventData.title,
-      description: eventData.description || '',
-      location: eventData.location || null,
-      startDate: eventData.startDate,
-      endDate: eventData.endDate,
-      amount: (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1),
-      deadline: eventData.deadline || 30,
-      currency: eventData.currency || 'EUR',
-      organizerId: eventData.organizerId,
-      organizerName: eventData.organizerName || '',
-      participants: participants,
-      status: eventData.status || 'open',
-      createdAt: convertFirestoreDate(eventData.createdAt),
-      closedAt: eventData.closedAt ? convertFirestoreDate(eventData.closedAt) : null
-    };
-
-    console.log('[Firestore] Event found:', { id: event.id, code: event.code, title: event.title });
-    return event;
-  } catch (error) {
-    console.error('[Firestore] Error fetching event by code:', error);
-    return null;
-  }
-}
-
-/**
- * Crée un nouvel événement dans Firestore
- * @param {Object} eventData - Données de l'événement
- * @returns {Promise<Object>} L'événement créé avec son ID
- */
-export async function createEvent(eventData) {
-  try {
-    console.log('[Firestore] Creating event:', eventData);
-
-    // Vérifier que le code n'existe pas déjà
-    const existingEvent = await findEventByCode(eventData.code);
-    if (existingEvent) {
-      throw new Error('Un événement avec ce code existe déjà');
-    }
-
-    // Créer l'événement
-    const eventsRef = collection(db, 'events');
-    const eventDocRef = await addDoc(eventsRef, {
-      code: eventData.code.toUpperCase(),
-      title: eventData.title,
-      description: eventData.description || '',
-      location: eventData.location || null,
-      startDate: eventData.startDate,
-      endDate: eventData.endDate,
-      participantsTarget: eventData.participants?.length || eventData.expectedParticipants || 1,
-      targetAmountPerPerson: eventData.amount / (eventData.participants?.length || 1),
-      organizerId: eventData.organizerId,
-      organizerName: eventData.organizerName || '',
-      deadline: eventData.deadline || 30,
-      currency: eventData.currency || 'EUR',
-      status: 'open',
-      createdAt: serverTimestamp(),
-      closedAt: null
+    const notificationsRef = collection(db, 'notifications');
+    const notificationDocRef = await addDoc(notificationsRef, {
+      userId,
+      type: notificationData.type || 'info',
+      title: notificationData.title || '',
+      message: notificationData.message || '',
+      eventId: notificationData.eventId || null,
+      relatedId: notificationData.relatedId || null,
+      read: false,
+      createdAt: serverTimestamp()
     });
 
-    console.log('[Firestore] Event created with ID:', eventDocRef.id);
+    console.log('[Firestore] ✅ Notification created:', notificationDocRef.id, {
+      userId,
+      type: notificationData.type,
+      title: notificationData.title
+    });
 
-    // Ajouter l'organisateur comme participant
-    if (eventData.organizerId) {
-      const participantsRef = collection(db, 'events', eventDocRef.id, 'participants');
-      await addDoc(participantsRef, {
-        userId: eventData.organizerId,
-        name: eventData.organizerName || '',
-        email: '',
-        role: 'organizer',
-        joinedAt: serverTimestamp(),
-        approved: true
-      });
-    }
-
-    return {
-      success: true,
-      eventId: eventDocRef.id,
-      message: 'Événement créé avec succès'
-    };
+    return notificationDocRef.id;
   } catch (error) {
-    console.error('[Firestore] Error creating event:', error);
-    throw error;
+    console.error('[Firestore] ❌ Error creating notification:', error);
+    // Ne pas faire échouer la création de la demande si la notification échoue
+    return null;
   }
 }
 
@@ -470,15 +294,42 @@ export async function createEvent(eventData) {
  */
 export async function createJoinRequest(eventId, participantData) {
   try {
-    console.log('[Firestore] Creating join request:', { eventId, participantData });
+    console.log('[Firestore] 📝 Creating join request:', { eventId, participantData });
 
     // Vérifier que l'événement existe
+    console.log('[Firestore] 🔍 Verifying event exists:', eventId);
     const eventDocRef = doc(db, 'events', eventId);
     const eventDoc = await getDoc(eventDocRef);
     
     if (!eventDoc.exists()) {
-      throw new Error("L'événement n'existe pas");
+      console.error('[Firestore] ❌ Event not found in Firestore:', eventId);
+      console.error('[Firestore] 💡 This might happen if:');
+      console.error('[Firestore] 💡 1. The event was created locally but not synced to Firestore');
+      console.error('[Firestore] 💡 2. The eventId is incorrect (e.g., temp-XXX instead of real Firestore ID)');
+      console.error('[Firestore] 💡 3. The event was deleted');
+      
+      // Si l'ID commence par "temp-", essayer de trouver l'événement par code
+      if (eventId.startsWith('temp-')) {
+        const code = eventId.replace('temp-', '');
+        console.log('[Firestore] 🔍 Trying to find event by code:', code);
+        const foundEvent = await findEventByCode(code);
+        if (foundEvent) {
+          console.log('[Firestore] ✅ Event found by code, using real eventId:', foundEvent.id);
+          // Utiliser le vrai ID Firestore
+          return createJoinRequest(foundEvent.id, participantData);
+        }
+      }
+      
+      throw new Error(`L'événement n'existe pas dans Firestore (ID: ${eventId}). Vérifiez le code ou contactez l'organisateur.`);
     }
+
+    const eventData = eventDoc.data();
+    console.log('[Firestore] 📋 Event data retrieved:', {
+      eventId,
+      title: eventData.title,
+      organizerId: eventData.organizerId,
+      organizerName: eventData.organizerName
+    });
 
     // Vérifier si l'utilisateur n'a pas déjà une demande en attente
     const joinRequestsRef = collection(db, 'events', eventId, 'joinRequests');
@@ -490,20 +341,74 @@ export async function createJoinRequest(eventId, participantData) {
     const existingSnapshot = await getDocs(existingQuery);
 
     if (!existingSnapshot.empty) {
+      console.warn('[Firestore] ⚠️ Duplicate join request detected');
       throw new Error('Vous avez déjà une demande en attente pour cet événement');
     }
 
     // Créer la demande de participation
-    const requestDocRef = await addDoc(joinRequestsRef, {
+    const requestData = {
       userId: participantData.userId || participantData.email,
       email: participantData.email || '',
       name: participantData.name || participantData.pseudo,
       status: 'pending',
       requestedAt: serverTimestamp(),
       approvedAt: null
+    };
+    
+    console.log('[Firestore] 📝 Creating join request with data:', {
+      eventId,
+      requestData,
+      collectionPath: `events/${eventId}/joinRequests`
     });
+    
+    const requestDocRef = await addDoc(joinRequestsRef, requestData);
 
-    console.log('[Firestore] Join request created:', requestDocRef.id);
+    console.log('[Firestore] ✅ Join request created successfully:', {
+      requestId: requestDocRef.id,
+      eventId,
+      participantName: requestData.name,
+      participantEmail: requestData.email,
+      status: requestData.status,
+      fullPath: `events/${eventId}/joinRequests/${requestDocRef.id}`
+    });
+    
+    // Vérifier immédiatement que la demande existe
+    const verifyDoc = await getDoc(requestDocRef);
+    if (verifyDoc.exists()) {
+      console.log('[Firestore] ✅ Verification: Request exists in Firestore:', {
+        requestId: requestDocRef.id,
+        data: verifyDoc.data()
+      });
+    } else {
+      console.error('[Firestore] ❌ Verification failed: Request does not exist in Firestore!');
+    }
+
+    // Créer une notification pour l'organisateur
+    const organizerId = eventData.organizerId;
+    if (organizerId) {
+      console.log('[Firestore] 🔔 Creating notification for organizer:', organizerId);
+      
+      const notificationId = await createNotification(organizerId, {
+        type: 'join_request',
+        title: 'Nouvelle demande de participation',
+        message: `${participantData.name || participantData.pseudo} souhaite rejoindre "${eventData.title}"`,
+        eventId: eventId,
+        relatedId: requestDocRef.id
+      });
+
+      if (notificationId) {
+        console.log('[Firestore] ✅ Notification sent to organizer:', {
+          organizerId,
+          notificationId,
+          eventTitle: eventData.title,
+          participantName: participantData.name || participantData.pseudo
+        });
+      } else {
+        console.warn('[Firestore] ⚠️ Failed to create notification for organizer:', organizerId);
+      }
+    } else {
+      console.warn('[Firestore] ⚠️ No organizerId found in event data, cannot send notification');
+    }
 
     return {
       success: true,
@@ -511,7 +416,77 @@ export async function createJoinRequest(eventId, participantData) {
       message: 'Demande de participation créée avec succès'
     };
   } catch (error) {
-    console.error('[Firestore] Error creating join request:', error);
+    console.error('[Firestore] ❌ Error creating join request:', error);
+    throw error;
+  }
+}
+
+/**
+ * Récupère les notifications pour un utilisateur
+ * @param {string} userId - ID de l'utilisateur
+ * @param {boolean} unreadOnly - Si true, retourne uniquement les notifications non lues
+ * @returns {Promise<Array>} Liste des notifications
+ */
+export async function getNotifications(userId, unreadOnly = false) {
+  try {
+    console.log('[Firestore] 🔔 Fetching notifications for user:', { userId, unreadOnly });
+    
+    if (!userId) {
+      console.warn('[Firestore] ⚠️ Cannot fetch notifications: userId is missing');
+      return [];
+    }
+
+    const notificationsRef = collection(db, 'notifications');
+    let q = query(notificationsRef, where('userId', '==', userId));
+    
+    if (unreadOnly) {
+      q = query(notificationsRef, where('userId', '==', userId), where('read', '==', false));
+    }
+    
+    const snapshot = await getDocs(q);
+    const notifications = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: convertFirestoreDate(doc.data().createdAt)
+    }));
+
+    // Trier par date de création (plus récentes en premier)
+    notifications.sort((a, b) => {
+      const dateA = a.createdAt?.getTime() || 0;
+      const dateB = b.createdAt?.getTime() || 0;
+      return dateB - dateA;
+    });
+
+    console.log('[Firestore] ✅ Notifications fetched:', {
+      userId,
+      count: notifications.length,
+      unreadCount: notifications.filter(n => !n.read).length
+    });
+
+    return notifications;
+  } catch (error) {
+    console.error('[Firestore] ❌ Error fetching notifications:', error);
+    return [];
+  }
+}
+
+/**
+ * Marque une notification comme lue
+ * @param {string} notificationId - ID de la notification
+ * @returns {Promise<void>}
+ */
+export async function markNotificationAsRead(notificationId) {
+  try {
+    console.log('[Firestore] 📖 Marking notification as read:', notificationId);
+    
+    const notificationRef = doc(db, 'notifications', notificationId);
+    await updateDoc(notificationRef, {
+      read: true
+    });
+
+    console.log('[Firestore] ✅ Notification marked as read:', notificationId);
+  } catch (error) {
+    console.error('[Firestore] ❌ Error marking notification as read:', error);
     throw error;
   }
 }
@@ -524,16 +499,43 @@ export async function createJoinRequest(eventId, participantData) {
  */
 export async function getJoinRequests(eventId, status = null) {
   try {
-    console.log('[Firestore] Fetching join requests:', { eventId, status });
+    console.log('[Firestore] 🔍 ===== FETCHING JOIN REQUESTS =====');
+    console.log('[Firestore] 🔍 Parameters:', { eventId, status });
+    console.log('[Firestore] 🔍 Collection path: events/' + eventId + '/joinRequests');
+    
+    if (!eventId) {
+      console.error('[Firestore] ❌ eventId is missing!');
+      return [];
+    }
     
     const joinRequestsRef = collection(db, 'events', eventId, 'joinRequests');
     let q = query(joinRequestsRef);
     
     if (status) {
       q = query(joinRequestsRef, where('status', '==', status));
+      console.log('[Firestore] 🔍 Filtering by status:', status);
+    } else {
+      console.log('[Firestore] 🔍 No status filter, fetching all requests');
     }
     
+    console.log('[Firestore] 📡 Executing Firestore query...');
     const snapshot = await getDocs(q);
+    
+    console.log('[Firestore] 📊 Query result:', {
+      empty: snapshot.empty,
+      size: snapshot.size,
+      eventId,
+      status,
+      collectionPath: `events/${eventId}/joinRequests`
+    });
+    
+    if (!snapshot.empty) {
+      console.log('[Firestore] 📋 Raw documents:', snapshot.docs.map(doc => ({
+        id: doc.id,
+        data: doc.data()
+      })));
+    }
+    
     const requests = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
@@ -541,10 +543,35 @@ export async function getJoinRequests(eventId, status = null) {
       approvedAt: doc.data().approvedAt ? convertFirestoreDate(doc.data().approvedAt) : null
     }));
 
-    console.log('[Firestore] Join requests fetched:', requests.length);
+    console.log('[Firestore] ✅ ===== JOIN REQUESTS FETCHED =====');
+    console.log('[Firestore] ✅ Count:', requests.length);
+    console.log('[Firestore] ✅ Requests details:', requests.map(r => ({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      status: r.status,
+      userId: r.userId,
+      requestedAt: r.requestedAt
+    })));
+    
+    if (requests.length === 0) {
+      console.log('[Firestore] ⚠️ No requests found. Possible reasons:');
+      console.log('[Firestore] ⚠️ 1. No requests have been created yet');
+      console.log('[Firestore] ⚠️ 2. All requests have been processed');
+      console.log('[Firestore] ⚠️ 3. Requests exist but with different status');
+      console.log('[Firestore] ⚠️ 4. Wrong eventId used');
+      console.log('[Firestore] ⚠️ 5. Firestore rules blocking access');
+    }
+    
     return requests;
   } catch (error) {
-    console.error('[Firestore] Error fetching join requests:', error);
+    console.error('[Firestore] ❌ ===== ERROR FETCHING JOIN REQUESTS =====');
+    console.error('[Firestore] ❌ Error details:', {
+      message: error.message,
+      code: error.code,
+      eventId,
+      status
+    });
     throw error;
   }
 }

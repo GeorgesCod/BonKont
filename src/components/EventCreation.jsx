@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar as CalendarIcon, Euro, Users, Clock, Plus, ArrowRight, Copy, Check, FileText, Shield, Globe } from 'lucide-react';
+import { Calendar as CalendarIcon, Euro, Users, Clock, Plus, ArrowRight, Copy, Check, FileText, Shield, Globe, X } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -24,7 +24,7 @@ import { generateEventCode } from '@/lib/auth';
 import { EventCode } from '@/components/EventCode';
 import { createEvent as createEventAPI } from '@/services/api';
 
-export function EventCreation({ onEventCreated }) {
+export function EventCreation({ onEventCreated, onClose }) {
   const { toast } = useToast();
   const addEvent = useEventStore((state) => state.addEvent);
   const [step, setStep] = useState(1);
@@ -614,16 +614,39 @@ export function EventCreation({ onEventCreated }) {
     );
   }
 
+  const handleBackToHome = () => {
+    console.log('[EventCreation] Back to home clicked');
+    if (onClose) {
+      onClose();
+    } else {
+      window.location.hash = '';
+      setTimeout(() => {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }, 50);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
-        <div>
+        <div className="flex-1">
           <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text">Créer un événement</h2>
           <p className="text-sm text-muted-foreground mt-1">Tu proposes l'idée, Bonkont garde les comptes.</p>
         </div>
-        <Badge variant="outline" className="gap-2 text-xs sm:text-sm">
-          Étape {step}/5
-        </Badge>
+        <div className="flex items-center gap-2 shrink-0">
+          <Badge variant="outline" className="gap-2 text-xs sm:text-sm">
+            Étape {step}/5
+          </Badge>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleBackToHome}
+            className="shrink-0 min-h-[44px] min-w-[44px] hover:bg-destructive/10 hover:text-destructive"
+            title="Retour à l'accueil"
+          >
+            <X className="w-5 h-5 sm:w-6 sm:h-6" />
+          </Button>
+        </div>
       </div>
 
       <Progress value={step * 20} className="h-2" />
@@ -1207,34 +1230,6 @@ export function EventCreation({ onEventCreated }) {
                   console.log('[EventCreation] ✅ Calling handleSubmit...');
                   try {
                     handleSubmit();
-                    console.log('[EventCreation] ✅ handleSubmit completed');
-                  } catch (error) {
-                    console.error('[EventCreation] ❌ Error in handleSubmit:', error);
-                    toast({
-                      variant: "destructive",
-                      title: "Erreur",
-                      description: error.message || "Une erreur est survenue lors de la création de l'événement."
-                    });
-                  }
-                  console.log('[EventCreation] ===== SUBMIT HANDLER END =====');
-                }}
-                disabled={!canProceed()}
-                className="gap-2 button-glow w-full sm:w-auto"
-                style={{
-                  cursor: canProceed() ? 'pointer' : 'not-allowed',
-                  opacity: canProceed() ? 1 : 0.5
-                }}
-              >
-                <span className="text-xs sm:text-sm">Créer l'événement</span>
-                <ArrowRight className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
                     console.log('[EventCreation] ✅ handleSubmit completed');
                   } catch (error) {
                     console.error('[EventCreation] ❌ Error in handleSubmit:', error);

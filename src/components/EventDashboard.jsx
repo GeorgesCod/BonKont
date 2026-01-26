@@ -493,11 +493,14 @@ setPaymentMethod('card');
               e.preventDefault();
               e.stopPropagation();
               console.log('[EventDashboard] Return to home clicked');
-              window.location.hash = '';
-              // Force le re-render
+              console.log('[EventDashboard] Current hash:', window.location.hash);
+              // Toujours changer le hash pour déclencher la navigation
+              window.location.hash = '#';
+              // Forcer le hashchange après un court délai
               setTimeout(() => {
-                window.location.reload();
-              }, 100);
+                window.location.hash = '';
+                window.dispatchEvent(new HashChangeEvent('hashchange'));
+              }, 10);
             }}
             className="neon-border min-h-[44px] min-w-[44px] touch-manipulation"
             title="Retour à l'accueil"

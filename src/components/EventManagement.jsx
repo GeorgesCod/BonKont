@@ -35,7 +35,8 @@ import {
   Rocket,
   Plus,
   Mail,
-  RotateCcw
+  RotateCcw,
+  Loader2
 } from 'lucide-react';
 import {
   Tooltip,
@@ -104,18 +105,42 @@ export function EventManagement({ eventId, onBack }) {
   const currentUserIdForAccordion = userData ? (() => {
     try {
       const user = JSON.parse(userData);
-      return user.email || null;
+      const userId = user.email || null;
+      console.log('[EventManagement] 👤 Current user extracted:', { 
+        email: user.email, 
+        userId,
+        organizerId: event?.organizerId,
+        match: userId === event?.organizerId
+      });
+      return userId;
     } catch {
       return null;
     }
   })() : null;
   const isOrganizerForAccordion = currentUserIdForAccordion && event?.organizerId === currentUserIdForAccordion;
   
-  const [accordionValue, setAccordionValue] = useState(
-    isOrganizerForAccordion 
+  console.log('[EventManagement] 🔍 Organizer check:', {
+    currentUserIdForAccordion,
+    organizerId: event?.organizerId,
+    isOrganizerForAccordion,
+    eventId: event?.id,
+    eventTitle: event?.title
+  });
+  
+  const [accordionValue, setAccordionValue] = useState(() => {
+    const initialValue = isOrganizerForAccordion 
       ? ['event', 'bonkont-rule', 'participants'] // Ouvrir participants pour les organisateurs
-      : ['event', 'bonkont-rule'] // Par défaut, événement et règle Bonkont ouverts
-  );
+      : ['event', 'bonkont-rule']; // Par défaut, événement et règle Bonkont ouverts
+    
+    console.log('[EventManagement] 🎯 Initial accordion value:', {
+      initialValue,
+      isOrganizerForAccordion,
+      currentUserIdForAccordion,
+      organizerId: event?.organizerId
+    });
+    
+    return initialValue;
+  });
 
   // Vérifier si l'utilisateur actuel est l'organisateur (réutiliser les valeurs calculées plus haut)
   const currentUserId = currentUserIdForAccordion;
@@ -338,37 +363,504 @@ export function EventManagement({ eventId, onBack }) {
 
   // Ouvrir automatiquement la section participants pour les organisateurs
   useEffect(() => {
+    console.log('[EventManagement] 🔄 Checking if should open participants section:', {
+      hasEvent: !!event,
+      eventId: event?.id,
+      isOrganizer,
+      currentUserId,
+      organizerId: event?.organizerId,
+      currentAccordionValue: accordionValue
+    });
+    
     if (event && isOrganizer) {
+      console.log('[EventManagement] ✅ Opening participants section for organizer');
       setAccordionValue(prev => {
         if (!prev.includes('participants')) {
-          return [...prev, 'participants'];
+          const newValue = [...prev, 'participants'];
+          console.log('[EventManagement] ✅ Updated accordion value:', newValue);
+          return newValue;
         }
+        console.log('[EventManagement] ℹ️ Participants section already open');
         return prev;
       });
+    } else {
+      console.log('[EventManagement] ⚠️ Cannot open participants section:', {
+        hasEvent: !!event,
+        isOrganizer,
+        reason: !event ? 'No event' : !isOrganizer ? 'Not organizer' : 'Unknown'
+      });
     }
-  }, [event, isOrganizer]);
+  }, [event?.id, isOrganizer, currentUserId]);
 
   // Charger les demandes de participation depuis Firestore
   useEffect(() => {
-    if (!event || !event.id || !isOrganizer) return;
+    console.log('[EventManagement] 🔍 useEffect for loading join requests:', {
+      hasEvent: !!event,
+      eventId: event?.id,
+      eventCode: event?.code,
+      isOrganizer,
+      currentUserId,
+      organizerId: event?.organizerId,
+      match: currentUserId === event?.organizerId
+    });
+    
+    if (!event || !event.id || !event.code) {
+      console.log('[EventManagement] ⚠️ Cannot load join requests: missing event, event.id, or event.code');
+      return;
+    }
 
+    // IMPORTANT: Trouver l'ID Firestore réel de l'événement en utilisant le code
+    // Car les demandes sont créées avec l'ID Firestore, pas l'ID local
     const loadJoinRequests = async () => {
       setLoadingJoinRequests(true);
       try {
-        console.log('[EventManagement] Loading join requests from Firestore for event:', event.id);
-        const requests = await getJoinRequests(event.id, 'pending');
-        console.log('[EventManagement] Join requests loaded:', requests);
+        console.log('[EventManagement] 🔍 ===== LOADING JOIN REQUESTS =====');
+        console.log('[EventManagement] 🔍 Event details:', {
+          localEventId: event.id,
+          eventCode: event.code,
+          eventTitle: event.title,
+          organizerId: event.organizerId
+        });
+        
+        // Chercher l'événement dans Firestore par code pour obtenir le vrai ID Firestore
+        const { findEventByCode } = await import('@/services/api');
+        console.log('[EventManagement] 🔍 Searching event in Firestore with code:', event.code);
+        let firestoreEvent = await findEventByCode(event.code);
+        
+        // Si pas trouvé, essayer de chercher directement par ID local (au cas où l'ID local = ID Firestore)
+        if (!firestoreEvent && event.id) {
+          console.log('[EventManagement] 🔍 Event not found by code, checking if local ID exists in Firestore:', event.id);
+          try {
+            const { doc, getDoc, collection, getDocs, query, where } = await import('firebase/firestore');
+            const { db } = await import('@/lib/firebase');
+            
+            // D'abord, vérifier si l'ID local existe directement
+            const eventDocRef = doc(db, 'events', event.id);
+            const eventDoc = await getDoc(eventDocRef);
+            
+            if (eventDoc.exists()) {
+              const eventData = eventDoc.data();
+              console.log('[EventManagement] ✅ Local ID exists in Firestore!', {
+                eventId: event.id,
+                code: eventData.code,
+                title: eventData.title
+              });
+              
+              // Utiliser cet événement même si le code ne correspond pas exactement
+              // (le code peut avoir été modifié ou mal synchronisé)
+              firestoreEvent = {
+                id: event.id,
+                code: eventData.code,
+                title: eventData.title,
+                organizerId: eventData.organizerId,
+                organizerName: eventData.organizerName || '',
+                participants: [] // Les participants seront chargés séparément si besoin
+              };
+              console.log('[EventManagement] ✅ Using event found by ID (code may differ)');
+            } else {
+              // Si l'ID local n'existe pas, chercher tous les événements de l'organisateur
+              console.log('[EventManagement] 🔍 Local ID not found, searching all events by organizer...');
+              if (event.organizerId) {
+                const eventsRef = collection(db, 'events');
+                const q = query(eventsRef, where('organizerId', '==', event.organizerId));
+                const snapshot = await getDocs(q);
+                
+                console.log('[EventManagement] 📊 Found', snapshot.size, 'events for organizer');
+                console.log('[EventManagement] 📊 Local event code:', event.code);
+                console.log('[EventManagement] 📊 Local event code cleaned:', event.code?.toUpperCase()?.replace(/[^A-Z]/g, '') || '');
+                
+                // Chercher un événement avec le même code (même si l'ID diffère)
+                const localCode = event.code?.toUpperCase()?.replace(/[^A-Z]/g, '') || '';
+                console.log('[EventManagement] 🔍 Searching for code:', localCode);
+                
+                const allCodes = [];
+                for (const docSnap of snapshot.docs) {
+                  const eventData = docSnap.data();
+                  const firestoreCode = eventData.code?.toUpperCase()?.replace(/[^A-Z]/g, '') || '';
+                  allCodes.push({
+                    id: docSnap.id,
+                    code: eventData.code,
+                    codeCleaned: firestoreCode,
+                    title: eventData.title
+                  });
+                  
+                  console.log('[EventManagement] 🔍 Comparing:', {
+                    localCode,
+                    firestoreCode,
+                    match: localCode === firestoreCode,
+                    eventId: docSnap.id,
+                    eventTitle: eventData.title
+                  });
+                  
+                  if (localCode === firestoreCode) {
+                    console.log('[EventManagement] ✅✅✅ FOUND EVENT WITH MATCHING CODE!', {
+                      firestoreId: docSnap.id,
+                      localId: event.id,
+                      code: eventData.code,
+                      title: eventData.title
+                    });
+                    firestoreEvent = {
+                      id: docSnap.id,
+                      code: eventData.code,
+                      title: eventData.title,
+                      organizerId: eventData.organizerId,
+                      organizerName: eventData.organizerName || '',
+                      participants: []
+                    };
+                    break;
+                  }
+                }
+                
+                if (!firestoreEvent) {
+                  console.error('[EventManagement] ❌ Event not found among organizer events');
+                  console.error('[EventManagement] 📋 All codes found:', allCodes);
+                  console.error('[EventManagement] 🔍 Looking for:', localCode);
+                }
+              }
+            }
+          } catch (error) {
+            console.warn('[EventManagement] ⚠️ Error checking local ID in Firestore:', error);
+          }
+        }
+        
+        if (!firestoreEvent) {
+          console.error('[EventManagement] ❌ Event not found in Firestore by code:', event.code);
+          console.log('[EventManagement] 🔍 Trying alternative code formats...');
+          
+          // Essayer différentes variations du code
+          const codeVariations = [
+            event.code.trim().toUpperCase(),
+            event.code.trim().toUpperCase().replace(/[^A-Z]/g, ''),
+            event.code.trim()
+          ];
+          
+          for (const variation of codeVariations) {
+            if (variation && variation.length >= 8 && variation !== event.code) {
+              console.log('[EventManagement] 🔍 Trying code variation:', variation);
+              try {
+                firestoreEvent = await findEventByCode(variation);
+                if (firestoreEvent) {
+                  console.log('[EventManagement] ✅ Event found with variation:', variation);
+                  break;
+                }
+              } catch (err) {
+                console.warn('[EventManagement] Variation failed:', variation, err);
+              }
+            }
+          }
+        }
+        
+        if (!firestoreEvent) {
+          console.error('[EventManagement] ❌ Event still not found in Firestore after trying variations');
+          console.log('[EventManagement] ⚠️ Will try with local eventId:', event.id);
+          console.log('[EventManagement] 💡 This might mean:');
+          console.log('[EventManagement] 💡 1. Event was created locally but not synced to Firestore');
+          console.log('[EventManagement] 💡 2. Event code in Firestore is different from local code');
+          console.log('[EventManagement] 💡 3. Event needs to be recreated in Firestore');
+          console.log('[EventManagement] ⚠️ IMPORTANT: Join requests are created with Firestore ID, not local ID!');
+          console.log('[EventManagement] ⚠️ If local ID != Firestore ID, join requests won\'t be found!');
+          
+          // Dernière tentative : chercher tous les événements de l'organisateur et trouver celui avec le même code
+          if (event.organizerId && !firestoreEvent) {
+            console.log('[EventManagement] 🔍 Last attempt: searching all events by organizer and matching by code...');
+            try {
+              const { collection, getDocs, query, where } = await import('firebase/firestore');
+              const { db } = await import('@/lib/firebase');
+              const eventsRef = collection(db, 'events');
+              const q = query(eventsRef, where('organizerId', '==', event.organizerId));
+              const snapshot = await getDocs(q);
+              
+              console.log('[EventManagement] 📊 Found', snapshot.size, 'events for organizer');
+              
+              // Chercher un événement avec le même code
+              const localCode = event.code?.toUpperCase()?.replace(/[^A-Z]/g, '') || '';
+              console.log('[EventManagement] 🔍 Searching for code:', localCode);
+              console.log('[EventManagement] 🔍 Local event code (original):', event.code);
+              
+              const allCodes = [];
+              for (const docSnap of snapshot.docs) {
+                const eventData = docSnap.data();
+                const firestoreCode = eventData.code?.toUpperCase()?.replace(/[^A-Z]/g, '') || '';
+                allCodes.push({
+                  id: docSnap.id,
+                  code: eventData.code,
+                  codeCleaned: firestoreCode,
+                  title: eventData.title
+                });
+                
+                console.log('[EventManagement] 🔍 Comparing:', {
+                  localCode,
+                  firestoreCode,
+                  match: localCode === firestoreCode,
+                  eventId: docSnap.id,
+                  eventTitle: eventData.title,
+                  originalCode: eventData.code
+                });
+                
+                if (localCode === firestoreCode) {
+                  console.log('[EventManagement] ✅✅✅ FOUND EVENT BY ORGANIZER + CODE!', {
+                    firestoreId: docSnap.id,
+                    localId: event.id,
+                    code: eventData.code,
+                    title: eventData.title
+                  });
+                  firestoreEvent = {
+                    id: docSnap.id,
+                    code: eventData.code,
+                    title: eventData.title,
+                    organizerId: eventData.organizerId,
+                    organizerName: eventData.organizerName || '',
+                    participants: []
+                  };
+                  break;
+                }
+              }
+              
+              if (!firestoreEvent) {
+                console.error('[EventManagement] ❌ Event not found among organizer events');
+                console.error('[EventManagement] 📋 All codes found in Firestore:', allCodes);
+                console.error('[EventManagement] 🔍 Looking for code:', localCode);
+                console.error('[EventManagement] 💡 Possible reasons:');
+                console.error('[EventManagement] 💡 1. Event was never created in Firestore');
+                console.error('[EventManagement] 💡 2. Event code in Firestore is different');
+                console.error('[EventManagement] 💡 3. Event was created by a different organizer');
+                
+                // Afficher les codes trouvés pour débogage
+                console.log('[EventManagement] 📋 Detailed codes found:');
+                allCodes.forEach((c, index) => {
+                  console.log(`[EventManagement]   ${index + 1}. ID: ${c.id}, Code: ${c.code}, Code cleaned: ${c.codeCleaned}, Title: ${c.title}`);
+                });
+              }
+            } catch (error) {
+              console.error('[EventManagement] ❌ Error searching by organizer:', error);
+            }
+          }
+          
+          // Fallback: utiliser l'ID local et vérifier s'il existe dans Firestore
+          if (!firestoreEvent) {
+            console.log('[EventManagement] 🔍 ===== CHECKING LOCAL EVENT ID =====');
+            console.log('[EventManagement] 🔍 Local event ID:', event.id);
+            console.log('[EventManagement] 🔍 Local event code:', event.code);
+            try {
+              // Vérifier d'abord si l'ID local existe dans Firestore
+              console.log('[EventManagement] 🔍 Checking if local event ID exists in Firestore...');
+              const { doc, getDoc } = await import('firebase/firestore');
+              const { db } = await import('@/lib/firebase');
+              const eventDocRef = doc(db, 'events', event.id);
+              const eventDoc = await getDoc(eventDocRef);
+              console.log('[EventManagement] 🔍 Event document exists:', eventDoc.exists());
+              
+              if (eventDoc.exists()) {
+                console.log('[EventManagement] ✅ Local eventId exists in Firestore, using it');
+                const requests = await getJoinRequests(event.id, 'pending');
+                console.log('[EventManagement] ⚠️ Using local eventId, found', requests.length, 'requests');
+                setFirestoreJoinRequests(requests);
+                setLoadingJoinRequests(false);
+                return;
+              } else {
+                console.error('[EventManagement] ❌ Local eventId does NOT exist in Firestore!');
+                console.error('[EventManagement] ❌ This means join requests cannot be found with this ID');
+                console.error('[EventManagement] ❌ Join requests are stored with Firestore ID, not local ID');
+                console.log('[EventManagement] 🔄 Attempting to sync local event to Firestore...');
+                
+                // Essayer de synchroniser l'événement local avec Firestore
+                try {
+                  const { createEvent } = await import('@/services/api');
+                  
+                  // Préparer les données de l'événement pour Firestore
+                  const eventDataToSync = {
+                    title: event.title,
+                    description: event.description || '',
+                    code: event.code,
+                    location: event.location || null,
+                    startDate: event.startDate instanceof Date ? event.startDate.toISOString().split('T')[0] : event.startDate,
+                    endDate: event.endDate instanceof Date ? event.endDate.toISOString().split('T')[0] : event.endDate,
+                    amount: event.amount || 0,
+                    deadline: event.deadline || 30,
+                    expectedParticipants: event.expectedParticipants || event.participants?.length || 1,
+                    currency: event.currency || 'EUR',
+                    organizerId: event.organizerId,
+                    organizerName: event.organizerName || '',
+                    participants: event.participants || []
+                  };
+                  
+                  console.log('[EventManagement] 📝 Syncing event to Firestore:', {
+                    code: eventDataToSync.code,
+                    title: eventDataToSync.title,
+                    organizerId: eventDataToSync.organizerId
+                  });
+                  
+                  const syncResult = await createEvent(eventDataToSync);
+                  
+                  if (syncResult && syncResult.eventId) {
+                    console.log('[EventManagement] ✅ Event synced to Firestore!', {
+                      newFirestoreId: syncResult.eventId,
+                      oldLocalId: event.id
+                    });
+                    
+                    // Mettre à jour l'ID de l'événement local avec l'ID Firestore
+                    const updateEvent = useEventStore.getState().updateEvent;
+                    updateEvent(event.id, { id: syncResult.eventId });
+                    
+                    // Maintenant chercher les demandes avec le nouvel ID Firestore
+                    const requests = await getJoinRequests(syncResult.eventId, 'pending');
+                    console.log('[EventManagement] ✅ Found', requests.length, 'join requests after sync');
+                    setFirestoreJoinRequests(requests);
+                    setLoadingJoinRequests(false);
+                    return;
+                  }
+                } catch (syncError) {
+                  console.error('[EventManagement] ❌ Error syncing event to Firestore:', syncError);
+                  console.error('[EventManagement] ❌ Error details:', {
+                    message: syncError.message,
+                    name: syncError.name,
+                    stack: syncError.stack
+                  });
+                  console.error('[EventManagement] ❌ This might mean the code already exists or there was a network error');
+                  
+                  // Si le code existe déjà, essayer de le trouver
+                  if (syncError.message && (syncError.message.includes('existe déjà') || syncError.message.includes('already exists'))) {
+                    console.log('[EventManagement] 🔍 Code already exists, trying to find it...');
+                    try {
+                      const { findEventByCode } = await import('@/services/api');
+                      const existingEvent = await findEventByCode(event.code);
+                      if (existingEvent) {
+                        console.log('[EventManagement] ✅ Found existing event in Firestore!', {
+                          firestoreId: existingEvent.id,
+                          localId: event.id
+                        });
+                        const requests = await getJoinRequests(existingEvent.id, 'pending');
+                        setFirestoreJoinRequests(requests);
+                        setLoadingJoinRequests(false);
+                        return;
+                      } else {
+                        console.error('[EventManagement] ❌ Code exists but event not found by code - this is strange');
+                      }
+                    } catch (findError) {
+                      console.error('[EventManagement] ❌ Error finding existing event:', findError);
+                    }
+                  }
+                  
+                  // Afficher un toast pour informer l'utilisateur
+                  toast({
+                    variant: "destructive",
+                    title: "Erreur de synchronisation",
+                    description: "Impossible de synchroniser l'événement avec le serveur. Les demandes de participation ne peuvent pas être chargées.",
+                    duration: 5000
+                  });
+                }
+                
+                // Si la synchronisation échoue, afficher un message d'erreur
+                console.error('[EventManagement] ❌ Could not sync event to Firestore');
+                setFirestoreJoinRequests([]);
+                setLoadingJoinRequests(false);
+                return;
+              }
+            } catch (error) {
+              console.error('[EventManagement] ❌ Error checking/ fetching with local eventId:', error);
+              console.error('[EventManagement] ❌ This confirms the event does not exist in Firestore');
+              setFirestoreJoinRequests([]);
+              setLoadingJoinRequests(false);
+              return;
+            }
+          }
+        }
+        
+        const firestoreEventId = firestoreEvent.id;
+        console.log('[EventManagement] ✅ Firestore event found:', {
+          firestoreEventId,
+          localEventId: event.id,
+          eventCode: event.code,
+          match: firestoreEventId === event.id
+        });
+        
+        if (firestoreEventId !== event.id) {
+          console.warn('[EventManagement] ⚠️ Event ID mismatch!', {
+            localId: event.id,
+            firestoreId: firestoreEventId,
+            eventCode: event.code
+          });
+          console.log('[EventManagement] ⚠️ IMPORTANT: Using Firestore ID for join requests (not local ID)');
+          console.log('[EventManagement] ⚠️ This is correct - join requests are stored with Firestore ID');
+          
+          // Stocker l'ID Firestore dans l'événement local pour l'utiliser dans handleAccept
+          const updateEvent = useEventStore.getState().updateEvent;
+          if (!event.firestoreId || event.firestoreId !== firestoreEventId) {
+            updateEvent(event.id, { firestoreId: firestoreEventId });
+            console.log('[EventManagement] ✅ Firestore ID stored in event:', firestoreEventId);
+          }
+        }
+        
+        console.log('[EventManagement] 🔍 Calling getJoinRequests with Firestore eventId:', {
+          firestoreEventId,
+          localEventId: event.id,
+          eventCode: event.code,
+          eventTitle: event.title,
+          status: 'pending',
+          note: 'Using Firestore ID (not local ID) because join requests are created with Firestore ID'
+        });
+        
+        const requests = await getJoinRequests(firestoreEventId, 'pending');
+        
+        console.log('[EventManagement] ✅ ===== JOIN REQUESTS LOADED =====');
+        console.log('[EventManagement] ✅ Firestore Event ID used:', firestoreEventId);
+        console.log('[EventManagement] ✅ Local Event ID:', event.id);
+        console.log('[EventManagement] ✅ Count:', requests.length);
+        console.log('[EventManagement] ✅ Requests:', requests.map(r => ({
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          status: r.status,
+          userId: r.userId,
+          requestedAt: r.requestedAt
+        })));
+        
         setFirestoreJoinRequests(requests);
+        
+        if (requests.length > 0) {
+          console.log('[EventManagement] 🔔 ===== NEW JOIN REQUESTS FOUND! =====');
+          console.log('[EventManagement] 🔔 Organizer should see them in the UI now!');
+          console.log('[EventManagement] 📋 Full request details:', JSON.stringify(requests, null, 2));
+        } else {
+          console.log('[EventManagement] ℹ️ No pending join requests found for this event');
+          console.log('[EventManagement] ℹ️ This could mean:');
+          console.log('[EventManagement] ℹ️ 1. No requests have been created yet');
+          console.log('[EventManagement] ℹ️ 2. All requests have been processed');
+          console.log('[EventManagement] ℹ️ 3. Requests exist but with different status');
+        }
       } catch (error) {
-        console.error('[EventManagement] Error loading join requests:', error);
+        console.error('[EventManagement] ❌ ===== ERROR LOADING JOIN REQUESTS =====');
+        console.error('[EventManagement] ❌ Error:', error);
+        console.error('[EventManagement] ❌ Error details:', {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+          eventId: event.id
+        });
         // En cas d'erreur, continuer avec les demandes locales
+        setFirestoreJoinRequests([]);
       } finally {
         setLoadingJoinRequests(false);
+        console.log('[EventManagement] ✅ Loading complete, loadingJoinRequests set to false');
       }
     };
 
+    // Charger immédiatement
+    console.log('[EventManagement] 🚀 Starting join requests loading...');
     loadJoinRequests();
-  }, [event?.id, isOrganizer]);
+    
+    // Recharger les demandes toutes les 5 secondes pour détecter rapidement les nouvelles demandes
+    console.log('[EventManagement] ⏰ Setting up interval to refresh every 5 seconds');
+    const interval = setInterval(() => {
+      console.log('[EventManagement] ⏰ Interval triggered - refreshing join requests');
+      loadJoinRequests();
+    }, 5000);
+    
+    return () => {
+      console.log('[EventManagement] 🧹 Cleaning up join requests interval');
+      clearInterval(interval);
+    };
+  }, [event?.id, event?.code, isOrganizer, currentUserId]);
 
   console.log('[EventManagement] Event loaded:', {
     id: event.id,
@@ -1788,7 +2280,19 @@ const handleExportPDF = () => {
       </div>
 
       {/* Accordéon principal avec les 4 sections */}
-      <Accordion type="multiple" value={accordionValue} onValueChange={setAccordionValue} className="w-full space-y-4">
+      <Accordion 
+        type="multiple" 
+        value={accordionValue} 
+        onValueChange={(newValue) => {
+          console.log('[EventManagement] 🔘 Accordion value changed:', {
+            oldValue: accordionValue,
+            newValue,
+            includesParticipants: newValue.includes('participants')
+          });
+          setAccordionValue(newValue);
+        }} 
+        className="w-full space-y-4"
+      >
         
         {/* Section 1: L'événement */}
         <AccordionItem value="event" className="border rounded-lg px-4">
@@ -1991,6 +2495,11 @@ const handleExportPDF = () => {
               <h2 className="text-xl font-semibold">
                 Les Participants ({confirmedParticipants.length}
                 {pendingParticipants.length > 0 && ` + ${pendingParticipants.length} en attente`})
+                {firestoreJoinRequests.length > 0 && (
+                  <Badge variant="destructive" className="ml-2 animate-pulse">
+                    {firestoreJoinRequests.length} nouvelle{firestoreJoinRequests.length > 1 ? 's' : ''} demande{firestoreJoinRequests.length > 1 ? 's' : ''}
+                  </Badge>
+                )}
               </h2>
               {event.status === 'draft' && isOrganizer && (
                 <Badge variant="outline" className="ml-2">Brouillon</Badge>
@@ -2022,7 +2531,7 @@ const handleExportPDF = () => {
             
             {/* Interface Admin : Ajout manuel et gestion des participants */}
             {isOrganizer && (
-              <Card className="p-4 mb-4 neon-border bg-primary/5">
+              <div className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold flex items-center gap-2">
                     <Users className="w-5 h-5 text-primary" />
@@ -2038,146 +2547,489 @@ const handleExportPDF = () => {
                     Ajouter manuellement
                   </Button>
                 </div>
-
-                {/* Demandes de participation depuis Firestore et le store local */}
-                {(() => {
-                  if (!event || !event.code) return null;
-                  const localJoinRequests = useJoinRequestsStore.getState().getRequestsByEventCode(event.code);
-                  const allJoinRequests = [...firestoreJoinRequests, ...localJoinRequests];
-                  if (allJoinRequests.length > 0) {
-                    return (
-                      <div className="mb-4 p-3 rounded-lg border border-primary/30 bg-primary/5">
-                        <h4 className="font-semibold mb-2 flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-primary" />
-                          Demandes de participation en attente ({allJoinRequests.length})
-                          {loadingJoinRequests && <Loader2 className="w-4 h-4 animate-spin" />}
-                        </h4>
-                        <p className="text-xs text-muted-foreground mb-3">
-                          Ces participants ont créé une demande de participation. Validez ou refusez leurs demandes.
-                        </p>
-                        <div className="space-y-2">
-                          {allJoinRequests.map((request) => {
-                            // Adapter le format selon la source (Firestore ou local)
-                            const participant = request.participant || { name: request.name, email: request.email };
-                            const requestId = request.id;
-                            const isFirestoreRequest = !request.participant; // Les requêtes Firestore n'ont pas de .participant
+                
+                {/* Section Demandes de participation - TOUJOURS visible pour l'organisateur */}
+                <div className="mb-4 p-4 rounded-lg border-2 border-primary/50 bg-primary/10">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-bold flex items-center gap-2 text-lg">
+                      <Bell className="w-5 h-5 text-primary" />
+                      🔔 Demandes de participation
+                      {loadingJoinRequests && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
+                    </h4>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('[EventManagement] 🔄 ===== MANUAL REFRESH BUTTON CLICKED =====');
+                        console.log('[EventManagement] 🔄 Button clicked!');
+                        console.log('[EventManagement] 🔄 Local Event ID:', event?.id);
+                        console.log('[EventManagement] 🔄 Event Code:', event?.code);
+                        console.log('[EventManagement] 🔄 Loading state:', loadingJoinRequests);
+                        
+                        if (!event?.id || !event?.code) {
+                          console.error('[EventManagement] ❌ Cannot refresh: missing event.id or event.code');
+                          toast({
+                            variant: "destructive",
+                            title: "Erreur",
+                            description: "Impossible de rafraîchir : événement introuvable."
+                          });
+                          return;
+                        }
+                        
+                        setLoadingJoinRequests(true);
+                        toast({
+                          title: "Actualisation en cours...",
+                          description: "Recherche des nouvelles demandes de participation.",
+                          duration: 2000
+                        });
+                        
+                        try {
+                          // Chercher l'événement dans Firestore par code pour obtenir le vrai ID Firestore
+                          const { findEventByCode } = await import('@/services/api');
+                          let firestoreEvent = await findEventByCode(event.code);
+                          
+                          if (!firestoreEvent) {
+                            console.error('[EventManagement] ❌ Event not found in Firestore by code:', event.code);
+                            console.log('[EventManagement] 🔍 Trying alternative code formats...');
                             
-                            return (
-                            <Card key={requestId} className="p-3 neon-border">
-                              <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                                  <p className="font-medium">{participant.name || 'Sans nom'}</p>
-                                  {participant.email && (
-                                    <p className="text-xs text-muted-foreground">{participant.email}</p>
-                                  )}
-                                  {request.eventCode && (
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Code: {request.eventCode}
-                                    </p>
-                                  )}
-                            </div>
-                                <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                                    variant="outline"
-                              onClick={async () => {
-                                      try {
-                                        // Si c'est une demande Firestore, utiliser l'API
-                                        if (isFirestoreRequest) {
-                                          await updateJoinRequest(eventId, requestId, 'approve', event.organizerId);
-                                        } else {
-                                          // Marquer la demande locale comme acceptée
-                                          useJoinRequestsStore.getState().acceptRequest(requestId);
-                                        }
-                                        
-                                        // Ajouter le participant à l'événement
-                                        const newParticipantId = event.participants?.length 
-                                          ? Math.max(...event.participants.map(p => p.id)) + 1
-                                          : 2;
-                                        
-                                        const newParticipant = {
-                                          ...participant,
-                                          id: newParticipantId,
-                                          userId: request.userId || participant.email,
-                                          status: 'confirmed',
-                                          hasConfirmed: true,
-                                          hasPaid: false,
-                                          paidAmount: 0
-                                        };
-                                        
-                                        updateEvent(eventId, {
-                                          participants: [...(event.participants || []), newParticipant]
-                                        });
-                                        
-                                        // Recharger les demandes Firestore
-                                        if (isFirestoreRequest) {
-                                          const requests = await getJoinRequests(eventId, 'pending');
-                                          setFirestoreJoinRequests(requests);
-                                        }
-                                        
-                                        toast({
-                                          title: "Participant ajouté",
-                                          description: `${participant.name || 'Le participant'} a été ajouté à l'événement.`
-                                        });
-                                      } catch (error) {
-                                        console.error('[EventManagement] Error approving request:', error);
-                                        toast({
-                                          variant: "destructive",
-                                          title: "Erreur",
-                                          description: "Impossible d'approuver la demande. Veuillez réessayer."
-                                        });
-                                      }
-                                    }}
-                                    className="gap-1"
-                                  >
-                                    <Check className="w-3 h-3" />
-                                    Accepter
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={async () => {
-                                      try {
-                                        // Si c'est une demande Firestore, utiliser l'API
-                                        if (isFirestoreRequest) {
-                                          await updateJoinRequest(eventId, requestId, 'reject', event.organizerId);
-                                          // Recharger les demandes Firestore
-                                          const requests = await getJoinRequests(eventId, 'pending');
-                                          setFirestoreJoinRequests(requests);
-                                        } else {
-                                          // Marquer la demande locale comme rejetée
-                                          useJoinRequestsStore.getState().rejectRequest(requestId);
-                                        }
-                                        
-                                        toast({
-                                          title: "Demande rejetée",
-                                          description: "La demande a été rejetée."
-                                        });
-                                      } catch (error) {
-                                        console.error('[EventManagement] Error rejecting request:', error);
-                                        toast({
-                                          variant: "destructive",
-                                          title: "Erreur",
-                                          description: "Impossible de rejeter la demande. Veuillez réessayer."
-                                        });
-                                      }
-                                    }}
-                                    className="gap-1"
-                                  >
-                                    <X className="w-3 h-3" />
-                                    Rejeter
-                            </Button>
-                          </div>
-                        </div>
-                      </Card>
-                            );
-                          })}
+                            // Essayer différentes variations du code
+                            const codeVariations = [
+                              event.code.trim().toUpperCase(),
+                              event.code.trim().toUpperCase().replace(/[^A-Z]/g, ''),
+                              event.code.trim()
+                            ];
+                            
+                            for (const variation of codeVariations) {
+                              if (variation && variation.length >= 8 && variation !== event.code) {
+                                console.log('[EventManagement] 🔍 Trying code variation:', variation);
+                                try {
+                                  firestoreEvent = await findEventByCode(variation);
+                                  if (firestoreEvent) {
+                                    console.log('[EventManagement] ✅ Event found with variation:', variation);
+                                    break;
+                                  }
+                                } catch (err) {
+                                  console.warn('[EventManagement] Variation failed:', variation, err);
+                                }
+                              }
+                            }
+                          }
+                          
+                          if (!firestoreEvent) {
+                            console.error('[EventManagement] ❌ Event still not found, using local eventId:', event.id);
+                            const requests = await getJoinRequests(event.id, 'pending');
+                            setFirestoreJoinRequests(requests);
+                            toast({
+                              title: "Actualisation terminée",
+                              description: `${requests.length} demande${requests.length > 1 ? 's' : ''} trouvée${requests.length > 1 ? 's' : ''}.`,
+                              duration: 3000
+                            });
+                            setLoadingJoinRequests(false);
+                            return;
+                          }
+                          
+                          const firestoreEventId = firestoreEvent.id;
+                          console.log('[EventManagement] 🔄 Using Firestore eventId:', firestoreEventId);
+                          console.log('[EventManagement] 🔄 Local Event ID:', event.id);
+                          console.log('[EventManagement] 🔄 ID Match:', firestoreEventId === event.id);
+                          console.log('[EventManagement] 🔄 Calling getJoinRequests with Firestore eventId:', {
+                            firestoreEventId,
+                            localEventId: event.id,
+                            eventCode: event.code,
+                            note: 'Using Firestore ID (not local ID) because join requests are created with Firestore ID'
+                          });
+                          const requests = await getJoinRequests(firestoreEventId, 'pending');
+                          console.log('[EventManagement] 🔄 Refreshed requests count:', requests.length);
+                          console.log('[EventManagement] 🔄 Requests details:', requests.map(r => ({
+                            id: r.id,
+                            name: r.name,
+                            email: r.email,
+                            status: r.status,
+                            userId: r.userId,
+                            requestedAt: r.requestedAt
+                          })));
+                          setFirestoreJoinRequests(requests);
+                          
+                          if (requests.length > 0) {
+                            console.log('[EventManagement] ✅ Requests found after refresh!');
+                            toast({
+                              title: "✅ Nouvelles demandes trouvées !",
+                              description: `${requests.length} demande${requests.length > 1 ? 's' : ''} en attente de validation.`,
+                              duration: 5000
+                            });
+                          } else {
+                            console.log('[EventManagement] ⚠️ No requests found after refresh');
+                            toast({
+                              title: "Actualisation terminée",
+                              description: "Aucune demande en attente pour le moment.",
+                              duration: 3000
+                            });
+                          }
+                        } catch (error) {
+                          console.error('[EventManagement] ❌ Error refreshing requests:', error);
+                          console.error('[EventManagement] ❌ Error details:', {
+                            message: error.message,
+                            code: error.code,
+                            eventId: event?.id
+                          });
+                          toast({
+                            variant: "destructive",
+                            title: "Erreur",
+                            description: `Impossible de rafraîchir les demandes : ${error.message}`
+                          });
+                        } finally {
+                          setLoadingJoinRequests(false);
+                        }
+                      }}
+                      className="gap-2 cursor-pointer"
+                      disabled={loadingJoinRequests || !event?.id || !event?.code}
+                      style={{ pointerEvents: loadingJoinRequests ? 'none' : 'auto' }}
+                    >
+                      <Loader2 className={`w-4 h-4 ${loadingJoinRequests ? 'animate-spin' : ''}`} />
+                      {loadingJoinRequests ? 'Actualisation...' : 'Actualiser'}
+                    </Button>
                   </div>
+                  
+                  {(() => {
+                    if (!event || !event.code) {
+                      return <p className="text-sm text-muted-foreground">Chargement...</p>;
+                    }
+                    
+                    const localJoinRequests = useJoinRequestsStore.getState().getRequestsByEventCode(event.code);
+                    const allJoinRequests = [...firestoreJoinRequests, ...localJoinRequests];
+                    
+                    console.log('[EventManagement] 📊 ===== JOIN REQUESTS DISPLAY =====');
+                    console.log('[EventManagement] 📊 Event ID:', event.id);
+                    console.log('[EventManagement] 📊 Event Code:', event.code);
+                    console.log('[EventManagement] 📊 Total requests:', allJoinRequests.length);
+                    console.log('[EventManagement] 📊 Firestore:', firestoreJoinRequests.length);
+                    console.log('[EventManagement] 📊 Local:', localJoinRequests.length);
+                    console.log('[EventManagement] 📊 Firestore requests details:', firestoreJoinRequests);
+                    console.log('[EventManagement] 📊 Local requests details:', localJoinRequests);
+                    
+                    if (allJoinRequests.length > 0) {
+                      return (
+                        <>
+                          <p className="text-sm text-muted-foreground mb-3 font-medium">
+                            ⚠️ {allJoinRequests.length} demande{allJoinRequests.length > 1 ? 's' : ''} en attente de validation.
+                          </p>
+                          <div className="space-y-2">
+                            {allJoinRequests.map((request) => {
+                              const participant = request.participant || { name: request.name, email: request.email };
+                              const requestId = request.id;
+                              const isFirestoreRequest = !request.participant;
+                              
+                              // Créer une fonction de gestion du clic pour capturer les variables
+                              const handleAccept = async (e) => {
+                                try {
+                                  // Log immédiat pour confirmer que le clic est capturé
+                                  console.log('[EventManagement] 🎯🎯🎯 ACCEPT BUTTON CLICKED 🎯🎯🎯');
+                                  console.log('[EventManagement] 🎯 Timestamp:', new Date().toISOString());
+                                  
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  
+                                  console.log('[EventManagement] ===== ACCEPT BUTTON CLICKED =====');
+                                  console.log('[EventManagement] Request details:', {
+                                    requestId,
+                                    participantName: participant.name,
+                                    participantEmail: participant.email,
+                                    participantUserId: request.userId || participant.userId,
+                                    isFirestoreRequest,
+                                    eventId: event?.id,
+                                    organizerId: event?.organizerId,
+                                    hasEvent: !!event,
+                                    hasOrganizerId: !!event?.organizerId,
+                                    request: request
+                                  });
+                                  
+                                  // Vérifications préalables
+                                  if (!event || !event.id) {
+                                    console.error('[EventManagement] ❌ No event or event.id');
+                                    toast({
+                                      variant: "destructive",
+                                      title: "Erreur",
+                                      description: "L'événement n'est pas disponible."
+                                    });
+                                    return;
+                                  }
+                                  
+                                  if (!event.organizerId) {
+                                    console.error('[EventManagement] ❌ No organizerId');
+                                    toast({
+                                      variant: "destructive",
+                                      title: "Erreur",
+                                      description: "L'organisateur de l'événement n'est pas défini."
+                                    });
+                                    return;
+                                  }
+                                  
+                                  // 🔐 VÉRIFICATION D'AUTHENTIFICATION : Le participant doit être inscrit/authentifié
+                                  // Le userId doit correspondre à l'email du participant, pas à l'organisateur
+                                  const participantUserId = request.userId || participant.userId;
+                                  const participantEmail = participant.email || request.email;
+                                  
+                                  // Vérifier si le userId correspond au participant (email) ou à l'organisateur
+                                  const isUserIdFromParticipant = participantUserId && 
+                                    participantEmail && 
+                                    participantUserId.toLowerCase() === participantEmail.toLowerCase();
+                                  
+                                  // Vérifier si le userId est différent de l'organisateur
+                                  const isUserIdFromOrganizer = participantUserId && 
+                                    event.organizerId && 
+                                    participantUserId.toLowerCase() === event.organizerId.toLowerCase();
+                                  
+                                  // Le participant est authentifié si son userId correspond à son email ET n'est pas l'organisateur
+                                  const isParticipantAuthenticated = isUserIdFromParticipant && !isUserIdFromOrganizer;
+                                  
+                                  console.log('[EventManagement] 🔐 Authentication check:', {
+                                    participantUserId,
+                                    participantEmail,
+                                    organizerId: event.organizerId,
+                                    isUserIdFromParticipant,
+                                    isUserIdFromOrganizer,
+                                    isParticipantAuthenticated,
+                                    note: 'userId should match participant email, not organizer email'
+                                  });
+                                  
+                                  if (!isParticipantAuthenticated) {
+                                    console.warn('[EventManagement] ⚠️ Participant not authenticated:', {
+                                      userId: participantUserId,
+                                      email: participantEmail,
+                                      organizerId: event.organizerId,
+                                      message: 'Participant must register/login with their own email before being added'
+                                    });
+                                    
+                                    toast({
+                                      variant: "destructive",
+                                      title: "Inscription requise",
+                                      description: `${participant.name || 'Le participant'} doit s'inscrire ou se connecter avec son email (${participantEmail}) avant d'être ajouté à l'événement. La demande reste en attente.`
+                                    });
+                                    return;
+                                  }
+                                  
+                                  // Vérifier que updateJoinRequest est disponible
+                                  if (typeof updateJoinRequest !== 'function') {
+                                    console.error('[EventManagement] ❌ updateJoinRequest is not a function:', typeof updateJoinRequest);
+                                    toast({
+                                      variant: "destructive",
+                                      title: "Erreur",
+                                      description: "La fonction d'approbation n'est pas disponible."
+                                    });
+                                    return;
+                                  }
+                                  
+                                  console.log('[EventManagement] ✅ All checks passed, proceeding with approval...');
+                                  
+                                  try {
+                                    // Mettre à jour la demande dans Firestore
+                                    if (isFirestoreRequest) {
+                                      // Utiliser l'ID Firestore si disponible, sinon chercher par code
+                                      let firestoreEventId = event.firestoreId || event.id;
+                                      
+                                      // Si l'ID local ne correspond pas, chercher le Firestore ID par code
+                                      if (firestoreEventId === event.id && event.code) {
+                                        console.log('[EventManagement] 🔍 Looking up Firestore ID by code:', event.code);
+                                        const { findEventByCode } = await import('@/services/api');
+                                        const firestoreEvent = await findEventByCode(event.code);
+                                        if (firestoreEvent && firestoreEvent.id) {
+                                          firestoreEventId = firestoreEvent.id;
+                                          console.log('[EventManagement] ✅ Found Firestore ID:', firestoreEventId);
+                                          // Stocker l'ID Firestore dans l'événement
+                                          const updateEvent = useEventStore.getState().updateEvent;
+                                          updateEvent(event.id, { firestoreId: firestoreEventId });
+                                        }
+                                      }
+                                      
+                                      console.log('[EventManagement] Updating join request in Firestore...');
+                                      console.log('[EventManagement] Parameters:', {
+                                        firestoreEventId,
+                                        localEventId: event.id,
+                                        requestId,
+                                        action: 'approve',
+                                        organizerId: event.organizerId
+                                      });
+                                      
+                                      const result = await updateJoinRequest(firestoreEventId, requestId, 'approve', event.organizerId);
+                                      console.log('[EventManagement] ✅ Join request updated in Firestore:', result);
+                                      
+                                      // Rafraîchir la liste des demandes
+                                      const requests = await getJoinRequests(firestoreEventId, 'pending');
+                                      setFirestoreJoinRequests(requests);
+                                      console.log('[EventManagement] ✅ Join requests refreshed:', requests.length);
+                                    } else {
+                                      console.log('[EventManagement] Accepting local join request...');
+                                      useJoinRequestsStore.getState().acceptRequest(requestId);
+                                    }
+                                    
+                                    // Calculer le nouvel ID du participant
+                                    const newParticipantId = event.participants?.length 
+                                      ? Math.max(...event.participants.map(p => p.id || 0)) + 1
+                                      : 2;
+                                    
+                                    console.log('[EventManagement] Creating new participant:', {
+                                      id: newParticipantId,
+                                      name: participant.name,
+                                      email: participant.email,
+                                      userId: request.userId || participant.email
+                                    });
+                                    
+                                    // Créer le nouveau participant
+                                    const newParticipant = {
+                                      ...participant,
+                                      id: newParticipantId,
+                                      userId: request.userId || participant.email,
+                                      status: 'confirmed',
+                                      hasConfirmed: true,
+                                      hasPaid: false,
+                                      paidAmount: 0,
+                                      hasAcceptedCharter: false,
+                                      hasValidatedAmount: false,
+                                      hasValidatedDeadline: false
+                                    };
+                                    
+                                    // Ajouter le participant à l'événement
+                                    console.log('[EventManagement] Adding participant to event...');
+                                    const currentParticipants = event.participants || [];
+                                    const updatedParticipants = [...currentParticipants, newParticipant];
+                                    
+                                    updateEvent(event.id, {
+                                      participants: updatedParticipants
+                                    });
+                                    
+                                    console.log('[EventManagement] ✅ Participant added to event:', {
+                                      eventId: event.id,
+                                      participantId: newParticipantId,
+                                      totalParticipants: updatedParticipants.length
+                                    });
+                                    
+                                    toast({
+                                      title: "Participant ajouté",
+                                      description: `${participant.name || 'Le participant'} a été ajouté à l'événement.`
+                                    });
+                                    
+                                    // Rafraîchir la liste des demandes après un court délai
+                                    setTimeout(async () => {
+                                      try {
+                                        if (isFirestoreRequest) {
+                                          const refreshedRequests = await getJoinRequests(event.id, 'pending');
+                                          setFirestoreJoinRequests(refreshedRequests);
+                                        }
+                                      } catch (refreshError) {
+                                        console.error('[EventManagement] Error refreshing requests:', refreshError);
+                                      }
+                                    }, 500);
+                                    
+                                  } catch (error) {
+                                    console.error('[EventManagement] ❌ Error approving request:', error);
+                                    console.error('[EventManagement] Error details:', {
+                                      message: error.message,
+                                      name: error.name,
+                                      stack: error.stack
+                                    });
+                                    toast({
+                                      variant: "destructive",
+                                      title: "Erreur",
+                                      description: `Impossible d'approuver la demande: ${error.message || 'Erreur inconnue'}`
+                                    });
+                                  }
+                                } catch (outerError) {
+                                  console.error('[EventManagement] ❌ Outer error in handleAccept:', outerError);
+                                  toast({
+                                    variant: "destructive",
+                                    title: "Erreur",
+                                    description: `Erreur inattendue: ${outerError.message || 'Erreur inconnue'}`
+                                  });
+                                }
+                              };
+                              
+                              return (
+                                <Card key={requestId} className="p-3 neon-border" onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex-1">
+                                      <p className="font-medium">{participant.name || 'Sans nom'}</p>
+                                      {participant.email && (
+                                        <p className="text-xs text-muted-foreground">{participant.email}</p>
+                                      )}
+                                      {request.eventCode && (
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                          Code: {request.eventCode}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        type="button"
+                                        disabled={false}
+                                        style={{ pointerEvents: 'auto', zIndex: 10, position: 'relative' }}
+                                        onClick={handleAccept}
+                                        className="gap-1"
+                                      >
+                                        <Check className="w-3 h-3" />
+                                        Accepter
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={async () => {
+                                          try {
+                                            if (isFirestoreRequest) {
+                                              await updateJoinRequest(event.id, requestId, 'reject', event.organizerId);
+                                              const requests = await getJoinRequests(event.id, 'pending');
+                                              setFirestoreJoinRequests(requests);
+                                            } else {
+                                              useJoinRequestsStore.getState().rejectRequest(requestId);
+                                            }
+                                            
+                                            toast({
+                                              title: "Demande rejetée",
+                                              description: "La demande a été rejetée."
+                                            });
+                                          } catch (error) {
+                                            console.error('[EventManagement] Error rejecting request:', error);
+                                            toast({
+                                              variant: "destructive",
+                                              title: "Erreur",
+                                              description: "Impossible de rejeter la demande. Veuillez réessayer."
+                                            });
+                                          }
+                                        }}
+                                        className="gap-1"
+                                      >
+                                        <X className="w-3 h-3" />
+                                        Rejeter
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        </>
+                      );
+                    } else {
+                      return (
+                        <div className="space-y-2">
+                          <p className="text-sm text-muted-foreground">
+                            Aucune demande en attente pour le moment.
+                          </p>
+                          <p className="text-xs text-muted-foreground italic">
+                            Event ID: {event.id} | Code: {event.code}
+                          </p>
+                          <p className="text-xs text-muted-foreground italic">
+                            Vérifiez la console pour les détails de chargement.
+                          </p>
+                        </div>
+                      );
+                    }
+                  })()}
                 </div>
-                    );
-                  }
-                  return null;
-                })()}
+              </div>
+            )}
 
                 {/* Participants en attente */}
                 {pendingParticipants.length > 0 && (
@@ -2265,8 +3117,6 @@ const handleExportPDF = () => {
                               </div>
                             </div>
                           )}
-                        </Card>
-            )}
 
       <Card className="p-6 neon-border">
         <ScrollArea className="h-96">
@@ -3276,84 +4126,6 @@ const handleExportPDF = () => {
                           </div>
                         </div>
                       </div>
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog pour ajouter manuellement un participant */}
-      <Dialog open={showAddParticipantDialog} onOpenChange={setShowAddParticipantDialog}>
-        <DialogContent className="w-[95vw] sm:w-full sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Plus className="w-5 h-5 text-primary" />
-              Ajouter un participant
-            </DialogTitle>
-            <DialogDescription>
-              Ajoutez manuellement un participant à l'événement. Il sera automatiquement confirmé.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="newParticipantName">Nom *</Label>
-              <Input
-                id="newParticipantName"
-                value={newParticipantName}
-                onChange={(e) => setNewParticipantName(e.target.value)}
-                placeholder="Ex: Jean Dupont"
-                className="neon-border"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="newParticipantEmail">Email (optionnel)</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                <Input
-                  id="newParticipantEmail"
-                  type="email"
-                  value={newParticipantEmail}
-                  onChange={(e) => setNewParticipantEmail(e.target.value)}
-                  placeholder="jean.dupont@example.com"
-                  className="pl-10 neon-border"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                L'email permettra d'envoyer une invitation pour rejoindre l'événement.
-              </p>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setNewParticipantName('');
-                  setNewParticipantEmail('');
-                  setShowAddParticipantDialog(false);
-                }}
-              >
-                Annuler
-              </Button>
-              <Button
-                onClick={handleAddParticipantManually}
-                disabled={!newParticipantName.trim()}
-                className="gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Ajouter
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-
                     </>
                   );
                 })()}

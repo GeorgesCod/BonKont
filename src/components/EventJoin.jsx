@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Key, Users, Calendar, Euro, AlertCircle, CheckCircle, Loader2, Clock, ArrowRight, QrCode } from 'lucide-react';
+import { Key, Users, Calendar, Euro, AlertCircle, CheckCircle, Loader2, Clock, ArrowRight, QrCode, X, Home } from 'lucide-react';
 import { useEventStore } from '@/store/eventStore';
 import { useJoinRequestsStore } from '@/store/joinRequestsStore';
 import { useToast } from '@/hooks/use-toast';
@@ -44,6 +44,8 @@ export function EventJoin({ onAuthRequired }) {
   }, []);
 
   // Vérifier l'authentification
+  const [hasInitializedFields, setHasInitializedFields] = useState(false);
+  
   useEffect(() => {
     const checkAuth = () => {
       const userData = localStorage.getItem('bonkont-user');
@@ -56,41 +58,84 @@ export function EventJoin({ onAuthRequired }) {
           const user = JSON.parse(userData);
           const userId = user.email || user.id || null;
           setCurrentUserId(userId);
-          setPseudo(user.name || user.email?.split('@')[0] || '');
-          setEmail(user.email || '');
-          console.log('[EventJoin] User data loaded:', { name: user.name, email: user.email, userId });
+          
+          // Pré-remplir seulement une fois au chargement initial (permet de modifier ensuite)
+          if (!hasInitializedFields) {
+            setPseudo(user.name || user.email?.split('@')[0] || '');
+            setEmail(user.email || '');
+            setHasInitializedFields(true);
+            console.log('[EventJoin] User data loaded (initial):', { name: user.name, email: user.email, userId });
+          }
         } catch (e) {
           console.error('[EventJoin] Erreur lors de la récupération de l\'utilisateur:', e);
         }
       } else {
         setCurrentUserId(null);
+        // Si non authentifié et que c'est le chargement initial, vider les champs
+        if (!hasInitializedFields) {
+          setPseudo('');
+          setEmail('');
+          setHasInitializedFields(true);
+        }
       }
     };
     
     checkAuth();
     
-    // Écouter les changements d'auth
-    const interval = setInterval(checkAuth, 1000);
+    // Écouter les changements d'auth (mais ne pas réinitialiser les champs)
+    const interval = setInterval(() => {
+      const userData = localStorage.getItem('bonkont-user');
+      const authenticated = !!userData;
+      setIsAuthenticated(authenticated);
+      if (authenticated) {
+        try {
+          const user = JSON.parse(userData);
+          const userId = user.email || user.id || null;
+          setCurrentUserId(userId);
+        } catch (e) {
+          // Ignorer les erreurs de parsing
+        }
+      } else {
+        setCurrentUserId(null);
+      }
+    }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [hasInitializedFields]);
 
   // Vérifier si l'utilisateur est l'organisateur de l'événement
+  // IMPORTANT: Utiliser l'email saisi dans le formulaire, pas seulement l'utilisateur connecté
   useEffect(() => {
-    if (event && currentUserId) {
-      const organizerMatch = event.organizerId === currentUserId || 
-                            event.organizerId === currentUserId?.toLowerCase() ||
-                            event.organizerId === currentUserId?.toUpperCase();
+    if (event) {
+      // Utiliser l'email saisi dans le formulaire pour la vérification
+      const emailToCheck = email.trim() || currentUserId;
+      const pseudoToCheck = pseudo.trim();
+      
+      // Vérifier si l'email saisi correspond à l'organisateur
+      const organizerMatch = emailToCheck && (
+        event.organizerId === emailToCheck || 
+        event.organizerId === emailToCheck?.toLowerCase() ||
+        event.organizerId === emailToCheck?.toUpperCase() ||
+        event.organizerName?.toLowerCase() === pseudoToCheck?.toLowerCase()
+      );
+      
+      // Vérifier si l'utilisateur est dans la liste des participants comme organisateur
       const participantMatch = event.participants?.find(p => 
-        (p.userId === currentUserId || p.email === currentUserId || p.email?.toLowerCase() === currentUserId?.toLowerCase()) &&
-        p.isOrganizer === true
+        (p.email?.toLowerCase() === emailToCheck?.toLowerCase() || 
+         p.userId === emailToCheck ||
+         p.name?.toLowerCase() === pseudoToCheck?.toLowerCase()) &&
+        (p.isOrganizer === true || p.role === 'organizer')
       );
       
       const isOrg = organizerMatch || !!participantMatch;
       setIsOrganizer(isOrg);
+      
       console.log('[EventJoin] Organizer check:', { 
         eventId: event.id, 
-        organizerId: event.organizerId, 
-        currentUserId, 
+        organizerId: event.organizerId,
+        organizerName: event.organizerName,
+        emailSaisi: emailToCheck,
+        pseudoSaisi: pseudoToCheck,
+        currentUserId,
         organizerMatch, 
         participantMatch: !!participantMatch,
         isOrganizer: isOrg 
@@ -98,7 +143,7 @@ export function EventJoin({ onAuthRequired }) {
     } else {
       setIsOrganizer(false);
     }
-  }, [event, currentUserId]);
+  }, [event, email, pseudo, currentUserId]);
 
   // Vérifier si un code est dans l'URL (depuis QR code ou lien direct)
   useEffect(() => {
@@ -209,6 +254,51 @@ export function EventJoin({ onAuthRequired }) {
           code: foundEvent.code 
         });
         setEvent(foundEvent);
+        
+        // Vérifier immédiatement si l'utilisateur est déjà participant validé
+        const userData = localStorage.getItem('bonkont-user');
+        let userEmail = null;
+        if (userData) {
+          try {
+            const user = JSON.parse(userData);
+            userEmail = user.email || null;
+          } catch (e) {
+            // Ignorer
+          }
+        }
+        
+        if (userEmail) {
+          const existingParticipant = foundEvent.participants?.find(
+            p => (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
+                 (p.userId && p.userId === userEmail)
+          );
+          
+          if (existingParticipant) {
+            console.log('[EventJoin] ✅ User is already a participant:', {
+              status: existingParticipant.status,
+              name: existingParticipant.name
+            });
+            
+            if (existingParticipant.status === 'confirmed') {
+              // Participant déjà validé, afficher directement le message de bienvenue
+              console.log('[EventJoin] ✅ Participant already confirmed, showing welcome message');
+              setPendingParticipantId(existingParticipant.id);
+              setIsJoined(true);
+              setPseudo(existingParticipant.name || '');
+              setEmail(existingParticipant.email || userEmail);
+              return;
+            } else if (existingParticipant.status === 'pending') {
+              // Participant en attente, afficher le message d'attente
+              console.log('[EventJoin] ⏳ Participant has pending request');
+              setPendingParticipantId(existingParticipant.id);
+              setIsJoined(true);
+              setPseudo(existingParticipant.name || '');
+              setEmail(existingParticipant.email || userEmail);
+              return;
+            }
+          }
+        }
+        
         return;
       }
     }
@@ -218,7 +308,15 @@ export function EventJoin({ onAuthRequired }) {
     setIsLoading(true);
     
     try {
+      console.log('[EventJoin] 🔍 Calling findEventByCode with cleaned code:', cleanCode);
       const foundEvent = await findEventByCode(cleanCode);
+      
+      console.log('[EventJoin] 📊 findEventByCode result:', {
+        found: !!foundEvent,
+        eventId: foundEvent?.id,
+        eventCode: foundEvent?.code,
+        eventTitle: foundEvent?.title
+      });
       
       if (foundEvent) {
         console.log('[EventJoin] ✅✅✅ EVENT FOUND on backend!', { 
@@ -227,6 +325,50 @@ export function EventJoin({ onAuthRequired }) {
           code: foundEvent.code 
         });
         setEvent(foundEvent);
+        
+        // Vérifier immédiatement si l'utilisateur est déjà participant validé
+        const userData = localStorage.getItem('bonkont-user');
+        let userEmail = null;
+        if (userData) {
+          try {
+            const user = JSON.parse(userData);
+            userEmail = user.email || null;
+          } catch (e) {
+            // Ignorer
+          }
+        }
+        
+        if (userEmail) {
+          const existingParticipant = foundEvent.participants?.find(
+            p => (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
+                 (p.userId && p.userId === userEmail)
+          );
+          
+          if (existingParticipant) {
+            console.log('[EventJoin] ✅ User is already a participant:', {
+              status: existingParticipant.status,
+              name: existingParticipant.name
+            });
+            
+            if (existingParticipant.status === 'confirmed') {
+              // Participant déjà validé, afficher directement le message de bienvenue
+              console.log('[EventJoin] ✅ Participant already confirmed, showing welcome message');
+              setPendingParticipantId(existingParticipant.id);
+              setIsJoined(true);
+              setPseudo(existingParticipant.name || '');
+              setEmail(existingParticipant.email || userEmail);
+              return;
+            } else if (existingParticipant.status === 'pending') {
+              // Participant en attente, afficher le message d'attente
+              console.log('[EventJoin] ⏳ Participant has pending request');
+              setPendingParticipantId(existingParticipant.id);
+              setIsJoined(true);
+              setPseudo(existingParticipant.name || '');
+              setEmail(existingParticipant.email || userEmail);
+              return;
+            }
+          }
+        }
         
         // Optionnel : ajouter l'événement au store local pour un accès plus rapide la prochaine fois
         // (seulement si l'utilisateur est participant confirmé)
@@ -237,31 +379,61 @@ export function EventJoin({ onAuthRequired }) {
           console.log('[EventJoin] Event not in local store, will be added when participant is confirmed');
         }
       } else {
-        // Événement non trouvé - permettre quand même de créer une demande de participation
-        console.log('[EventJoin] ⚠️ Event not found, but allowing join request creation');
+        // Événement non trouvé - réessayer avec différentes variations du code
+        console.log('[EventJoin] ⚠️ Event not found with code:', cleanCode);
+        console.log('[EventJoin] 🔍 Trying alternative code formats...');
+        
+        // Essayer avec le code original (sans nettoyage)
+        let alternativeCode = code.trim().toUpperCase();
+        let foundEvent = null;
+        
+        // Essayer différentes variations
+        const codeVariations = [
+          alternativeCode,
+          alternativeCode.replace(/[^A-Z0-9]/g, ''),
+          code.trim().toUpperCase()
+        ];
+        
+        for (const variation of codeVariations) {
+          if (variation && variation.length >= 8) {
+            console.log('[EventJoin] 🔍 Trying code variation:', variation);
+            try {
+              foundEvent = await findEventByCode(variation);
+              if (foundEvent) {
+                console.log('[EventJoin] ✅ Event found with variation:', variation);
+                break;
+              }
+            } catch (err) {
+              console.warn('[EventJoin] Variation failed:', variation, err);
+            }
+          }
+        }
+        
+        if (foundEvent) {
+          console.log('[EventJoin] ✅✅✅ EVENT FOUND with alternative code!', { 
+            id: foundEvent.id, 
+            title: foundEvent.title, 
+            code: foundEvent.code 
+          });
+          setEvent(foundEvent);
+          return;
+        }
+        
+        // Si toujours pas trouvé, permettre quand même de créer une demande avec le code
+        console.log('[EventJoin] ⚠️ Event still not found, allowing join request creation with code');
         console.log('[EventJoin] Code:', cleanCode);
         
         // Créer un événement "temporaire" pour permettre la création de la demande
-        // L'organisateur devra synchroniser manuellement
-        const tempEvent = {
-          id: `temp-${cleanCode}`,
-          code: cleanCode,
-          title: `Événement ${cleanCode}`,
-          description: 'Événement en attente de synchronisation',
-          participants: [],
-          status: 'pending_sync',
-          // Marquer comme temporaire pour indiquer qu'il faut synchroniser
-          _isTemporary: true,
-          _eventCode: cleanCode
-        };
-        
-        setEvent(tempEvent);
-        
+        // Mais d'abord, essayer de trouver l'événement par code dans tous les événements
         toast({
-          title: "Code reconnu",
-          description: "Vous pouvez créer une demande de participation. L'organisateur validera votre demande.",
+          title: "Code non trouvé",
+          description: "L'événement n'a pas été trouvé. Vérifiez le code ou contactez l'organisateur.",
+          variant: "destructive",
           duration: 5000
         });
+        
+        // Ne pas créer d'événement temporaire, laisser l'utilisateur réessayer
+        setEvent(null);
       }
     } catch (error) {
       console.error('[EventJoin] ❌ Error searching event on backend:', error);
@@ -415,11 +587,41 @@ export function EventJoin({ onAuthRequired }) {
     try {
       // Vérifier si l'utilisateur est déjà participant
       const existingParticipant = event.participants?.find(
-        p => p.email === email || (p.email && email && p.email.toLowerCase() === email.toLowerCase())
+        p => (p.email && email && p.email.toLowerCase() === email.toLowerCase()) ||
+             (p.name && pseudo && p.name.toLowerCase() === pseudo.toLowerCase())
       );
 
       if (existingParticipant) {
         console.log('[EventJoin] ⚠️ User already participant:', existingParticipant);
+        
+        // Si le participant est déjà confirmé, permettre l'accès direct
+        if (existingParticipant.status === 'confirmed') {
+          console.log('[EventJoin] ✅ Participant already confirmed, allowing direct access');
+          setPendingParticipantId(existingParticipant.id);
+          setIsJoined(true);
+          toast({
+            title: "Bienvenue !",
+            description: "Votre demande de participation est validée. Bienvenue !",
+            duration: 5000
+          });
+          setIsLoading(false);
+          return;
+        }
+        
+        // Si en attente, afficher le message d'attente
+        if (existingParticipant.status === 'pending') {
+          console.log('[EventJoin] ⚠️ Participant already has pending request');
+          setPendingParticipantId(existingParticipant.id);
+          setIsJoined(true);
+          toast({
+            title: "Demande en attente",
+            description: "Votre demande de participation est en attente de validation.",
+            duration: 5000
+          });
+          setIsLoading(false);
+          return;
+        }
+        
         toast({
           variant: "destructive",
           title: "Déjà participant",
@@ -472,14 +674,78 @@ export function EventJoin({ onAuthRequired }) {
 
       // Créer une demande de participation via l'API Firestore
       try {
-        console.log('[EventJoin] Creating join request via API...');
+        console.log('[EventJoin] 📝 Creating join request via API...', {
+          eventId: event.id,
+          eventTitle: event.title,
+          organizerId: event.organizerId,
+          userId: userId || email || `guest-${nanoid(8)}`,
+          email: email.trim() || '',
+          name: pseudo.trim()
+        });
+        
+        console.log('[EventJoin] 🔍 ===== BEFORE CREATING JOIN REQUEST =====');
+        console.log('[EventJoin] 🔍 Event details:', {
+          eventId: event.id,
+          eventCode: event.code,
+          eventTitle: event.title,
+          organizerId: event.organizerId
+        });
+        console.log('[EventJoin] 🔍 Participant details:', {
+          userId: userId || email || `guest-${nanoid(8)}`,
+          email: email.trim() || '',
+          name: pseudo.trim()
+        });
+        
+        // Vérifier que l'événement n'est pas temporaire avant de créer la join request
+        if (event._isTemporary || event.id?.startsWith('temp-')) {
+          console.error('[EventJoin] ❌ Cannot create join request for temporary event');
+          toast({
+            variant: "destructive",
+            title: "Erreur",
+            description: "L'événement n'a pas été trouvé dans la base de données. Vérifiez le code ou contactez l'organisateur."
+          });
+          setIsLoading(false);
+          return;
+        }
+        
+        // Vérifier que l'événement a un organizerId
+        if (!event.organizerId) {
+          console.error('[EventJoin] ❌ Event has no organizerId');
+          toast({
+            variant: "destructive",
+            title: "Erreur",
+            description: "Les informations de l'événement sont incomplètes. Veuillez réessayer."
+          });
+          setIsLoading(false);
+          return;
+        }
+        
+        console.log('[EventJoin] ✅ Creating join request with valid event:', {
+          eventId: event.id,
+          eventCode: event.code,
+          eventTitle: event.title,
+          organizerId: event.organizerId
+        });
+        
         const requestResult = await createJoinRequest(event.id, {
           userId: userId || email || `guest-${nanoid(8)}`,
           email: email.trim() || '',
           name: pseudo.trim()
         });
         
-        console.log('[EventJoin] ✅ Join request created via API:', requestResult);
+        console.log('[EventJoin] ✅ ===== JOIN REQUEST CREATED =====');
+        console.log('[EventJoin] ✅ Result:', requestResult);
+        console.log('[EventJoin] ✅ Request ID:', requestResult.requestId);
+        console.log('[EventJoin] ✅ Event ID used:', event.id);
+        console.log('[EventJoin] ✅ The request should now be visible in EventManagement for event:', event.id);
+        console.log('[EventJoin] 🔔 Notification should have been sent to organizer:', {
+          organizerId: event.organizerId,
+          organizerName: event.organizerName,
+          eventId: event.id,
+          eventTitle: event.title,
+          requestId: requestResult.requestId
+        });
+        console.log('[EventJoin] 📍 Organizer can see the request in EventManagement page for this event');
         
         // Si l'événement est temporaire, aussi créer une demande locale (fallback)
         if (event._isTemporary) {
@@ -601,7 +867,7 @@ export function EventJoin({ onAuthRequired }) {
             </div>
             <div>
               <h2 className="text-2xl font-bold gradient-text">
-                {status === 'confirmed' ? 'Demande acceptée !' : 
+                {status === 'confirmed' ? 'Votre demande de participation est validée, Bienvenue !' : 
                  status === 'rejected' ? 'Demande rejetée' : 
                  'Demande envoyée !'}
               </h2>
@@ -616,7 +882,11 @@ export function EventJoin({ onAuthRequired }) {
               </p>
             </div>
             <Alert variant={status === 'rejected' ? 'destructive' : status === 'confirmed' ? 'default' : undefined}>
-              <AlertCircle className="w-4 h-4" />
+              {status === 'confirmed' ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <AlertCircle className="w-4 h-4" />
+              )}
               <AlertDescription>
                 {status === 'confirmed' ? (
                   <>Vous pouvez maintenant accéder à l'événement et participer aux transactions.</>
@@ -633,6 +903,9 @@ export function EventJoin({ onAuthRequired }) {
                 <Button
                   onClick={() => {
                     window.location.hash = `#event/${event.id}`;
+                    setTimeout(() => {
+                      window.dispatchEvent(new HashChangeEvent('hashchange'));
+                    }, 100);
                   }}
                   className="gap-2 button-glow"
                 >
@@ -661,15 +934,33 @@ export function EventJoin({ onAuthRequired }) {
     );
   }
 
+  const handleBackToHome = () => {
+    console.log('[EventJoin] Back to home clicked');
+    window.location.hash = '';
+    // Forcer le re-render
+    setTimeout(() => {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }, 50);
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
-        <div>
+        <div className="flex-1">
           <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text">Rejoindre un événement</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Entre le code et rejoins le groupe. Transparence obligatoire 😊
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleBackToHome}
+          className="shrink-0 min-h-[44px] min-w-[44px] hover:bg-destructive/10 hover:text-destructive"
+          title="Retour à l'accueil"
+        >
+          <X className="w-5 h-5 sm:w-6 sm:h-6" />
+        </Button>
       </div>
 
       <Card className="p-4 sm:p-6 neon-border space-y-4 sm:space-y-6">
@@ -823,7 +1114,23 @@ export function EventJoin({ onAuthRequired }) {
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="pseudo">Pseudo</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="pseudo">Pseudo</Label>
+                    {pseudo && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setPseudo('');
+                          console.log('[EventJoin] Pseudo cleared');
+                        }}
+                        className="h-6 px-2 text-xs"
+                      >
+                        Effacer
+                      </Button>
+                    )}
+                  </div>
                   <Input
                     id="pseudo"
                     value={pseudo}
@@ -834,7 +1141,23 @@ export function EventJoin({ onAuthRequired }) {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email (optionnel)</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="email">Email (optionnel)</Label>
+                    {email && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEmail('');
+                          console.log('[EventJoin] Email cleared');
+                        }}
+                        className="h-6 px-2 text-xs"
+                      >
+                        Effacer
+                      </Button>
+                    )}
+                  </div>
                   <Input
                     id="email"
                     type="email"

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { EventCreation } from '@/components/EventCreation';
 import { EventDashboard } from '@/components/EventDashboard';
-import { EventStatistics } from '@/components/EventStatistics';
 import { EventManagement } from '@/components/EventManagement';
 import { TransactionManagement } from '@/components/TransactionManagement';
 import { EventHistory } from '@/components/EventHistory';
@@ -9,7 +8,6 @@ import { EventClosure } from '@/components/EventClosure';
 import { EventJoin } from '@/components/EventJoin';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { AuthDialog } from '@/components/AuthDialog';
-import { UserProfile } from '@/components/UserProfile';
 import { InviteFriends } from '@/components/InviteFriends';
 import { ScrollToTop } from '@/components/ScrollToTop';
 import { SettingsDialog } from '@/components/SettingsDialog';
@@ -17,7 +15,7 @@ import { PrivacyPolicy } from '@/components/PrivacyPolicy';
 import { TermsOfService } from '@/components/TermsOfService';
 import { FAQ } from '@/components/FAQ';
 import { Contact } from '@/components/Contact';
-import { Wallet2, LogIn, UserCircle, BarChart as ChartBar, ArrowLeft, Settings, UserPlus, Plus } from 'lucide-react';
+import { Wallet2, LogIn, ArrowLeft, Settings, UserPlus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
@@ -28,14 +26,91 @@ export default function App() {
   const { t } = useI18nStore();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState('account');
   const [showStats, setShowStats] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showEventCreation, setShowEventCreation] = useState(false); // Contrôle l'affichage de EventCreation
   const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history', 'privacy', 'terms', 'faq', 'contact', 'join'
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [viewMode, setViewMode] = useState('management'); // 'management', 'transactions', or 'closure'
+
+  // Fonction utilitaire pour rechercher et ouvrir un événement par code
+  // Accessible depuis la console : window.findEventByCode('JELHFMFA')
+  useEffect(() => {
+    window.findEventByCode = async (code) => {
+      console.log('[App] 🔍 Searching for event with code:', code);
+      
+      if (!code || !code.trim()) {
+        console.error('[App] ❌ Code is required');
+        return null;
+      }
+      
+      const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
+      console.log('[App] 🔍 Cleaned code:', cleanCode);
+      
+      // 1. Chercher dans le store local
+      const events = useEventStore.getState().events;
+      const localEvent = events.find(e => {
+        const eventCode = e.code?.toUpperCase()?.replace(/[^A-Z]/g, '') || '';
+        return eventCode === cleanCode;
+      });
+      
+      if (localEvent) {
+        console.log('[App] ✅ Event found in local store:', {
+          id: localEvent.id,
+          title: localEvent.title,
+          code: localEvent.code
+        });
+        
+        // Naviguer vers l'événement
+        window.location.hash = `#event/${localEvent.id}`;
+        setTimeout(() => {
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        }, 100);
+        
+        return localEvent;
+      }
+      
+      // 2. Chercher dans Firestore
+      console.log('[App] 🔍 Event not found locally, searching in Firestore...');
+      try {
+        const { findEventByCode } = await import('@/services/api');
+        const firestoreEvent = await findEventByCode(cleanCode);
+        
+        if (firestoreEvent) {
+          console.log('[App] ✅ Event found in Firestore:', {
+            id: firestoreEvent.id,
+            title: firestoreEvent.title,
+            code: firestoreEvent.code
+          });
+          
+          // Ajouter au store local
+          const addEvent = useEventStore.getState().addEvent;
+          addEvent(firestoreEvent);
+          
+          // Naviguer vers l'événement
+          window.location.hash = `#event/${firestoreEvent.id}`;
+          setTimeout(() => {
+            window.dispatchEvent(new HashChangeEvent('hashchange'));
+          }, 100);
+          
+          return firestoreEvent;
+        } else {
+          console.error('[App] ❌ Event not found in Firestore');
+          console.log('[App] 💡 The event might not have been synced to Firestore');
+          console.log('[App] 💡 Try syncing it manually or check if the code is correct');
+          return null;
+        }
+      } catch (error) {
+        console.error('[App] ❌ Error searching in Firestore:', error);
+        return null;
+      }
+    };
+    
+    console.log('[App] ✅ Utility function window.findEventByCode() is now available');
+    console.log('[App] 💡 Usage: window.findEventByCode("JELHFMFA")');
+  }, []);
 
    // Vérifier l'état d'authentification au chargement (PATCH 2)
   useEffect(() => {
@@ -174,12 +249,13 @@ export default function App() {
 
     // Si pas de hash ou hash vide, afficher le dashboard (page d'accueil)
     if (!hash || hash === '' || hash === '#') {
-      console.log('[App] No hash, navigating to dashboard');
+      console.log('[App] No hash, navigating to dashboard (home page)');
       setCurrentView('dashboard');
       setSelectedEventId(null);
       setViewMode('management');
       setShowHistory(false);
-      // Ne pas réinitialiser showStats ici
+      setShowStats(false); // S'assurer que les stats ne s'affichent pas
+      // Ne pas afficher EventCreation par défaut
       return;
     }
 
@@ -326,7 +402,6 @@ export default function App() {
     
     try {
       // 1) Fermer tous les dialogs de manière synchrone et immédiate (PATCH 1)
-      setIsProfileOpen(false);
       setIsSettingsOpen(false);
       console.log('[App] Dialogs closed');
       
@@ -393,7 +468,6 @@ export default function App() {
         
         // Forcer isLoggedIn à false (PATCH 2)
         setIsLoggedIn(false);
-        setIsProfileOpen(false);
         setIsSettingsOpen(false);
         setCurrentView('dashboard');
         setSelectedEventId(null);
@@ -434,7 +508,6 @@ export default function App() {
     });
     
     setIsLoggedIn(false);
-    setIsProfileOpen(false);
     setIsSettingsOpen(false);
     setCurrentView('dashboard');
     setSelectedEventId(null);
@@ -499,48 +572,6 @@ export default function App() {
                     const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
                     return event?.code;
                   })() : null} />
-                  <Button
-                    variant="outline"
-                    className="neon-border gap-2 min-h-[44px] px-3 sm:px-4 touch-manipulation"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('[App] Statistics/Dashboard button clicked, current showStats:', showStats);
-                      const newShowStats = !showStats;
-                      
-                      // Toujours s'assurer qu'on est au dashboard
-                      setSelectedEventId(null);
-                      setViewMode('management');
-                      setShowHistory(false);
-                      setCurrentView('dashboard');
-                      setShowStats(newShowStats);
-                      
-                      // Changer le hash pour forcer la navigation
-                      window.location.hash = '';
-                      
-                      // Force le re-render après un court délai
-                      setTimeout(() => {
-                        window.dispatchEvent(new HashChangeEvent('hashchange'));
-                      }, 50);
-                      
-                      console.log('[App] showStats set to:', newShowStats, 'currentView:', 'dashboard');
-                    }}
-                    style={{ touchAction: 'manipulation' }}
-                  >
-                    <ChartBar className="w-4 h-4 sm:w-5 sm:h-5" />
-                    <span className="hidden sm:inline">
-                      {showStats ? 'Tableau de bord' : 'Statistiques'}
-                    </span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="neon-border min-h-[44px] min-w-[44px]"
-                    onClick={() => setIsProfileOpen(true)}
-                    title="Profil"
-                  >
-                    <UserCircle className="w-5 h-5 sm:w-6 sm:h-6" />
-                  </Button>
                   <Button
                     variant="outline"
                     size="icon"
@@ -729,16 +760,51 @@ export default function App() {
                   </Button>
                   <EventHistory />
                 </div>
-              ) : showStats ? (
-                <EventStatistics />
+              ) : showEventCreation ? (
+                <EventCreation 
+                  onEventCreated={() => {
+                    console.log('[App] Event created, closing creation form');
+                    setShowEventCreation(false);
+                  }}
+                  onClose={() => {
+                    console.log('[App] Event creation form closed');
+                    setShowEventCreation(false);
+                  }}
+                />
               ) : (
                 <>
-                  <EventCreation />
-                  <EventDashboard onShowHistory={() => {
-                    console.log('[App] Opening history from dashboard');
-                    setShowHistory(true);
-                    setShowStats(false);
-                  }} />
+                  {/* Page d'accueil épurée - utilisateur connecté */}
+                  <div className="space-y-8">
+                    <div className="text-center py-12">
+                      <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
+                      <p className="text-muted-foreground mb-8">
+                        Créez ou rejoignez un événement pour partager vos dépenses
+                      </p>
+                      <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                        <Button
+                          className="gap-2 button-glow"
+                          onClick={() => {
+                            console.log('[App] Create event button clicked from home (logged in)');
+                            setShowEventCreation(true);
+                          }}
+                        >
+                          <Plus className="w-4 h-4" />
+                          Créer un événement
+                        </Button>
+                        <Button
+                          variant="default"
+                          className="gap-2"
+                          onClick={() => {
+                            console.log('[App] Auth button clicked from home (logged in)');
+                            setIsAuthOpen(true);
+                          }}
+                        >
+                          <LogIn className="w-4 h-4" />
+                          Se connecter
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
                 </>
               )
             ) : (
@@ -748,9 +814,9 @@ export default function App() {
                   <p className="text-muted-foreground mb-8">
                     Créez ou rejoignez un événement pour partager vos dépenses
                   </p>
-                  <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-8">
-                  <Button
-                    className="gap-2 button-glow"
+                  <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                    <Button
+                      className="gap-2 button-glow"
                       onClick={() => {
                         console.log('[App] Create event button clicked from home');
                         setIsAuthOpen(true);
@@ -761,40 +827,16 @@ export default function App() {
                       Créer un événement
                     </Button>
                     <Button
-                      variant="outline"
-                      className="gap-2 neon-border"
-                      onClick={() => {
-                        console.log('[App] ===== JOIN EVENT BUTTON CLICKED FROM HOME =====');
-                        console.log('[App] Current view before:', currentView);
-                        console.log('[App] Setting hash to: #/join');
-                        window.location.hash = '#/join';
-                        setCurrentView('join');
-                        console.log('[App] Current view after setState:', currentView);
-                        console.log('[App] Hash after setState:', window.location.hash);
-                      }}
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      Rejoindre un évènement
-                    </Button>
-                    <Button
                       variant="default"
                       className="gap-2"
                       onClick={() => {
                         console.log('[App] Login button clicked from home');
                         setIsAuthOpen(true);
                       }}
-                  >
-                    <LogIn className="w-4 h-4" />
+                    >
+                      <LogIn className="w-4 h-4" />
                       Se connecter
-                  </Button>
-                  </div>
-                </div>
-                {/* Afficher EventCreation même si non connecté, mais avec un message d'auth */}
-                <div className="space-y-4">
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Connectez-vous pour créer votre premier événement
-                    </p>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -823,11 +865,6 @@ export default function App() {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         onSuccess={handleAuthSuccess}
-      />
-
-      <UserProfile
-        isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
       />
 
       <SettingsDialog
