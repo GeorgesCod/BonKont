@@ -71,9 +71,82 @@ export function EventDashboard({ onShowHistory }) {
   const [scannerEventId, setScannerEventId] = useState(null);
   
   const events = useEventStore((state) => state.events);
+  const addEvent = useEventStore((state) => state.addEvent);
   const updateEvent = useEventStore((state) => state.updateEvent);
   const deleteEvent = useEventStore((state) => state.deleteEvent);
   const updateParticipant = useEventStore((state) => state.updateParticipant);
+  
+  // Synchroniser les événements depuis Firestore au chargement
+  useEffect(() => {
+    const syncEventsFromFirestore = async () => {
+      const userData = localStorage.getItem('bonkont-user');
+      if (!userData) {
+        console.log('[EventDashboard] ⚠️ No user data found, skipping sync');
+        return;
+      }
+      
+      try {
+        const user = JSON.parse(userData);
+        const organizerId = user.email || null;
+        if (!organizerId) {
+          console.log('[EventDashboard] ⚠️ No organizerId found, skipping sync');
+          return;
+        }
+        
+        console.log('[EventDashboard] 🔄 Syncing events from Firestore for organizer:', organizerId);
+        console.log('[EventDashboard] 📊 Current local events count:', events.length);
+        console.log('[EventDashboard] 📊 Current local events:', events.map(e => ({ id: e.id, code: e.code, title: e.title, status: e.status })));
+        
+        const { getEventsByOrganizer } = await import('@/services/api');
+        const firestoreEvents = await getEventsByOrganizer(organizerId);
+        
+        console.log('[EventDashboard] 📊 Firestore events received:', firestoreEvents.length);
+        console.log('[EventDashboard] 📊 Firestore events details:', firestoreEvents.map(e => ({ id: e.id, code: e.code, title: e.title, status: e.status })));
+        
+        // Récupérer les événements actuels du store pour la vérification
+        const currentEvents = useEventStore.getState().events;
+        console.log('[EventDashboard] 📊 Current store events for comparison:', currentEvents.map(e => ({ id: e.id, code: e.code, title: e.title })));
+        
+        // Ajouter les événements qui ne sont pas déjà dans le store
+        let addedCount = 0;
+        for (const firestoreEvent of firestoreEvents) {
+          const exists = currentEvents.some(e => 
+            String(e.id) === String(firestoreEvent.id) || 
+            String(e.firestoreId) === String(firestoreEvent.id) ||
+            (e.code && firestoreEvent.code && e.code.toUpperCase().replace(/[^A-Z]/g, '') === firestoreEvent.code.toUpperCase().replace(/[^A-Z]/g, ''))
+          );
+          
+          if (!exists) {
+            console.log('[EventDashboard] ➕ Adding missing event from Firestore:', {
+              id: firestoreEvent.id,
+              code: firestoreEvent.code,
+              title: firestoreEvent.title,
+              status: firestoreEvent.status
+            });
+            addEvent(firestoreEvent);
+            addedCount++;
+          } else {
+            console.log('[EventDashboard] ✓ Event already exists in store:', {
+              id: firestoreEvent.id,
+              code: firestoreEvent.code,
+              title: firestoreEvent.title
+            });
+          }
+        }
+        
+        console.log('[EventDashboard] ✅ Sync complete. Added', addedCount, 'new events');
+        
+        // Vérifier les événements après synchronisation
+        const eventsAfterSync = useEventStore.getState().events;
+        console.log('[EventDashboard] 📊 Events after sync:', eventsAfterSync.length);
+        console.log('[EventDashboard] 📊 Events after sync details:', eventsAfterSync.map(e => ({ id: e.id, code: e.code, title: e.title, status: e.status })));
+      } catch (error) {
+        console.error('[EventDashboard] ❌ Error syncing events from Firestore:', error);
+      }
+    };
+    
+    syncEventsFromFirestore();
+  }, []); // Exécuter une seule fois au montage
 
   // Fonction pour vérifier si l'utilisateur est l'organisateur d'un événement
   const isOrganizer = (event) => {
@@ -97,18 +170,85 @@ export function EventDashboard({ onShowHistory }) {
     }
   };
 
-  const filteredEvents = events.filter(event => {
+  // Éviter l'affichage de doublons : on garde un seul événement par (code + organisateur / Firestore ID)
+  const uniqueEvents = (() => {
+    const seen = new Set();
+    const normalizeCode = (code) =>
+      (code || '')
+        .toString()
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '');
+
+    return events.filter((event) => {
+      const keyParts = [
+        event.firestoreId || '',
+        normalizeCode(event.code),
+        (event.organizerId || '').toString().toLowerCase().trim(),
+      ];
+      const key = keyParts.join('|');
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  })();
+
+  const filteredEvents = uniqueEvents.filter(event => {
+    let matches = false;
     switch (activeTab) {
       case 'active':
-        return event.status === 'active';
+        matches = event.status === 'active' || event.status === 'open' || event.status === 'draft';
+        break;
       case 'pending':
-        return event.status === 'pending';
+        matches = event.status === 'pending';
+        break;
       case 'completed':
-        return event.status === 'completed';
+        matches = event.status === 'completed';
+        break;
       default:
-        return true;
+        matches = true;
     }
+    
+    // Log pour déboguer le filtre
+    if (event.code === 'NZWFFHUM') {
+      console.log('[EventDashboard] 🔍 Filter check for NZWFFHUM:', {
+        code: event.code,
+        status: event.status,
+        activeTab,
+        matches,
+        id: event.id,
+        firestoreId: event.firestoreId
+      });
+    }
+    
+    return matches;
   });
+  
+  // Log des événements filtrés
+  useEffect(() => {
+    console.log('[EventDashboard] 📊 Filtered events:', {
+      activeTab,
+      totalEvents: events.length,
+      filteredCount: filteredEvents.length,
+      filteredEvents: filteredEvents.map(e => ({ id: e.id, code: e.code, title: e.title, status: e.status }))
+    });
+    
+    // Vérifier spécifiquement l'événement NZWFFHUM
+    const nzwffhumEvent = events.find(e => e.code === 'NZWFFHUM' || e.code?.toUpperCase().replace(/[^A-Z]/g, '') === 'NZWFFHUM');
+    if (nzwffhumEvent) {
+      console.log('[EventDashboard] 🔍 NZWFFHUM event found in store:', {
+        id: nzwffhumEvent.id,
+        code: nzwffhumEvent.code,
+        title: nzwffhumEvent.title,
+        status: nzwffhumEvent.status,
+        isInFiltered: filteredEvents.some(e => e.id === nzwffhumEvent.id)
+      });
+    } else {
+      console.log('[EventDashboard] ⚠️ NZWFFHUM event NOT found in store');
+      console.log('[EventDashboard] 📊 All event codes in store:', events.map(e => e.code));
+    }
+  }, [events, filteredEvents, activeTab]);
 
   // Afficher automatiquement la bulle d'alerte pour les événements actifs après 2 secondes
   useEffect(() => {
@@ -510,24 +650,86 @@ setPaymentMethod('card');
           </Button>
           <h2 className="text-xl sm:text-2xl font-bold gradient-text">Tableau de bord</h2>
         </div>
-        <Button 
-          variant="outline" 
-          className="gap-2 neon-border w-full sm:w-auto min-h-[44px] touch-manipulation"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('[EventDashboard] History button clicked');
-            if (onShowHistory) {
-              onShowHistory();
-            } else {
-              console.warn('[EventDashboard] onShowHistory callback not provided');
-            }
-          }}
-          style={{ touchAction: 'manipulation' }}
-        >
-          <History className="w-4 h-4" />
-          <span className="text-xs sm:text-sm">Historique</span>
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            className="gap-2 neon-border min-h-[44px] touch-manipulation"
+            onClick={async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('[EventDashboard] 🔄 Manual sync button clicked');
+              
+              const userData = localStorage.getItem('bonkont-user');
+              if (!userData) {
+                toast({
+                  variant: "destructive",
+                  title: "Erreur",
+                  description: "Vous devez être connecté pour synchroniser"
+                });
+                return;
+              }
+              
+              try {
+                const user = JSON.parse(userData);
+                const organizerId = user.email || null;
+                if (!organizerId) return;
+                
+                const { getEventsByOrganizer } = await import('@/services/api');
+                const firestoreEvents = await getEventsByOrganizer(organizerId);
+                
+                const currentEvents = useEventStore.getState().events;
+                let addedCount = 0;
+                
+                for (const firestoreEvent of firestoreEvents) {
+                  const exists = currentEvents.some(e => 
+                    String(e.id) === String(firestoreEvent.id) || 
+                    String(e.firestoreId) === String(firestoreEvent.id) ||
+                    (e.code && firestoreEvent.code && e.code.toUpperCase().replace(/[^A-Z]/g, '') === firestoreEvent.code.toUpperCase().replace(/[^A-Z]/g, ''))
+                  );
+                  
+                  if (!exists) {
+                    addEvent(firestoreEvent);
+                    addedCount++;
+                  }
+                }
+                
+                toast({
+                  title: "Synchronisation terminée",
+                  description: addedCount > 0 ? `${addedCount} événement(s) ajouté(s)` : "Tous les événements sont à jour"
+                });
+              } catch (error) {
+                console.error('[EventDashboard] ❌ Error in manual sync:', error);
+                toast({
+                  variant: "destructive",
+                  title: "Erreur",
+                  description: "Erreur lors de la synchronisation"
+                });
+              }
+            }}
+            style={{ touchAction: 'manipulation' }}
+          >
+            <ArrowRight className="w-4 h-4" />
+            <span className="text-xs sm:text-sm">Synchroniser</span>
+          </Button>
+          <Button 
+            variant="outline" 
+            className="gap-2 neon-border w-full sm:w-auto min-h-[44px] touch-manipulation"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              console.log('[EventDashboard] History button clicked');
+              if (onShowHistory) {
+                onShowHistory();
+              } else {
+                console.warn('[EventDashboard] onShowHistory callback not provided');
+              }
+            }}
+            style={{ touchAction: 'manipulation' }}
+          >
+            <History className="w-4 h-4" />
+            <span className="text-xs sm:text-sm">Historique</span>
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -701,6 +903,54 @@ setPaymentMethod('card');
                 </div>
 
                  <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3">
+  {/* Gérer l'événement */}
+  <Button
+    variant="default"
+    className="gap-2 button-glow"
+    onClick={() => {
+      console.log('[EventDashboard] Navigate to event management:', event.id);
+      window.location.hash = `#event/${event.id}`;
+      setTimeout(() => {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }, 100);
+    }}
+  >
+    <Users className="w-4 h-4" />
+    Gérer l'événement
+  </Button>
+
+  {/* Transactions */}
+  <Button
+    variant="outline"
+    className="gap-2 neon-border"
+    onClick={() => {
+      console.log('[EventDashboard] Navigate to transactions:', event.id);
+      window.location.hash = `#event/${event.id}/transactions`;
+      setTimeout(() => {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }, 100);
+    }}
+  >
+    <Receipt className="w-4 h-4" />
+    Transactions
+  </Button>
+
+  {/* Gérer la clôture événementielle */}
+  <Button
+    variant="outline"
+    className="gap-2 neon-border"
+    onClick={() => {
+      console.log('[EventDashboard] Navigate to closure:', event.id);
+      window.location.hash = `#event/${event.id}/closure`;
+      setTimeout(() => {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }, 100);
+    }}
+  >
+    <Calculator className="w-4 h-4" />
+    Gérer la clôture événementielle
+  </Button>
+
   {/* Enregistrer un paiement */}
   <Button
     variant="outline"
@@ -747,18 +997,6 @@ setPaymentMethod('card');
       ✨ Innovation
     </Badge>
   </div>
-
-  {/* ✅ NOUVEAU : Transactions */}
-  <Button
-    variant="outline"
-    className="gap-2 neon-border"
-    onClick={() => {
-      console.log('[EventDashboard] Navigate to transactions:', event.id);
-      window.location.hash = `#event/${event.id}/transactions`;
-    }}
-  >
-    💳 Transactions
-  </Button>
 
   {/* Envoyer un rappel */}
   <Button

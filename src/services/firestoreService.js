@@ -19,13 +19,20 @@ import {
   query,
   where,
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  setDoc,
+  writeBatch
 } from 'firebase/firestore';
 
 /**
  * Cherche un événement par son code
  * @param {string} code - Code de l'événement (8 caractères)
  * @returns {Promise<Object|null>} L'événement trouvé ou null
+ */
+/**
+ * Trouve un événement par son code
+ * Le code événement est lié à l'organisateur via organizerId dans le document événement
+ * Retourne l'événement avec organizerId, organizerName et la liste des participants (incluant l'organisateur)
  */
 export async function findEventByCode(code) {
   console.log('[Firestore] 🔍 findEventByCode called with:', { code, type: typeof code });
@@ -150,16 +157,28 @@ export async function findEventByCode(code) {
 }
 
 /**
- * Crée un nouvel événement dans Firestore
- * @param {Object} eventData - Données de l'événement
- * @returns {Promise<Object>} L'événement créé avec son ID
+ * Crée un événement dans Firestore
+ * IMPORTANT: Le code événement est lié à l'organisateur via le champ organizerId dans le document événement
+ * 
+ * Structure Firestore:
+ * - events/{eventId} contient: code, organizerId, organizerName, ...
+ * - events/{eventId}/participants/{participantId} contient l'organisateur avec role='organizer'
+ * 
+ * Pour retrouver l'organisateur d'un événement:
+ * 1. Via le code: findEventByCode(code) -> retourne organizerId
+ * 2. Via l'organisateur: getEventsByOrganizer(organizerId) -> retourne tous les événements
+ * 
+ * @param {Object} eventData - Données de l'événement { code, title, organizerId, organizerName, organizerEmail, ... }
+ * @returns {Promise<Object>} { success: true, eventId: string, message: string }
  */
 export async function createEvent(eventData) {
   try {
     console.log('[Firestore] 📝 Creating event:', {
       title: eventData.title,
       code: eventData.code,
-      organizerId: eventData.organizerId
+      organizerId: eventData.organizerId,
+      organizerName: eventData.organizerName,
+      organizerEmail: eventData.organizerEmail
     });
 
     // Nettoyer le code de la même manière que dans findEventByCode
@@ -222,16 +241,40 @@ export async function createEvent(eventData) {
     });
 
     // Ajouter l'organisateur comme participant
+    // IMPORTANT: L'organisateur doit toujours être présent dans Firestore
+    // Le code événement est lié à l'organisateur via organizerId dans le document événement
     if (eventData.organizerId) {
       const participantsRef = collection(db, 'events', eventDocRef.id, 'participants');
+      // Utiliser l'email de l'organisateur si disponible (organizerId est généralement l'email)
+      const organizerEmail = eventData.organizerId.includes('@') ? eventData.organizerId : (eventData.organizerEmail || eventData.organizerId);
+      
+      console.log('[Firestore] 👤 Adding organizer as participant:', {
+        eventId: eventDocRef.id,
+        code: cleanCode,
+        organizerId: eventData.organizerId,
+        organizerName: eventData.organizerName,
+        organizerEmail: organizerEmail
+      });
+      
       await addDoc(participantsRef, {
         userId: eventData.organizerId,
-        name: eventData.organizerName || '',
-        email: '',
+        name: eventData.organizerName || 'Organisateur',
+        email: organizerEmail, // Utiliser l'email de l'organisateur
         role: 'organizer',
+        isOrganizer: true, // Marquer explicitement comme organisateur
         joinedAt: serverTimestamp(),
-        approved: true
+        approved: true,
+        status: 'confirmed' // L'organisateur est automatiquement confirmé
       });
+      
+      console.log('[Firestore] ✅ Organizer added as participant in Firestore:', {
+        eventId: eventDocRef.id,
+        code: cleanCode,
+        organizerId: eventData.organizerId,
+        path: `events/${eventDocRef.id}/participants`
+      });
+    } else {
+      console.warn('[Firestore] ⚠️ No organizerId provided, organizer will not be added as participant');
     }
 
     return {
@@ -577,6 +620,28 @@ export async function getJoinRequests(eventId, status = null) {
 }
 
 /**
+ * Vérifie si un participant a accès à un événement
+ * Un accès est accordé si un document existe dans:
+ *   events/{eventId}/participants/{emailLowerCase}
+ */
+export async function checkParticipantAccess(eventId, email) {
+  try {
+    if (!eventId || !email) {
+      return false;
+    }
+
+    const participantId = email.trim().toLowerCase();
+    const participantRef = doc(db, 'events', eventId, 'participants', participantId);
+
+    const snap = await getDoc(participantRef);
+    return snap.exists();
+  } catch (error) {
+    console.error('[Firestore] ❌ Error checking participant access:', error);
+    return false;
+  }
+}
+
+/**
  * Approuve ou refuse une demande de participation
  * @param {string} eventId - ID de l'événement
  * @param {string} requestId - ID de la demande
@@ -597,46 +662,222 @@ export async function updateJoinRequest(eventId, requestId, action, organizerId)
     }
 
     const eventData = eventDoc.data();
-    if (eventData.organizerId !== organizerId) {
+    // Comparaison insensible à la casse pour l'organizerId
+    const eventOrganizerId = eventData.organizerId?.toLowerCase() || '';
+    const providedOrganizerId = organizerId?.toLowerCase() || '';
+    
+    if (eventOrganizerId !== providedOrganizerId) {
+      console.error('[Firestore] Organizer ID mismatch:', {
+        eventOrganizerId,
+        providedOrganizerId,
+        eventData: eventData.organizerId,
+        provided: organizerId
+      });
       throw new Error("Seul l'organisateur peut approuver ou refuser les demandes");
     }
+    
+    console.log('[Firestore] ✅ Organizer verified:', {
+      eventOrganizerId,
+      providedOrganizerId
+    });
 
     // Mettre à jour la demande
     const requestDocRef = doc(db, 'events', eventId, 'joinRequests', requestId);
+    console.log('[Firestore] 🔍 Checking join request:', {
+      eventId,
+      requestId,
+      path: `events/${eventId}/joinRequests/${requestId}`
+    });
+    
     const requestDoc = await getDoc(requestDocRef);
     
     if (!requestDoc.exists()) {
-      throw new Error("La demande n'existe pas");
+      console.error('[Firestore] ❌ Join request not found:', {
+        eventId,
+        requestId,
+        path: `events/${eventId}/joinRequests/${requestId}`
+      });
+      throw new Error(`La demande n'existe pas (ID: ${requestId})`);
     }
 
-    const updateData = {
-      status: action === 'approve' ? 'approved' : 'rejected',
-      approvedAt: action === 'approve' ? serverTimestamp() : null
-    };
+    const requestData = requestDoc.data();
+    console.log('[Firestore] 📋 Join request data:', {
+      id: requestDoc.id,
+      userId: requestData.userId,
+      name: requestData.name,
+      email: requestData.email,
+      status: requestData.status
+    });
 
-    await updateDoc(requestDocRef, updateData);
-
-    // Si approuvé, ajouter le participant à la collection participants
+    // ✅ Cas APPROVE : batch atomique (joinRequest + participant)
     if (action === 'approve') {
-      const requestData = requestDoc.data();
-      const participantsRef = collection(db, 'events', eventId, 'participants');
-      await addDoc(participantsRef, {
+      console.log('[Firestore] 📋 Request data for approval:', {
+        email: requestData.email,
         userId: requestData.userId,
         name: requestData.name,
-        email: requestData.email || '',
+        status: requestData.status
+      });
+      
+      const participantEmail = (requestData.email || requestData.userId || '').trim().toLowerCase();
+
+      if (!participantEmail) {
+        console.error('[Firestore] ❌ Missing email/userId in request:', requestData);
+        throw new Error("Impossible d'approuver : email/userId participant manquant dans la demande.");
+      }
+
+      console.log('[Firestore] ✅ Participant email determined:', participantEmail);
+
+      // Doc participant stable : events/{eventId}/participants/{emailLower}
+      const participantDocRef = doc(db, 'events', eventId, 'participants', participantEmail);
+      console.log('[Firestore] 📍 Participant doc path:', `events/${eventId}/participants/${participantEmail}`);
+
+      const batch = writeBatch(db);
+
+      // 1) Mettre à jour la demande
+      batch.update(requestDocRef, {
+        status: 'approved',
+        approvedAt: serverTimestamp()
+      });
+      console.log('[Firestore] ✅ Batch: joinRequest update queued');
+
+      // 2) Créer / fusionner le participant
+      const participantData = {
+        userId: participantEmail,
+        email: participantEmail,
+        name: requestData.name || 'Participant',
         role: 'participant',
         joinedAt: serverTimestamp(),
-        approved: true
-      });
+        approved: true,
+        status: 'confirmed',
+        fromRequestId: requestId
+      };
+      
+      batch.set(participantDocRef, participantData, { merge: true });
+      console.log('[Firestore] ✅ Batch: participant set queued with data:', participantData);
+
+      console.log('[Firestore] 🚀 Committing batch...');
+      await batch.commit();
+      console.log('[Firestore] ✅✅✅ Batch committed successfully ✅✅✅');
+
+      // Vérifier que le participant existe bien
+      const verifyDoc = await getDoc(participantDocRef);
+      if (verifyDoc.exists()) {
+        console.log('[Firestore] ✅✅✅ Verification: Participant exists in Firestore:', {
+          id: verifyDoc.id,
+          data: verifyDoc.data()
+        });
+      } else {
+        console.error('[Firestore] ❌❌❌ Verification FAILED: Participant does NOT exist after commit!');
+      }
+
+      return {
+        success: true,
+        message: 'Demande approuvée + participant ajouté'
+      };
     }
+
+    // ❌ Cas REJECT : simple update de la demande
+    await updateDoc(requestDocRef, {
+      status: 'rejected',
+      approvedAt: null
+    });
 
     return {
       success: true,
-      message: `Demande ${action === 'approve' ? 'approuvée' : 'refusée'} avec succès`
+      message: 'Demande refusée'
     };
   } catch (error) {
     console.error('[Firestore] Error updating join request:', error);
     throw error;
+  }
+}
+
+/**
+ * Récupère tous les événements d'un organisateur depuis Firestore
+ * @param {string} organizerId - ID de l'organisateur
+ * @returns {Promise<Array>} Liste des événements
+ */
+export async function getEventsByOrganizer(organizerId) {
+  try {
+    console.log('[Firestore] 🔍 Getting events for organizer:', organizerId);
+    
+    if (!organizerId) {
+      console.warn('[Firestore] ⚠️ No organizerId provided');
+      return [];
+    }
+    
+    const eventsRef = collection(db, 'events');
+    const q = query(eventsRef, where('organizerId', '==', organizerId));
+    const querySnapshot = await getDocs(q);
+    
+    console.log('[Firestore] 📊 Found', querySnapshot.size, 'events for organizer');
+    
+    const events = [];
+    for (const docSnap of querySnapshot.docs) {
+      const eventData = docSnap.data();
+      
+      // Récupérer les participants depuis Firestore
+      const participantsRef = collection(db, 'events', docSnap.id, 'participants');
+      const participantsSnapshot = await getDocs(participantsRef);
+      const participants = participantsSnapshot.docs.map(pDoc => ({
+        id: pDoc.id,
+        ...pDoc.data(),
+        joinedAt: convertFirestoreDate(pDoc.data().joinedAt)
+      }));
+      
+      // S'assurer que l'organisateur est dans la liste des participants
+      const organizerExists = participants.some(p => 
+        (p.userId && p.userId.toLowerCase() === eventData.organizerId?.toLowerCase()) ||
+        (p.email && p.email.toLowerCase() === eventData.organizerId?.toLowerCase()) ||
+        p.role === 'organizer' ||
+        p.isOrganizer === true
+      );
+      
+      if (!organizerExists && eventData.organizerId && eventData.organizerName) {
+        console.log('[Firestore] ⚠️ Organizer not found in participants, adding it...', {
+          eventId: docSnap.id,
+          organizerId: eventData.organizerId
+        });
+        const organizerParticipant = {
+          id: 'organizer-1',
+          userId: eventData.organizerId,
+          name: eventData.organizerName || 'Organisateur',
+          email: eventData.organizerId,
+          role: 'organizer',
+          isOrganizer: true,
+          status: 'confirmed',
+          hasConfirmed: true,
+          approved: true
+        };
+        participants.unshift(organizerParticipant); // Ajouter au début
+        console.log('[Firestore] ✅ Organizer added to participants list');
+      }
+      
+      events.push({
+        id: docSnap.id,
+        firestoreId: docSnap.id,
+        code: eventData.code,
+        title: eventData.title,
+        description: eventData.description || '',
+        location: eventData.location || null,
+        startDate: eventData.startDate,
+        endDate: eventData.endDate,
+        amount: (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1),
+        deadline: eventData.deadline || 30,
+        currency: eventData.currency || 'EUR',
+        organizerId: eventData.organizerId,
+        organizerName: eventData.organizerName || '',
+        status: eventData.status === 'open' ? 'active' : (eventData.status || 'active'),
+        createdAt: eventData.createdAt?.toDate() || new Date(),
+        participants: participants
+      });
+    }
+    
+    console.log('[Firestore] ✅ Events loaded:', events.map(e => ({ id: e.id, code: e.code, title: e.title })));
+    return events;
+  } catch (error) {
+    console.error('[Firestore] ❌ Error getting events by organizer:', error);
+    return [];
   }
 }
 

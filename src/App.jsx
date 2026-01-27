@@ -247,10 +247,23 @@ export default function App() {
       hash 
     });
 
-    // Si pas de hash ou hash vide, afficher le dashboard (page d'accueil)
+    // Vérifier l'état d'authentification à partir du stockage local
+    const userData = localStorage.getItem('bonkont-user');
+    const isAuthenticated = !!userData;
+
+    // Si pas de hash ou hash vide
     if (!hash || hash === '' || hash === '#') {
-      console.log('[App] No hash, navigating to dashboard (home page)');
-      setCurrentView('dashboard');
+      console.log('[App] No hash on load');
+
+      if (!isAuthenticated) {
+        // ⚠️ Sécurité : forcer l’ouverture de la fenêtre d’authentification
+        console.log('[App] User NOT authenticated on initial load -> forcing auth dialog');
+        setIsLoggedIn(false);
+        setIsAuthOpen(true);
+      }
+
+      console.log('[App] Navigating to dashboard (home page)');
+      setCurrentView('dashboard'); // Vue d'accueil, mais protégée par le dialog de connexion
       setSelectedEventId(null);
       setViewMode('management');
       setShowHistory(false);
@@ -286,6 +299,40 @@ export default function App() {
       setSelectedEventId(null);
       setShowHistory(false);
       setShowStats(false);
+      return;
+    }
+    // Route pour le tableau de bord (nécessite une authentification)
+    if (hash === '#/dashboard' || hash === '#dashboard') {
+      console.log('[App] Navigating to dashboard view');
+      // Vérifier l'authentification directement dans localStorage
+      const userData = localStorage.getItem('bonkont-user');
+      const isAuthenticated = !!userData;
+      console.log('[App] Auth check for dashboard:', { isLoggedIn, isAuthenticated, hasUserData: !!userData });
+      
+      if (!isAuthenticated) {
+        console.log('[App] User not logged in, redirecting to auth');
+        setIsAuthOpen(true);
+        window.location.hash = '';
+        setCurrentView('dashboard');
+        // Mettre à jour l'état si nécessaire
+        if (isLoggedIn) {
+          setIsLoggedIn(false);
+        }
+        return;
+      }
+      
+      // Mettre à jour l'état si nécessaire
+      if (!isLoggedIn) {
+        console.log('[App] Updating isLoggedIn state to true');
+        setIsLoggedIn(true);
+      }
+      
+      setCurrentView('dashboard-view');
+      setSelectedEventId(null);
+      setViewMode('management');
+      setShowHistory(false);
+      setShowStats(false);
+      setShowEventCreation(false);
       return;
     }
     // Route pour rejoindre un événement (seulement si hash explicite #/join ou #/join/CODE)
@@ -327,23 +374,54 @@ export default function App() {
       }
       console.log('[App] Navigating to event view:', { eventId, mode, hash });
       
-      // Vérifier que l'événement existe
+      // Vérifier que l'événement existe (par ID ou firestoreId)
       const events = useEventStore.getState().events;
-      const eventExists = events.some(e => String(e.id) === String(eventId));
+      const eventExists = events.some(e => 
+        String(e.id) === String(eventId) || 
+        String(e.firestoreId) === String(eventId) ||
+        String(e.firestoreEventId) === String(eventId)
+      );
       
       console.log('[App] Event check:', {
         eventId,
         eventExists,
         eventsCount: events.length,
-        availableIds: events.map(e => e.id)
+        availableIds: events.map(e => ({ id: e.id, firestoreId: e.firestoreId, firestoreEventId: e.firestoreEventId }))
       });
       
+      // Si l'événement n'existe pas, attendre un peu au cas où il serait en cours d'ajout
       if (!eventExists && events.length > 0) {
-        console.error('[App] Event not found:', eventId);
-        console.log('[App] Available events:', events.map(e => ({ id: e.id, title: e.title })));
-        window.location.hash = '';
-        setCurrentView('dashboard');
-        setSelectedEventId(null);
+        console.warn('[App] Event not found immediately, waiting for potential async add...');
+        console.log('[App] Available events:', events.map(e => ({ 
+          id: e.id, 
+          firestoreId: e.firestoreId,
+          firestoreEventId: e.firestoreEventId,
+          title: e.title 
+        })));
+        
+        // Attendre un peu et réessayer
+        setTimeout(() => {
+          const eventsAfterWait = useEventStore.getState().events;
+          const eventExistsAfterWait = eventsAfterWait.some(e => 
+            String(e.id) === String(eventId) || 
+            String(e.firestoreId) === String(eventId) ||
+            String(e.firestoreEventId) === String(eventId)
+          );
+          
+          if (eventExistsAfterWait) {
+            console.log('[App] Event found after wait, proceeding with navigation');
+            setSelectedEventId(eventId);
+            setViewMode(mode);
+            setCurrentView('event');
+            setShowHistory(false);
+            setShowStats(false);
+          } else {
+            console.error('[App] Event still not found after wait, redirecting to dashboard');
+            window.location.hash = '';
+            setCurrentView('dashboard');
+            setSelectedEventId(null);
+          }
+        }, 300);
         return;
       }
       
@@ -394,7 +472,13 @@ export default function App() {
     setCurrentView('dashboard');
     setShowHistory(false);
     setShowStats(false);
+    setShowEventCreation(false);
     window.location.hash = '';
+    // Forcer un re-render pour que les boutons s'affichent correctement
+    setTimeout(() => {
+      console.log('[App] Forcing re-render after auth success');
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }, 100);
   };
 
   const handleLogout = async () => {
@@ -431,6 +515,14 @@ export default function App() {
         console.log('[App] Hash reset');
       } catch (e) {
         console.warn('Erreur lors de la réinitialisation du hash:', e);
+      }
+
+      // 5bis) Sécurité : ouvrir immédiatement l'écran de connexion après déconnexion
+      try {
+        console.log('[App] Forcing auth dialog open after logout for security');
+        setIsAuthOpen(true);
+      } catch (e) {
+        console.warn('Erreur lors de l\'ouverture du dialog d\'authentification après logout:', e);
       }
       
       // 6) Forcer un re-render complet en utilisant requestAnimationFrame
@@ -516,7 +608,7 @@ export default function App() {
 
   return (
      <div className="h-screen flex flex-col bg-background text-foreground" style={{ touchAction: 'pan-y' }}>
-       <header className="shrink-0 py-3 sm:py-6 border-b border-border/50 backdrop-blur-sm bg-background/80 z-50 safe-top w-full">
+       <header className="fixed top-0 left-0 right-0 py-3 sm:py-6 border-b border-border/50 backdrop-blur-sm bg-background z-50 safe-top w-full">
         <div className="container mx-auto px-3 sm:px-4 max-w-full">
           <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -556,14 +648,21 @@ export default function App() {
                     const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
                     return event?.code;
                   })() : null} />
-                  <Button
-                    variant="outline"
-                    className="neon-border gap-2 min-h-[44px] px-3 sm:px-4"
-                    onClick={() => setIsAuthOpen(true)}
-                  >
-                    <LogIn className="w-4 h-4 sm:w-5 sm:h-5" />
-                    <span className="hidden sm:inline">Connexion</span>
-                  </Button>
+                  {/* 
+                    En page d'accueil (currentView === 'dashboard'), 
+                    on n'affiche PAS le bouton de connexion dans le header
+                    pour éviter le doublon avec le bouton central "Se connecter".
+                  */}
+                  {currentView !== 'dashboard' && (
+                    <Button
+                      variant="outline"
+                      className="neon-border gap-2 min-h-[44px] px-3 sm:px-4"
+                      onClick={() => setIsAuthOpen(true)}
+                    >
+                      <LogIn className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <span className="hidden sm:inline">Connexion</span>
+                    </Button>
+                  )}
                   <ThemeToggle />
                 </>
               ) : (
@@ -589,7 +688,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full overflow-y-auto" style={{ minHeight: 'calc(100vh - 80px)' }}>
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full overflow-y-auto pb-24 pt-20 sm:pt-24" style={{ minHeight: 'calc(100vh - 80px)', marginTop: '80px' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
           {(() => {
             console.log('[App] ===== RENDERING MAIN CONTENT =====');
@@ -743,6 +842,59 @@ export default function App() {
                   />
                 )}
             </div>
+          ) : currentView === 'dashboard-view' ? (
+            (() => {
+              // Vérifier l'authentification directement dans localStorage
+              const userData = localStorage.getItem('bonkont-user');
+              const isAuthenticated = !!userData;
+              
+              // Mettre à jour l'état si nécessaire
+              if (isAuthenticated && !isLoggedIn) {
+                console.log('[App] Updating isLoggedIn state to true in dashboard-view');
+                setIsLoggedIn(true);
+              } else if (!isAuthenticated && isLoggedIn) {
+                console.log('[App] Updating isLoggedIn state to false in dashboard-view');
+                setIsLoggedIn(false);
+              }
+              
+              if (!isAuthenticated) {
+                return (
+                  <div className="text-center py-12">
+                    <h2 className="text-2xl font-bold mb-4">Connexion requise</h2>
+                    <p className="text-muted-foreground mb-8">
+                      Vous devez être connecté pour accéder au tableau de bord
+                    </p>
+                    <Button
+                      variant="default"
+                      className="gap-2"
+                      onClick={() => setIsAuthOpen(true)}
+                    >
+                      <LogIn className="w-4 h-4" />
+                      Se connecter
+                    </Button>
+                  </div>
+                );
+              }
+              
+              return showHistory ? (
+                <div className="space-y-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      console.log('[App] Back to dashboard from history');
+                      setShowHistory(false);
+                    }}
+                    className="gap-2 mb-4"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Retour au tableau de bord
+                  </Button>
+                  <EventHistory />
+                </div>
+              ) : (
+                <EventDashboard onShowHistory={() => setShowHistory(true)} />
+              );
+            })()
           ) : currentView === 'dashboard' ? (
             isLoggedIn ? (
               showHistory ? (
@@ -761,19 +913,36 @@ export default function App() {
                   <EventHistory />
                 </div>
               ) : showEventCreation ? (
-                <EventCreation 
-                  onEventCreated={() => {
-                    console.log('[App] Event created, closing creation form');
-                    setShowEventCreation(false);
-                  }}
-                  onClose={() => {
-                    console.log('[App] Event creation form closed');
-                    setShowEventCreation(false);
-                  }}
-                />
+                isLoggedIn ? (
+                  <EventCreation 
+                    onEventCreated={() => {
+                      console.log('[App] Event created, closing creation form');
+                      setShowEventCreation(false);
+                    }}
+                    onClose={() => {
+                      console.log('[App] Event creation form closed');
+                      setShowEventCreation(false);
+                    }}
+                  />
+                ) : (
+                  <div className="text-center py-12">
+                    <h2 className="text-2xl font-bold mb-4">Connexion requise</h2>
+                    <p className="text-muted-foreground mb-8">
+                      Vous devez être connecté pour créer un événement
+                    </p>
+                    <Button
+                      variant="default"
+                      className="gap-2"
+                      onClick={() => setIsAuthOpen(true)}
+                    >
+                      <LogIn className="w-4 h-4" />
+                      Se connecter
+                    </Button>
+                  </div>
+                )
               ) : (
                 <>
-                  {/* Page d'accueil épurée - utilisateur connecté */}
+                  {/* Page d'accueil épurée */}
                   <div className="space-y-8">
                     <div className="text-center py-12">
                       <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
@@ -781,27 +950,44 @@ export default function App() {
                         Créez ou rejoignez un événement pour partager vos dépenses
                       </p>
                       <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                        <Button
-                          className="gap-2 button-glow"
-                          onClick={() => {
-                            console.log('[App] Create event button clicked from home (logged in)');
-                            setShowEventCreation(true);
-                          }}
-                        >
-                          <Plus className="w-4 h-4" />
-                          Créer un événement
-                        </Button>
-                        <Button
-                          variant="default"
-                          className="gap-2"
-                          onClick={() => {
-                            console.log('[App] Auth button clicked from home (logged in)');
-                            setIsAuthOpen(true);
-                          }}
-                        >
-                          <LogIn className="w-4 h-4" />
-                          Se connecter
-                        </Button>
+                        {isLoggedIn ? (
+                          <>
+                            <Button
+                              className="gap-2 button-glow"
+                              onClick={() => {
+                                console.log('[App] Create event button clicked from home (logged in)');
+                                setShowEventCreation(true);
+                              }}
+                            >
+                              <Plus className="w-4 h-4" />
+                              Créer un événement
+                            </Button>
+                            <Button
+                              variant="default"
+                              className="gap-2"
+                              onClick={() => {
+                                console.log('[App] Dashboard button clicked from home (logged in)');
+                                window.location.hash = '#/dashboard';
+                                window.dispatchEvent(new HashChangeEvent('hashchange'));
+                              }}
+                            >
+                              <Wallet2 className="w-4 h-4" />
+                              Tableau de bord
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            variant="default"
+                            className="gap-2 button-glow"
+                            onClick={() => {
+                              console.log('[App] Se connecter button clicked from home');
+                              setIsAuthOpen(true);
+                            }}
+                          >
+                            <LogIn className="w-4 h-4" />
+                            Se connecter
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -816,21 +1002,10 @@ export default function App() {
                   </p>
                   <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                     <Button
+                      variant="default"
                       className="gap-2 button-glow"
                       onClick={() => {
-                        console.log('[App] Create event button clicked from home');
-                        setIsAuthOpen(true);
-                        // Après connexion, l'utilisateur verra EventCreation
-                      }}
-                    >
-                      <Plus className="w-4 h-4" />
-                      Créer un événement
-                    </Button>
-                    <Button
-                      variant="default"
-                      className="gap-2"
-                      onClick={() => {
-                        console.log('[App] Login button clicked from home');
+                        console.log('[App] Se connecter button clicked from home');
                         setIsAuthOpen(true);
                       }}
                     >
@@ -886,7 +1061,7 @@ export default function App() {
       <ScrollToTop />
 
       {/* Footer avec liens vers les pages publiques */}
-      <footer className="border-t border-border/50 mt-12 py-6">
+      <footer className="fixed bottom-0 left-0 right-0 border-t border-border/50 py-6 bg-background z-50">
         <div className="container mx-auto px-3 sm:px-4 max-w-4xl">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">

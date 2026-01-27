@@ -11,7 +11,7 @@ import { useJoinRequestsStore } from '@/store/joinRequestsStore';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { QRCodeScanner } from '@/components/QRCodeScanner';
-import { findEventByCode, createJoinRequest } from '@/services/api';
+import { findEventByCode, createJoinRequest, checkParticipantAccess } from '@/services/api';
 
 export function EventJoin({ onAuthRequired }) {
   console.log('[EventJoin] ===== COMPONENT MOUNTED =====');
@@ -61,8 +61,8 @@ export function EventJoin({ onAuthRequired }) {
           
           // Pré-remplir seulement une fois au chargement initial (permet de modifier ensuite)
           if (!hasInitializedFields) {
-            setPseudo(user.name || user.email?.split('@')[0] || '');
-            setEmail(user.email || '');
+          setPseudo(user.name || user.email?.split('@')[0] || '');
+          setEmail(user.email || '');
             setHasInitializedFields(true);
             console.log('[EventJoin] User data loaded (initial):', { name: user.name, email: user.email, userId });
           }
@@ -102,6 +102,34 @@ export function EventJoin({ onAuthRequired }) {
     return () => clearInterval(interval);
   }, [hasInitializedFields]);
 
+  // Fonction helper pour gérer un participant confirmé
+  const handleConfirmedParticipant = (foundEvent, existingParticipant, userEmail) => {
+    console.log('[EventJoin] ✅ Handling confirmed participant, adding event to store and redirecting');
+    
+    // Ajouter l'événement au store local pour que le participant puisse y accéder
+    const addEvent = useEventStore.getState().addEvent;
+    const existingEvent = useEventStore.getState().events.find(e => 
+      String(e.id) === String(foundEvent.id) || 
+      String(e.firestoreId) === String(foundEvent.id) ||
+      (e.code && foundEvent.code && e.code.toUpperCase().replace(/[^A-Z]/g, '') === foundEvent.code.toUpperCase().replace(/[^A-Z]/g, ''))
+    );
+    
+    if (!existingEvent) {
+      console.log('[EventJoin] ➕ Adding event to local store for confirmed participant');
+      addEvent({
+        ...foundEvent,
+        firestoreId: foundEvent.id
+      });
+    }
+    
+    // Rediriger directement vers l'événement
+    console.log('[EventJoin] 🔄 Redirecting to event:', foundEvent.id);
+    window.location.hash = `#event/${foundEvent.id}`;
+    setTimeout(() => {
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }, 100);
+  };
+
   // Vérifier si l'utilisateur est l'organisateur de l'événement
   // IMPORTANT: Utiliser l'email saisi dans le formulaire, pas seulement l'utilisateur connecté
   useEffect(() => {
@@ -131,11 +159,11 @@ export function EventJoin({ onAuthRequired }) {
       
       console.log('[EventJoin] Organizer check:', { 
         eventId: event.id, 
-        organizerId: event.organizerId,
+        organizerId: event.organizerId, 
         organizerName: event.organizerName,
         emailSaisi: emailToCheck,
         pseudoSaisi: pseudoToCheck,
-        currentUserId,
+        currentUserId, 
         organizerMatch, 
         participantMatch: !!participantMatch,
         isOrganizer: isOrg 
@@ -280,12 +308,8 @@ export function EventJoin({ onAuthRequired }) {
             });
             
             if (existingParticipant.status === 'confirmed') {
-              // Participant déjà validé, afficher directement le message de bienvenue
-              console.log('[EventJoin] ✅ Participant already confirmed, showing welcome message');
-              setPendingParticipantId(existingParticipant.id);
-              setIsJoined(true);
-              setPseudo(existingParticipant.name || '');
-              setEmail(existingParticipant.email || userEmail);
+              // Participant déjà validé, rediriger directement vers l'événement
+              handleConfirmedParticipant(foundEvent, existingParticipant, userEmail);
               return;
             } else if (existingParticipant.status === 'pending') {
               // Participant en attente, afficher le message d'attente
@@ -351,12 +375,8 @@ export function EventJoin({ onAuthRequired }) {
             });
             
             if (existingParticipant.status === 'confirmed') {
-              // Participant déjà validé, afficher directement le message de bienvenue
-              console.log('[EventJoin] ✅ Participant already confirmed, showing welcome message');
-              setPendingParticipantId(existingParticipant.id);
-              setIsJoined(true);
-              setPseudo(existingParticipant.name || '');
-              setEmail(existingParticipant.email || userEmail);
+              // Participant déjà validé, rediriger directement vers l'événement
+              handleConfirmedParticipant(foundEvent, existingParticipant, userEmail);
               return;
             } else if (existingParticipant.status === 'pending') {
               // Participant en attente, afficher le message d'attente
@@ -549,19 +569,40 @@ export function EventJoin({ onAuthRequired }) {
       email 
     });
 
-    // 🔐 SÉCURITÉ : Vérifier l'authentification OBLIGATOIRE
-    // Mais permettre de créer une demande même sans authentification si l'événement est temporaire
-    if (!isAuthenticated && !event?._isTemporary) {
+    // 🔐 SÉCURITÉ : Vérifier l'authentification OBLIGATOIRE pour tous les événements
+    // L'authentification est requise pour créer une demande de participation
+    if (!isAuthenticated) {
       console.log('[EventJoin] ❌ User not authenticated, requiring auth');
       toast({
         variant: "destructive",
         title: "Authentification requise",
-        description: "Pour rejoindre cet évènement, merci de confirmer votre identité."
+        description: "Pour rejoindre cet événement, vous devez vous inscrire ou vous connecter avec votre email."
       });
       if (onAuthRequired) {
         onAuthRequired();
       }
       return;
+    }
+    
+    // Vérifier que l'email saisi correspond à l'email de l'utilisateur authentifié
+    const userData = localStorage.getItem('bonkont-user');
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        const userEmail = user.email || null;
+        if (userEmail && email.trim().toLowerCase() !== userEmail.toLowerCase()) {
+          console.log('[EventJoin] ⚠️ Email mismatch:', { entered: email, authenticated: userEmail });
+          toast({
+            variant: "destructive",
+            title: "Email incorrect",
+            description: `Vous êtes connecté avec ${userEmail}. Veuillez utiliser cet email pour rejoindre l'événement.`
+          });
+          setEmail(userEmail);
+          return;
+        }
+      } catch (e) {
+        console.error('[EventJoin] Error parsing user data:', e);
+      }
     }
 
     if (!event) {
@@ -594,16 +635,10 @@ export function EventJoin({ onAuthRequired }) {
       if (existingParticipant) {
         console.log('[EventJoin] ⚠️ User already participant:', existingParticipant);
         
-        // Si le participant est déjà confirmé, permettre l'accès direct
+        // Si le participant est déjà confirmé, rediriger directement vers l'événement
         if (existingParticipant.status === 'confirmed') {
-          console.log('[EventJoin] ✅ Participant already confirmed, allowing direct access');
-          setPendingParticipantId(existingParticipant.id);
-          setIsJoined(true);
-          toast({
-            title: "Bienvenue !",
-            description: "Votre demande de participation est validée. Bienvenue !",
-            duration: 5000
-          });
+          console.log('[EventJoin] ✅ Participant already confirmed, redirecting to event');
+          handleConfirmedParticipant(event, existingParticipant, email);
           setIsLoading(false);
           return;
         }
@@ -727,9 +762,74 @@ export function EventJoin({ onAuthRequired }) {
           organizerId: event.organizerId
         });
         
+        // LOGIQUE SELON LE GUIDE : Pour événements "open", userId = email saisi
+        // Pour autres événements, userId = email authentifié (doit correspondre)
+        const eventStatus = event.status || 'active';
+        const isOpenEvent = eventStatus === 'open';
+        
+        const userData = localStorage.getItem('bonkont-user');
+        let authenticatedUserEmail = null;
+        
+        if (userData) {
+          try {
+            const user = JSON.parse(userData);
+            authenticatedUserEmail = user.email || null;
+          } catch (e) {
+            console.error('[EventJoin] Error parsing user data:', e);
+          }
+        }
+        
+        // Déterminer userId et email selon le type d'événement
+        let finalUserId = null;
+        let finalEmail = null;
+        
+        if (isOpenEvent) {
+          // Pour événements "open" : userId = email saisi (peut être différent de l'email authentifié)
+          finalUserId = email.trim() || null;
+          finalEmail = email.trim() || null;
+          console.log('[EventJoin] ✅ Open event: using entered email as userId:', finalUserId);
+        } else {
+          // Pour autres événements : userId = email authentifié (doit correspondre)
+          if (authenticatedUserEmail) {
+            finalUserId = authenticatedUserEmail;
+            finalEmail = authenticatedUserEmail;
+            console.log('[EventJoin] ✅ Non-open event: using authenticated email as userId:', finalUserId);
+            
+            // Vérifier que l'email saisi correspond à l'email authentifié
+            if (email.trim().toLowerCase() !== authenticatedUserEmail.toLowerCase()) {
+              console.warn('[EventJoin] ⚠️ Email mismatch, using authenticated email');
+              setEmail(authenticatedUserEmail);
+            }
+          } else {
+            // Fallback : utiliser l'email saisi
+            finalUserId = email.trim() || null;
+            finalEmail = email.trim() || null;
+            console.log('[EventJoin] ⚠️ No authenticated user, using entered email:', finalUserId);
+          }
+        }
+        
+        if (!finalUserId || !finalEmail) {
+          console.error('[EventJoin] ❌ No userId or email available');
+          toast({
+            variant: "destructive",
+            title: "Erreur",
+            description: "Impossible de créer la demande. Veuillez entrer un email valide."
+          });
+          setIsLoading(false);
+          return;
+        }
+        
+        console.log('[EventJoin] 📝 Creating join request with:', {
+          userId: finalUserId,
+          email: finalEmail,
+          name: pseudo.trim(),
+          isOpenEvent,
+          eventStatus
+        });
+        
         const requestResult = await createJoinRequest(event.id, {
-          userId: userId || email || `guest-${nanoid(8)}`,
-          email: email.trim() || '',
+          userId: finalUserId, // Email saisi pour "open", email authentifié pour autres
+          email: finalEmail,   // Email saisi pour "open", email authentifié pour autres
           name: pseudo.trim()
         });
         
@@ -823,12 +923,7 @@ export function EventJoin({ onAuthRequired }) {
           setPendingParticipantId(existingParticipant.id);
         } else if (existingParticipant.status === 'confirmed') {
           // Participant déjà accepté, rediriger vers l'événement
-          console.log('[EventJoin] Participant already confirmed, redirecting to event');
-          toast({
-            title: "Déjà membre",
-            description: "Vous êtes déjà membre de cet événement."
-          });
-          window.location.hash = `#event/${event.id}`;
+          handleConfirmedParticipant(event, existingParticipant, email);
         } else if (existingParticipant.status === 'rejected') {
           // Participant rejeté
           console.log('[EventJoin] Participant was rejected');
@@ -845,6 +940,74 @@ export function EventJoin({ onAuthRequired }) {
   if (isJoined && event) {
     const participant = event.participants?.find(p => p.id === pendingParticipantId);
     const status = participant?.status || 'pending';
+
+    // 🔄 Vérification automatique d'accès : dès que l'organisateur accepte,
+    // le participant est créé dans events/{eventId}/participants/{emailLower}
+    // → on redirige automatiquement vers l'événement.
+    useEffect(() => {
+      let intervalId;
+      let cancelled = false;
+
+      const startAccessCheck = () => {
+        if (!event?.id) return;
+
+        // Email prioritaire : email saisi, sinon identifiant courant
+        const baseEmail = (email || currentUserId || '').trim();
+        if (!baseEmail) return;
+
+        console.log('[EventJoin] 🔄 Starting auto access check for participant:', {
+          eventId: event.id,
+          email: baseEmail
+        });
+
+        intervalId = setInterval(async () => {
+          if (cancelled) return;
+
+          try {
+            const allowed = await checkParticipantAccess(event.id, baseEmail);
+            console.log('[EventJoin] 🔎 checkParticipantAccess result:', {
+              eventId: event.id,
+              email: baseEmail,
+              allowed
+            });
+
+            if (allowed) {
+              console.log('[EventJoin] ✅ Participant access granted, redirecting to event');
+              clearInterval(intervalId);
+
+              toast({
+                title: '🎉 Accès accordé',
+                description: `Votre participation à "${event.title}" a été validée.`
+              });
+
+              // Réinitialiser l'écran "en attente"
+              setIsJoined(false);
+              setPendingParticipantId(null);
+
+              // Rediriger vers l'événement
+              window.location.hash = `#event/${event.id}`;
+              setTimeout(() => {
+                window.dispatchEvent(new HashChangeEvent('hashchange'));
+              }, 100);
+            }
+          } catch (err) {
+            console.error('[EventJoin] ❌ Error during access check:', err);
+          }
+        }, 5000); // vérification toutes les 5s
+      };
+
+      // Démarrer la vérification uniquement si on est en état "en attente"
+      if (status === 'pending') {
+        startAccessCheck();
+      }
+
+      return () => {
+        cancelled = true;
+        if (intervalId) {
+          clearInterval(intervalId);
+        }
+      };
+    }, [status, event?.id, email, currentUserId, toast]);
     
     return (
       <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0">
@@ -885,7 +1048,7 @@ export function EventJoin({ onAuthRequired }) {
               {status === 'confirmed' ? (
                 <CheckCircle className="w-4 h-4" />
               ) : (
-                <AlertCircle className="w-4 h-4" />
+              <AlertCircle className="w-4 h-4" />
               )}
               <AlertDescription>
                 {status === 'confirmed' ? (
@@ -1115,7 +1278,7 @@ export function EventJoin({ onAuthRequired }) {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="pseudo">Pseudo</Label>
+                  <Label htmlFor="pseudo">Pseudo</Label>
                     {pseudo && (
                       <Button
                         type="button"
@@ -1142,7 +1305,7 @@ export function EventJoin({ onAuthRequired }) {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="email">Email (optionnel)</Label>
+                  <Label htmlFor="email">Email (optionnel)</Label>
                     {email && (
                       <Button
                         type="button"
@@ -1163,6 +1326,14 @@ export function EventJoin({ onAuthRequired }) {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    onBlur={() => {
+                      // Quand l'utilisateur termine de saisir l'email, vérifier l'authentification
+                      if (email.trim() && !isAuthenticated && email.includes('@')) {
+                        console.log('[EventJoin] Email entered but user not authenticated');
+                        // Ne pas ouvrir automatiquement, mais informer l'utilisateur
+                        // L'authentification sera demandée lors du clic sur "Rejoindre"
+                      }
+                    }}
                     placeholder="votre@email.com"
                     className="neon-border"
                   />

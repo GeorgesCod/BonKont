@@ -6,7 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvatarUpload } from '@/components/AvatarUpload';
-import { Mail, Lock, AlertCircle, User } from 'lucide-react';
+import { Mail, Lock, AlertCircle, User, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 
@@ -20,6 +20,7 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Réinitialiser le formulaire quand le dialogue s'ouvre
   useEffect(() => {
@@ -32,6 +33,7 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
       setRememberMe(false);
       setIsLoading(false);
       setAcceptedTerms(false);
+      setShowPassword(false);
     }
   }, [isOpen]);
 
@@ -190,16 +192,30 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
             <div className="space-y-2">
               <Label htmlFor="password">Mot de passe</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                 <Input
                   id="password"
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10 neon-border"
+                  className="pl-10 pr-10 neon-border"
                   required
                 />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </Button>
               </div>
             </div>
 

@@ -447,12 +447,15 @@ function isExpense(transaction) {
  */
 export function getContributionToPot(participantId, event, transactions) {
   if (!participantId || !event || !transactions || transactions.length === 0) {
-    console.log('[getContributionToPot] ⚠️ Paramètres manquants:', {
-      participantId,
-      hasEvent: !!event,
-      eventId: event?.id,
-      transactionsCount: transactions?.length
-    });
+    // Log seulement si vraiment un problème (pas juste absence de transactions)
+    if (!participantId || !event) {
+      console.warn('[getContributionToPot] ⚠️ Paramètres manquants:', {
+        participantId,
+        hasEvent: !!event,
+        eventId: event?.id,
+        transactionsCount: transactions?.length
+      });
+    }
     return 0;
   }
   
@@ -646,33 +649,39 @@ export function computeBalances(event, transactions) {
   });
   const potPayouts = transactions.filter(t => isPotPayout(t));
   
-  console.log('[computeBalances] Transactions séparées:', {
-    total: transactions.length,
-    contributions: contributions.length,
-    expenses: expenses.length,
-    directTransfers: directTransfers.length,
-    potPayouts: potPayouts.length
-  });
+  // Log seulement si on a des transactions pour éviter le spam
+  if (transactions.length > 0) {
+    console.log('[computeBalances] Transactions séparées:', {
+      total: transactions.length,
+      contributions: contributions.length,
+      expenses: expenses.length,
+      directTransfers: directTransfers.length,
+      potPayouts: potPayouts.length
+    });
+  }
   
   // ===== A) CONTRIBUTIONS (participant → POT) =====
   // RÈGLE BONKONT : Les contributions au POT validées déclenchent le partage équitable
   // Si une contribution est validée collectivement ou partiellement, tous les participants concernés
   // bénéficient équitablement de cette contribution (chacun consomme sa part au prorata)
   // Le participant qui paie verse le montant total, mais tous les participants concernés consomment leur part
-  console.log('[computeBalances] Traitement des contributions:', {
-    contributionsCount: contributions.length,
-    contributionsDetails: contributions.map(c => ({
-      id: c.id,
-      fromId: c.fromId || c.from,
-      toId: c.toId || c.to,
-      amount: c.amount,
-      type: c.type,
-      source: c.source,
-      eventId: c.eventId,
-      validatedBy: c.validatedBy || [],
-      message: 'RÈGLE BONKONT: Contribution validée → déclenche le partage équitable entre participants concernés'
-    }))
-  });
+  // Log seulement si on a des contributions pour éviter le spam
+  if (contributions.length > 0) {
+    console.log('[computeBalances] Traitement des contributions:', {
+      contributionsCount: contributions.length,
+      contributionsDetails: contributions.map(c => ({
+        id: c.id,
+        fromId: c.fromId || c.from,
+        toId: c.toId || c.to,
+        amount: c.amount,
+        type: c.type,
+        source: c.source,
+        eventId: c.eventId,
+        validatedBy: c.validatedBy || [],
+        message: 'RÈGLE BONKONT: Contribution validée → déclenche le partage équitable entre participants concernés'
+      }))
+    });
+  }
   
   contributions.forEach(transaction => {
     const amount = parseFloat(transaction.amount) || 0;

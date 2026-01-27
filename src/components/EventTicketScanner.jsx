@@ -39,7 +39,7 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
       setIsProcessing(false);
     }
   }, [isOpen]);
-
+  
   // Ne pas rendre le composant si le dialog n'est pas ouvert
   if (!isOpen) {
     return null;

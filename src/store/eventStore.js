@@ -11,17 +11,70 @@ export const useEventStore = create()(
       addEvent: (eventData) => {
         const now = new Date();
         const eventId = eventData.id || nanoid();
-        const newEvent = {
-          ...eventData,
-          id: eventId,
-          code: eventData.code || generateEventCode(),
-          createdAt: now,
-          updatedAt: now,
-          ratings: [],
-        };
-        set((state) => ({
-          events: [newEvent, ...state.events]
-        }));
+
+        // Normaliser le code pour comparer proprement (évite les doublons d'événements)
+        const normalizeCode = (code) =>
+          (code || '')
+            .toString()
+            .toUpperCase()
+            .replace(/[^A-Z]/g, '');
+
+        set((state) => {
+          const normalizedNewCode = normalizeCode(eventData.code);
+
+          // Chercher un éventuel événement déjà présent (même Firestore ID ou même code/organisateur)
+          const existingIndex = state.events.findIndex((event) => {
+            const sameId =
+              (eventData.id &&
+                (String(event.id) === String(eventData.id) ||
+                  String(event.firestoreId) === String(eventData.id))) ||
+              (eventData.firestoreId &&
+                (String(event.id) === String(eventData.firestoreId) ||
+                  String(event.firestoreId) === String(eventData.firestoreId)));
+
+            const sameCodeAndOrganizer =
+              normalizedNewCode &&
+              normalizeCode(event.code) === normalizedNewCode &&
+              (!!event.organizerId && !!eventData.organizerId
+                ? String(event.organizerId).toLowerCase().trim() ===
+                  String(eventData.organizerId).toLowerCase().trim()
+                : false);
+
+            return sameId || sameCodeAndOrganizer;
+          });
+
+          const baseEvent = {
+            ...eventData,
+            id: eventId,
+            code: eventData.code || generateEventCode(),
+            createdAt: eventData.createdAt || now,
+            updatedAt: now,
+            ratings: eventData.ratings || [],
+          };
+
+          // Si un événement équivalent existe déjà, on le met à jour au lieu de créer un doublon
+          if (existingIndex !== -1) {
+            const updatedEvents = [...state.events];
+            updatedEvents[existingIndex] = {
+              ...updatedEvents[existingIndex],
+              ...baseEvent,
+              // Toujours conserver l'ID Firestore si connu
+              firestoreId:
+                updatedEvents[existingIndex].firestoreId ||
+                eventData.firestoreId ||
+                eventData.id ||
+                updatedEvents[existingIndex].id,
+              updatedAt: now,
+            };
+            return { events: updatedEvents };
+          }
+
+          // Sinon, on ajoute simplement le nouvel événement en tête de liste
+          return {
+            events: [baseEvent, ...state.events],
+          };
+        });
+
         return eventId;
       },
 
@@ -33,9 +86,54 @@ export const useEventStore = create()(
         ),
       })),
 
-      deleteEvent: (id) => set((state) => ({
-        events: state.events.filter((event) => event.id !== id),
-      })),
+      deleteEvent: (id) =>
+        set((state) => {
+          // Identifier l'événement cible pour pouvoir supprimer aussi ses doublons éventuels
+          const target = state.events.find(
+            (event) =>
+              String(event.id) === String(id) ||
+              (event.firestoreId && String(event.firestoreId) === String(id))
+          );
+
+          const normalizeCode = (code) =>
+            (code || '')
+              .toString()
+              .toUpperCase()
+              .replace(/[^A-Z]/g, '');
+
+          if (!target) {
+            // Fallback : suppression simple par ID
+            return {
+              events: state.events.filter((event) => String(event.id) !== String(id)),
+            };
+          }
+
+          const targetCode = normalizeCode(target.code);
+          const targetFirestoreId = target.firestoreId
+            ? String(target.firestoreId)
+            : null;
+
+          return {
+            events: state.events.filter((event) => {
+              const sameId = String(event.id) === String(id);
+              const sameFirestoreId =
+                targetFirestoreId &&
+                (String(event.id) === targetFirestoreId ||
+                  String(event.firestoreId) === targetFirestoreId);
+              const sameCode =
+                targetCode &&
+                normalizeCode(event.code) === targetCode &&
+                // On vérifie aussi l'organisateur pour éviter de supprimer un autre événement légitime
+                (!!event.organizerId && !!target.organizerId
+                  ? String(event.organizerId).toLowerCase().trim() ===
+                    String(target.organizerId).toLowerCase().trim()
+                  : false);
+
+              // On garde uniquement les événements qui ne correspondent PAS à la cible
+              return !(sameId || sameFirestoreId || sameCode);
+            }),
+          };
+        }),
 
       updateParticipant: (eventId, participantId, updates) => set((state) => ({
         events: state.events.map((event) => {

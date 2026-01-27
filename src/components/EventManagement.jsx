@@ -127,14 +127,26 @@ export function EventManagement({ eventId, onBack }) {
     eventTitle: event?.title
   });
   
+  // Vérifier si l'utilisateur est un participant confirmé
+  const isConfirmedParticipant = currentUserIdForAccordion && event?.participants?.some(p => 
+    (p.email && p.email.toLowerCase() === currentUserIdForAccordion.toLowerCase()) ||
+    (p.userId && p.userId.toLowerCase() === currentUserIdForAccordion.toLowerCase())
+  ) && event?.participants?.find(p => 
+    (p.email && p.email.toLowerCase() === currentUserIdForAccordion.toLowerCase()) ||
+    (p.userId && p.userId.toLowerCase() === currentUserIdForAccordion.toLowerCase())
+  )?.status === 'confirmed';
+  
   const [accordionValue, setAccordionValue] = useState(() => {
-    const initialValue = isOrganizerForAccordion 
-      ? ['event', 'bonkont-rule', 'participants'] // Ouvrir participants pour les organisateurs
+    // Ouvrir participants pour les organisateurs ET les participants confirmés
+    const shouldOpenParticipants = isOrganizerForAccordion || isConfirmedParticipant;
+    const initialValue = shouldOpenParticipants
+      ? ['event', 'bonkont-rule', 'participants'] // Ouvrir participants pour les organisateurs et participants confirmés
       : ['event', 'bonkont-rule']; // Par défaut, événement et règle Bonkont ouverts
     
     console.log('[EventManagement] 🎯 Initial accordion value:', {
       initialValue,
       isOrganizerForAccordion,
+      isConfirmedParticipant,
       currentUserIdForAccordion,
       organizerId: event?.organizerId
     });
@@ -652,7 +664,7 @@ export function EventManagement({ eventId, onBack }) {
               
               if (eventDoc.exists()) {
                 console.log('[EventManagement] ✅ Local eventId exists in Firestore, using it');
-                const requests = await getJoinRequests(event.id, 'pending');
+          const requests = await getJoinRequests(event.id, 'pending');
                 console.log('[EventManagement] ⚠️ Using local eventId, found', requests.length, 'requests');
                 setFirestoreJoinRequests(requests);
                 setLoadingJoinRequests(false);
@@ -705,9 +717,9 @@ export function EventManagement({ eventId, onBack }) {
                     // Maintenant chercher les demandes avec le nouvel ID Firestore
                     const requests = await getJoinRequests(syncResult.eventId, 'pending');
                     console.log('[EventManagement] ✅ Found', requests.length, 'join requests after sync');
-                    setFirestoreJoinRequests(requests);
-                    setLoadingJoinRequests(false);
-                    return;
+          setFirestoreJoinRequests(requests);
+          setLoadingJoinRequests(false);
+          return;
                   }
                 } catch (syncError) {
                   console.error('[EventManagement] ❌ Error syncing event to Firestore:', syncError);
@@ -2719,228 +2731,280 @@ const handleExportPDF = () => {
                             {allJoinRequests.map((request) => {
                               const participant = request.participant || { name: request.name, email: request.email };
                               const requestId = request.id;
-                              const isFirestoreRequest = !request.participant;
+                              // ✅ Détection correcte : une demande Firestore a directement name/email, pas dans participant
+                              const isFirestoreRequest = firestoreJoinRequests.some(fr => fr.id === requestId);
                               
-                              // Créer une fonction de gestion du clic pour capturer les variables
+                              // Fonction handleAccept - LOGIQUE SIMPLIFIÉE SELON LE GUIDE
                               const handleAccept = async (e) => {
-                                try {
-                                  // Log immédiat pour confirmer que le clic est capturé
-                                  console.log('[EventManagement] 🎯🎯🎯 ACCEPT BUTTON CLICKED 🎯🎯🎯');
-                                  console.log('[EventManagement] 🎯 Timestamp:', new Date().toISOString());
-                                  
+                                console.log('═══════════════════════════════════════════════════════════');
+                                console.log('[EventManagement] 🎯 ACCEPT BUTTON CLICKED');
+                                console.log('[EventManagement] Request ID:', requestId);
+                                console.log('[EventManagement] Participant:', participant);
+                                console.log('[EventManagement] Event:', event?.id, event?.code);
+                                console.log('[EventManagement] Is Firestore Request:', isFirestoreRequest);
+                                console.log('═══════════════════════════════════════════════════════════');
+                                
+                                if (e) {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  
-                                  console.log('[EventManagement] ===== ACCEPT BUTTON CLICKED =====');
-                                  console.log('[EventManagement] Request details:', {
-                                    requestId,
-                                    participantName: participant.name,
-                                    participantEmail: participant.email,
-                                    participantUserId: request.userId || participant.userId,
-                                    isFirestoreRequest,
-                                    eventId: event?.id,
-                                    organizerId: event?.organizerId,
-                                    hasEvent: !!event,
-                                    hasOrganizerId: !!event?.organizerId,
-                                    request: request
+                                }
+                                
+                                // Vérifications de base
+                                if (!event || !event.id) {
+                                  console.error('[EventManagement] ❌ No event');
+                                  toast({ variant: "destructive", title: "Erreur", description: "L'événement n'est pas disponible." });
+                                  return;
+                                }
+                                
+                                if (!event.organizerId) {
+                                  console.error('[EventManagement] ❌ No organizerId');
+                                  toast({ variant: "destructive", title: "Erreur", description: "L'organisateur n'est pas défini." });
+                                  return;
+                                }
+                                
+                                if (!requestId) {
+                                  console.error('[EventManagement] ❌ No requestId');
+                                  toast({ variant: "destructive", title: "Erreur", description: "L'ID de la demande est invalide." });
+                                  return;
+                                }
+                                
+                                // ✅ Utiliser l'email du participant comme identifiant principal (plus fiable que userId)
+                                const participantEmail = (participant.email || request.email || '').trim().toLowerCase();
+                                const participantUserId = request.userId || participant.userId;
+                                
+                                // Pour événements "open", bypass authentification - SELON LE GUIDE
+                                const isOpenEvent = (event.status || 'active') === 'open';
+                                
+                                console.log('[EventManagement] 🔐 Authentication check:', {
+                                  eventStatus: event.status,
+                                  isOpenEvent,
+                                  participantUserId,
+                                  participantEmail,
+                                  organizerId: event.organizerId,
+                                  requestEmail: request.email,
+                                  participantEmailFromParticipant: participant.email
+                                });
+                                
+                                // ✅ Vérifier que l'email du participant n'est pas celui de l'organisateur
+                                if (participantEmail && event.organizerId && participantEmail === event.organizerId.toLowerCase()) {
+                                  console.warn('[EventManagement] ⚠️ Cannot accept: participant email is organizer email');
+                                  toast({
+                                    variant: "destructive",
+                                    title: "Erreur",
+                                    description: "L'organisateur ne peut pas être ajouté comme participant."
                                   });
-                                  
-                                  // Vérifications préalables
-                                  if (!event || !event.id) {
-                                    console.error('[EventManagement] ❌ No event or event.id');
+                                  return;
+                                }
+                                
+                                // SELON LE GUIDE : Pour événements "open", on accepte SANS vérification
+                                // Pour les autres, on vérifie que l'email est présent et différent de l'organisateur
+                                if (!isOpenEvent) {
+                                  if (!participantEmail) {
+                                    console.warn('[EventManagement] ⚠️ Missing participant email');
                                     toast({
                                       variant: "destructive",
-                                      title: "Erreur",
-                                      description: "L'événement n'est pas disponible."
+                                      title: "Email manquant",
+                                      description: "L'email du participant est requis pour l'accepter."
                                     });
                                     return;
                                   }
-                                  
-                                  if (!event.organizerId) {
-                                    console.error('[EventManagement] ❌ No organizerId');
-                                    toast({
-                                      variant: "destructive",
-                                      title: "Erreur",
-                                      description: "L'organisateur de l'événement n'est pas défini."
-                                    });
-                                    return;
-                                  }
-                                  
-                                  // 🔐 VÉRIFICATION D'AUTHENTIFICATION : Le participant doit être inscrit/authentifié
-                                  // Le userId doit correspondre à l'email du participant, pas à l'organisateur
-                                  const participantUserId = request.userId || participant.userId;
-                                  const participantEmail = participant.email || request.email;
-                                  
-                                  // Vérifier si le userId correspond au participant (email) ou à l'organisateur
-                                  const isUserIdFromParticipant = participantUserId && 
-                                    participantEmail && 
-                                    participantUserId.toLowerCase() === participantEmail.toLowerCase();
-                                  
-                                  // Vérifier si le userId est différent de l'organisateur
-                                  const isUserIdFromOrganizer = participantUserId && 
-                                    event.organizerId && 
-                                    participantUserId.toLowerCase() === event.organizerId.toLowerCase();
-                                  
-                                  // Le participant est authentifié si son userId correspond à son email ET n'est pas l'organisateur
-                                  const isParticipantAuthenticated = isUserIdFromParticipant && !isUserIdFromOrganizer;
-                                  
-                                  console.log('[EventManagement] 🔐 Authentication check:', {
-                                    participantUserId,
-                                    participantEmail,
-                                    organizerId: event.organizerId,
-                                    isUserIdFromParticipant,
-                                    isUserIdFromOrganizer,
-                                    isParticipantAuthenticated,
-                                    note: 'userId should match participant email, not organizer email'
-                                  });
-                                  
-                                  if (!isParticipantAuthenticated) {
-                                    console.warn('[EventManagement] ⚠️ Participant not authenticated:', {
-                                      userId: participantUserId,
-                                      email: participantEmail,
-                                      organizerId: event.organizerId,
-                                      message: 'Participant must register/login with their own email before being added'
-                                    });
+                                  console.log('[EventManagement] ✅ Participant email validated for non-open event');
+                                } else {
+                                  // Pour événements "open" : on accepte directement, pas de vérification
+                                  console.log('[EventManagement] ✅ Open event - authentication bypassed, accepting directly');
+                                }
+                                
+                                try {
+                                  if (isFirestoreRequest) {
+                                    // ✅ TOUJOURS chercher le Firestore ID par code pour être sûr d'avoir le bon
+                                    let firestoreEventId = null;
                                     
-                                    toast({
-                                      variant: "destructive",
-                                      title: "Inscription requise",
-                                      description: `${participant.name || 'Le participant'} doit s'inscrire ou se connecter avec son email (${participantEmail}) avant d'être ajouté à l'événement. La demande reste en attente.`
-                                    });
-                                    return;
-                                  }
-                                  
-                                  // Vérifier que updateJoinRequest est disponible
-                                  if (typeof updateJoinRequest !== 'function') {
-                                    console.error('[EventManagement] ❌ updateJoinRequest is not a function:', typeof updateJoinRequest);
-                                    toast({
-                                      variant: "destructive",
-                                      title: "Erreur",
-                                      description: "La fonction d'approbation n'est pas disponible."
-                                    });
-                                    return;
-                                  }
-                                  
-                                  console.log('[EventManagement] ✅ All checks passed, proceeding with approval...');
-                                  
-                                  try {
-                                    // Mettre à jour la demande dans Firestore
-                                    if (isFirestoreRequest) {
-                                      // Utiliser l'ID Firestore si disponible, sinon chercher par code
-                                      let firestoreEventId = event.firestoreId || event.id;
-                                      
-                                      // Si l'ID local ne correspond pas, chercher le Firestore ID par code
-                                      if (firestoreEventId === event.id && event.code) {
-                                        console.log('[EventManagement] 🔍 Looking up Firestore ID by code:', event.code);
-                                        const { findEventByCode } = await import('@/services/api');
-                                        const firestoreEvent = await findEventByCode(event.code);
-                                        if (firestoreEvent && firestoreEvent.id) {
-                                          firestoreEventId = firestoreEvent.id;
-                                          console.log('[EventManagement] ✅ Found Firestore ID:', firestoreEventId);
-                                          // Stocker l'ID Firestore dans l'événement
-                                          const updateEvent = useEventStore.getState().updateEvent;
-                                          updateEvent(event.id, { firestoreId: firestoreEventId });
-                                        }
-                                      }
-                                      
-                                      console.log('[EventManagement] Updating join request in Firestore...');
-                                      console.log('[EventManagement] Parameters:', {
-                                        firestoreEventId,
-                                        localEventId: event.id,
-                                        requestId,
-                                        action: 'approve',
-                                        organizerId: event.organizerId
-                                      });
-                                      
-                                      const result = await updateJoinRequest(firestoreEventId, requestId, 'approve', event.organizerId);
-                                      console.log('[EventManagement] ✅ Join request updated in Firestore:', result);
-                                      
-                                      // Rafraîchir la liste des demandes
-                                      const requests = await getJoinRequests(firestoreEventId, 'pending');
-                                      setFirestoreJoinRequests(requests);
-                                      console.log('[EventManagement] ✅ Join requests refreshed:', requests.length);
-                                    } else {
-                                      console.log('[EventManagement] Accepting local join request...');
-                                      useJoinRequestsStore.getState().acceptRequest(requestId);
+                                    if (!event.code) {
+                                      throw new Error("Code événement manquant, impossible de trouver l'ID Firestore");
                                     }
                                     
-                                    // Calculer le nouvel ID du participant
-                                    const newParticipantId = event.participants?.length 
-                                      ? Math.max(...event.participants.map(p => p.id || 0)) + 1
-                                      : 2;
+                                    try {
+                                      console.log('[EventManagement] 🔍 Looking up Firestore eventId by code:', event.code);
+                                      const { findEventByCode } = await import('@/services/api');
+                                      const firestoreEvent = await findEventByCode(event.code);
+                                      
+                                      if (!firestoreEvent || !firestoreEvent.id) {
+                                        throw new Error(`Événement non trouvé dans Firestore avec le code ${event.code}`);
+                                      }
+                                      
+                                      firestoreEventId = firestoreEvent.id;
+                                      console.log('[EventManagement] ✅ Found Firestore eventId:', firestoreEventId);
+                                      
+                                      // Mettre à jour le store local avec le firestoreId
+                                      if (event.firestoreId !== firestoreEventId) {
+                                        useEventStore.getState().updateEvent(event.id, { firestoreId: firestoreEventId });
+                                      }
+                                    } catch (lookupError) {
+                                      console.error('[EventManagement] ❌ Could not lookup Firestore ID:', lookupError);
+                                      throw new Error(`Impossible de trouver l'événement dans Firestore : ${lookupError.message}`);
+                                    }
                                     
-                                    console.log('[EventManagement] Creating new participant:', {
-                                      id: newParticipantId,
-                                      name: participant.name,
-                                      email: participant.email,
-                                      userId: request.userId || participant.email
+                                    console.log('[EventManagement] 📞 Calling updateJoinRequest...', {
+                                      firestoreEventId,
+                                      requestId,
+                                      action: 'approve',
+                                      organizerId: event.organizerId
                                     });
                                     
-                                    // Créer le nouveau participant
+                                    // APPEL PRINCIPAL : updateJoinRequest met à jour la demande ET ajoute le participant
+                                    console.log('[EventManagement] 🚀 ABOUT TO CALL updateJoinRequest...');
+                                    console.log('[EventManagement] Parameters check:', {
+                                      firestoreEventId: String(firestoreEventId),
+                                      requestId: String(requestId),
+                                      requestIdType: typeof requestId,
+                                      action: 'approve',
+                                      organizerId: String(event.organizerId)
+                                    });
+                                    
+                                    let result;
+                                    try {
+                                      result = await updateJoinRequest(firestoreEventId, requestId, 'approve', event.organizerId);
+                                      console.log('[EventManagement] ✅✅✅ updateJoinRequest SUCCESS ✅✅✅');
+                                      console.log('[EventManagement] Result:', result);
+                                    } catch (updateError) {
+                                      console.error('[EventManagement] ❌❌❌ updateJoinRequest FAILED ❌❌❌');
+                                      console.error('[EventManagement] Error:', updateError);
+                                      console.error('[EventManagement] Error message:', updateError.message);
+                                      console.error('[EventManagement] Error stack:', updateError.stack);
+                                      throw updateError; // Re-throw pour être capturé par le catch externe
+                                    }
+                                    
+                                    // Rafraîchir la liste des demandes (la demande acceptée disparaît)
+                                    const requests = await getJoinRequests(firestoreEventId, 'pending');
+                                    setFirestoreJoinRequests(requests);
+                                    console.log('[EventManagement] ✅ Requests refreshed:', requests.length);
+                                    
+                                    // Synchroniser les participants depuis Firestore
+                                    console.log('[EventManagement] 🔄 Step 9: Syncing participants from Firestore...');
+                                    try {
+                                      const { findEventByCode } = await import('@/services/api');
+                                      console.log('[EventManagement] 🔍 Fetching event from Firestore with code:', event.code);
+                                      const updatedEvent = await findEventByCode(event.code);
+                                      
+                                      console.log('[EventManagement] 📋 Event fetched from Firestore:', {
+                                        eventId: updatedEvent?.id,
+                                        participantsCount: updatedEvent?.participants?.length || 0,
+                                        participants: updatedEvent?.participants
+                                      });
+                                      
+                                      if (updatedEvent?.participants) {
+                                        const syncedParticipants = updatedEvent.participants.map((p, idx) => ({
+                                          ...p,
+                                          id: p.id || `p-${idx + 1}`,
+                                          status: p.approved || p.status === 'confirmed' ? 'confirmed' : 'pending'
+                                        }));
+                                        
+                                        // S'assurer que l'organisateur est toujours dans la liste
+                                        const organizerExists = syncedParticipants.some(p => 
+                                          (p.userId && p.userId.toLowerCase() === event.organizerId?.toLowerCase()) ||
+                                          (p.email && p.email.toLowerCase() === event.organizerId?.toLowerCase()) ||
+                                          p.role === 'organizer' ||
+                                          p.isOrganizer === true
+                                        );
+                                        
+                                        if (!organizerExists && event.organizerId && event.organizerName) {
+                                          console.log('[EventManagement] ⚠️ Organizer not found in synced participants, adding it...');
+                                          const organizerParticipant = {
+                                            id: 'organizer-1',
+                                            userId: event.organizerId,
+                                            name: event.organizerName || 'Organisateur',
+                                            email: event.organizerId,
+                                            role: 'organizer',
+                                            isOrganizer: true,
+                                            status: 'confirmed',
+                                            hasConfirmed: true,
+                                            approved: true
+                                          };
+                                          syncedParticipants.unshift(organizerParticipant); // Ajouter au début
+                                          console.log('[EventManagement] ✅ Organizer added to participants list');
+                                        }
+                                        
+                                        console.log('[EventManagement] 📝 Syncing participants to local store:', {
+                                          eventId: event.id,
+                                          participantsCount: syncedParticipants.length,
+                                          organizerIncluded: organizerExists || !organizerExists,
+                                          participants: syncedParticipants.map(p => ({
+                                            id: p.id,
+                                            name: p.name,
+                                            email: p.email,
+                                            userId: p.userId,
+                                            role: p.role,
+                                            isOrganizer: p.isOrganizer,
+                                            status: p.status
+                                          }))
+                                        });
+                                        
+                                        useEventStore.getState().updateEvent(event.id, { participants: syncedParticipants });
+                                        console.log('[EventManagement] ✅✅✅ Participants synced successfully ✅✅✅');
+                                        console.log('[EventManagement] Local event now has', syncedParticipants.length, 'participants');
+                                      } else {
+                                        console.warn('[EventManagement] ⚠️ No participants in Firestore event');
+                                        // Si aucun participant dans Firestore, s'assurer que l'organisateur est présent
+                                        if (event.organizerId && event.organizerName) {
+                                          const organizerParticipant = {
+                                            id: 'organizer-1',
+                                            userId: event.organizerId,
+                                            name: event.organizerName || 'Organisateur',
+                                            email: event.organizerId,
+                                            role: 'organizer',
+                                            isOrganizer: true,
+                                            status: 'confirmed',
+                                            hasConfirmed: true,
+                                            approved: true
+                                          };
+                                          useEventStore.getState().updateEvent(event.id, { participants: [organizerParticipant] });
+                                          console.log('[EventManagement] ✅ Organizer added as only participant');
+                                        }
+                                      }
+                                    } catch (syncErr) {
+                                      console.error('[EventManagement] ❌ Sync error:', syncErr);
+                                      console.error('[EventManagement] Sync error details:', {
+                                        message: syncErr.message,
+                                        stack: syncErr.stack
+                                      });
+                                    }
+                                    
+                                    toast({
+                                      title: "✅ Participant ajouté",
+                                      description: `${participant.name || 'Le participant'} a été ajouté à l'événement.`
+                                    });
+                                    
+                                  } else {
+                                    // Demande locale
+                                    useJoinRequestsStore.getState().acceptRequest(requestId);
                                     const newParticipant = {
                                       ...participant,
-                                      id: newParticipantId,
+                                      id: event.participants?.length ? Math.max(...event.participants.map(p => p.id || 0)) + 1 : 2,
                                       userId: request.userId || participant.email,
                                       status: 'confirmed',
                                       hasConfirmed: true,
                                       hasPaid: false,
-                                      paidAmount: 0,
-                                      hasAcceptedCharter: false,
-                                      hasValidatedAmount: false,
-                                      hasValidatedDeadline: false
+                                      paidAmount: 0
                                     };
-                                    
-                                    // Ajouter le participant à l'événement
-                                    console.log('[EventManagement] Adding participant to event...');
-                                    const currentParticipants = event.participants || [];
-                                    const updatedParticipants = [...currentParticipants, newParticipant];
-                                    
                                     updateEvent(event.id, {
-                                      participants: updatedParticipants
-                                    });
-                                    
-                                    console.log('[EventManagement] ✅ Participant added to event:', {
-                                      eventId: event.id,
-                                      participantId: newParticipantId,
-                                      totalParticipants: updatedParticipants.length
-                                    });
-                                    
-                                    toast({
-                                      title: "Participant ajouté",
-                                      description: `${participant.name || 'Le participant'} a été ajouté à l'événement.`
-                                    });
-                                    
-                                    // Rafraîchir la liste des demandes après un court délai
-                                    setTimeout(async () => {
-                                      try {
-                                        if (isFirestoreRequest) {
-                                          const refreshedRequests = await getJoinRequests(event.id, 'pending');
-                                          setFirestoreJoinRequests(refreshedRequests);
-                                        }
-                                      } catch (refreshError) {
-                                        console.error('[EventManagement] Error refreshing requests:', refreshError);
-                                      }
-                                    }, 500);
-                                    
-                                  } catch (error) {
-                                    console.error('[EventManagement] ❌ Error approving request:', error);
-                                    console.error('[EventManagement] Error details:', {
-                                      message: error.message,
-                                      name: error.name,
-                                      stack: error.stack
+                                      participants: [...(event.participants || []), newParticipant]
                                     });
                                     toast({
-                                      variant: "destructive",
-                                      title: "Erreur",
-                                      description: `Impossible d'approuver la demande: ${error.message || 'Erreur inconnue'}`
+                                      title: "✅ Participant ajouté",
+                                      description: `${participant.name || 'Le participant'} a été ajouté.`
                                     });
                                   }
-                                } catch (outerError) {
-                                  console.error('[EventManagement] ❌ Outer error in handleAccept:', outerError);
+                                  
+                                  console.log('[EventManagement] ✅✅✅ ACCEPT SUCCESS ✅✅✅');
+                                  
+                                } catch (error) {
+                                  console.error('[EventManagement] ❌❌❌ ACCEPT ERROR ❌❌❌');
+                                  console.error('[EventManagement] Error:', error);
+                                  console.error('[EventManagement] Stack:', error.stack);
                                   toast({
                                     variant: "destructive",
-                                    title: "Erreur",
-                                    description: `Erreur inattendue: ${outerError.message || 'Erreur inconnue'}`
+                                    title: "❌ Erreur",
+                                    description: error.message || 'Erreur inconnue'
                                   });
                                 }
                               };
@@ -2965,8 +3029,22 @@ const handleExportPDF = () => {
                                         variant="outline"
                                         type="button"
                                         disabled={false}
-                                        style={{ pointerEvents: 'auto', zIndex: 10, position: 'relative' }}
-                                        onClick={handleAccept}
+                                        style={{ pointerEvents: 'auto', zIndex: 10, position: 'relative', cursor: 'pointer' }}
+                                        onClick={(e) => {
+                                          console.log('🔘🔘🔘 BUTTON ONCLICK TRIGGERED 🔘🔘🔘');
+                                          console.log('[EventManagement] Request ID:', requestId);
+                                          console.log('[EventManagement] Participant:', participant);
+                                          
+                                          if (e) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                          }
+                                          
+                                          // Appeler handleAccept directement - elle gère tout
+                                          handleAccept(e).catch(err => {
+                                            console.error('[EventManagement] ❌ Unhandled error in handleAccept:', err);
+                                          });
+                                        }}
                                         className="gap-1"
                                       >
                                         <Check className="w-3 h-3" />

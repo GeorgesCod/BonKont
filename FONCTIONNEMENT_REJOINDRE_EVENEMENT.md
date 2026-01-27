@@ -162,25 +162,30 @@ match /events/{eventId} {
 **Processus :**
 
 ```javascript
-// 1. Récupération userId
+// 1. Récupération de l'utilisateur connecté (email)
 const userData = localStorage.getItem('bonkont-user');
-const userId = JSON.parse(userData)?.email || null;
+const authenticatedEmail = JSON.parse(userData)?.email || null;
 
-// 2. Création de la demande via Firestore
+// 2. Détermination de l'identité pour la demande
+// - Pour les événements classiques : email authentifié
+// - Pour certains événements "open" : email saisi dans le formulaire
+const finalEmail = (email || authenticatedEmail || '').trim();
+
+// 3. Création de la demande via Firestore
 const requestResult = await createJoinRequest(event.id, {
-  userId: userId || email || `guest-${nanoid(8)}`,
-  email: email.trim() || '',
+  userId: finalEmail,             // identifiant logique = email
+  email: finalEmail,
   name: pseudo.trim()
 });
 ```
 
-### Étape 7 : Création dans Firestore
+### Étape 7 : Création de la demande dans Firestore
 
 **Fichier :** `src/services/firestoreService.js`
 
 **Fonction :** `createJoinRequest(eventId, participantData)`
 
-**Processus :**
+**Processus (création de la demande uniquement) :**
 
 ```javascript
 // 1. Vérification que l'événement existe
@@ -189,7 +194,7 @@ if (!eventDoc.exists()) {
   throw new Error("L'événement n'existe pas");
 }
 
-// 2. Vérification de doublon
+// 2. Vérification de doublon (même email + statut pending)
 const existingQuery = query(
   joinRequestsRef,
   where('userId', '==', participantData.userId),
@@ -217,7 +222,7 @@ match /events/{eventId}/joinRequests/{requestId} {
 }
 ```
 
-### Étape 8 : Confirmation
+### Étape 8 : Confirmation côté participant
 
 **Affichage :**
 - Message : "Demande envoyée !"
@@ -228,6 +233,128 @@ match /events/{eventId}/joinRequests/{requestId} {
 - Demande créée dans Firestore : `events/{eventId}/joinRequests/{requestId}`
 - Statut : `pending`
 - Stockage local (fallback) : `joinRequestsStore` (Zustand)
+
+### Étape 9 : Validation par l'organisateur et ajout du participant
+
+**Fichier :** `src/services/firestoreService.js`  
+**Fonction :** `updateJoinRequest(eventId, requestId, action, organizerId)`
+
+Quand l'organisateur clique sur **"Accepter"** dans `EventManagement.jsx` :
+
+1. L'UI récupère l'`eventId` Firestore en appelant `findEventByCode(code)` si besoin.
+2. Elle appelle :
+   ```javascript
+   await updateJoinRequest(firestoreEventId, requestId, 'approve', event.organizerId);
+   ```
+3. Dans `updateJoinRequest` (cas `approve`) :
+   ```javascript
+   const participantEmail = (requestData.email || requestData.userId || '')
+     .trim()
+     .toLowerCase();
+
+   const participantDocRef = doc(
+     db,
+     'events',
+     eventId,
+     'participants',
+     participantEmail // 🔑 ID déterministe = email en minuscule
+   );
+
+   const batch = writeBatch(db);
+
+   // 1) Met à jour la demande
+   batch.update(requestDocRef, {
+     status: 'approved',
+     approvedAt: serverTimestamp()
+   });
+
+   // 2) Crée / fusionne le participant
+   batch.set(
+     participantDocRef,
+     {
+       userId: participantEmail,
+       email: participantEmail,
+       name: requestData.name || 'Participant',
+       role: 'participant',
+       joinedAt: serverTimestamp(),
+       approved: true,
+       status: 'confirmed',
+       fromRequestId: requestId
+     },
+     { merge: true }
+   );
+
+   await batch.commit();
+   ```
+4. Résultat :
+   - La demande passe de `pending` → `approved`.
+   - Un document participant est créé / mis à jour à l'adresse :  
+     `events/{eventId}/participants/{emailEnMinuscules}`.
+
+### Étape 10 : Accès automatique côté participant
+
+**Idée clé :**  
+Un participant est **officiellement accepté** si **et seulement si** le document suivant existe :
+
+```text
+events/{eventId}/participants/{emailEnMinuscules}
+```
+
+**Fonction service :** `checkParticipantAccess(eventId, email)`
+
+```javascript
+export async function checkParticipantAccess(eventId, email) {
+  if (!eventId || !email) return false;
+
+  const participantId = email.trim().toLowerCase();
+  const participantRef = doc(
+    db,
+    'events',
+    eventId,
+    'participants',
+    participantId
+  );
+
+  const snap = await getDoc(participantRef);
+  return snap.exists(); // ✅ true = accès accordé
+}
+```
+
+**Dans `EventJoin.jsx` (écran "demande en attente") :**
+
+```javascript
+// Tant que la demande est en attente, on vérifie périodiquement
+useEffect(() => {
+  let intervalId;
+  let cancelled = false;
+
+  const startAccessCheck = () => {
+    const baseEmail = (email || currentUserId || '').trim();
+    if (!event?.id || !baseEmail) return;
+
+    intervalId = setInterval(async () => {
+      if (cancelled) return;
+
+      const allowed = await checkParticipantAccess(event.id, baseEmail);
+      if (allowed) {
+        // Toast + redirection vers l'événement
+        window.location.hash = `#event/${event.id}`;
+      }
+    }, 5000);
+  };
+
+  if (status === 'pending') {
+    startAccessCheck();
+  }
+
+  return () => {
+    cancelled = true;
+    if (intervalId) clearInterval(intervalId);
+  };
+}, [status, event?.id, email, currentUserId]);
+```
+
+Ainsi, dès que l'organisateur clique sur **"Accepter"** et que le participant est créé dans Firestore, le participant est automatiquement redirigé vers l'événement, sans rechargement manuel.
 
 ---
 
@@ -310,12 +437,15 @@ allow create: if request.auth != null ||
 
 ```javascript
 {
-  userId: "user@email.com",
+  // 🔑 ID du document = emailEnMinuscules (ex: "marie.martin@gmail.com")
+  userId: "marie.martin@gmail.com",
   name: "Marie Martin",
-  email: "user@email.com",
+  email: "marie.martin@gmail.com",
   role: "participant",       // participant | organizer
   joinedAt: Timestamp,
-  approved: true
+  approved: true,
+  status: "confirmed",
+  fromRequestId: "SVGDF9N9t4b1Wti9r9lq"
 }
 ```
 
@@ -472,6 +602,9 @@ npm run dev
 ---
 
 **✅ La logique "Rejoindre l'événement" est fonctionnelle et prête à être utilisée !**
+
+
+
 
 
 

@@ -498,7 +498,7 @@ export function EventCreation({ onEventCreated, onClose }) {
           hasAcceptedCharter: true,
           status: p.isOrganizer ? 'confirmed' : 'pending' // L'organisateur est confirmé, les autres en attente
         })),
-        status: 'draft', // Événement en brouillon jusqu'au démarrage officiel
+        status: 'active', // Événement actif dès la création
         totalPaid: 0
       };
 
@@ -508,16 +508,20 @@ export function EventCreation({ onEventCreated, onClose }) {
       let firestoreEventId = null;
       try {
         console.log('[EventCreation] Creating event in Firestore...');
+        // IMPORTANT: Le code événement est lié à l'organisateur via organizerId dans Firestore
+        // L'organisateur est automatiquement ajouté comme participant dans Firestore
         const firestoreResult = await createEventAPI({
           ...newEvent,
           startDate: start.toISOString().split('T')[0], // Format YYYY-MM-DD
-          endDate: end.toISOString().split('T')[0]
+          endDate: end.toISOString().split('T')[0],
+          organizerEmail: participants.find(p => p.isOrganizer)?.email || organizerId // Transmettre l'email de l'organisateur
         });
         firestoreEventId = firestoreResult.eventId;
         console.log('[EventCreation] ✅ Event created in Firestore, eventId:', firestoreEventId);
         
         // Mettre à jour l'ID de l'événement local avec l'ID Firestore
         newEvent.id = firestoreEventId;
+        newEvent.firestoreId = firestoreEventId;
       } catch (error) {
         console.error('[EventCreation] ⚠️ Error creating event in Firestore:', error);
         // Continuer quand même avec le store local (fallback)
@@ -528,10 +532,46 @@ export function EventCreation({ onEventCreated, onClose }) {
         });
       }
       
-      // Ajouter aussi au store local pour compatibilité
+      // Toujours ajouter au store local pour que l'événement soit disponible immédiatement
       console.log('[EventCreation] Adding event to local store...');
-      const eventId = firestoreEventId || addEvent(newEvent);
+      console.log('[EventCreation] Event data before adding:', { 
+        id: newEvent.id, 
+        firestoreId: firestoreEventId, 
+        title: newEvent.title,
+        status: newEvent.status,
+        code: newEvent.code
+      });
+      
+      // S'assurer que l'ID est bien défini avant d'ajouter
+      if (!newEvent.id && firestoreEventId) {
+        newEvent.id = firestoreEventId;
+      }
+      
+      const eventId = addEvent(newEvent);
       console.log('[EventCreation] ✅ Event added to local store successfully, eventId:', eventId);
+      
+      // Vérifier que l'événement est bien dans le store
+      const events = useEventStore.getState().events;
+      const eventInStore = events.find(e => 
+        String(e.id) === String(eventId) || 
+        String(e.id) === String(firestoreEventId) ||
+        String(e.firestoreId) === String(firestoreEventId)
+      );
+      console.log('[EventCreation] Event verification:', {
+        eventId,
+        firestoreEventId,
+        eventInStore: !!eventInStore,
+        eventsCount: events.length,
+        eventTitle: eventInStore?.title,
+        eventStatus: eventInStore?.status,
+        eventCode: eventInStore?.code,
+        allEventIds: events.map(e => ({ id: e.id, firestoreId: e.firestoreId, code: e.code, status: e.status }))
+      });
+      
+      if (!eventInStore) {
+        console.error('[EventCreation] ❌ Event not found in store after adding!');
+        console.error('[EventCreation] This is a critical error - event may not appear in dashboard');
+      }
 
       // Effet de confetti
       confetti({
@@ -574,8 +614,38 @@ export function EventCreation({ onEventCreated, onClose }) {
         <div className="flex flex-col sm:flex-row gap-2">
           <Button
             onClick={() => {
-              window.location.hash = `#event/${createdEventId}`;
-              window.dispatchEvent(new HashChangeEvent('hashchange'));
+              console.log('[EventCreation] Gérer les participants clicked, eventId:', createdEventId);
+              
+              // Vérifier que l'événement est dans le store
+              const events = useEventStore.getState().events;
+              const eventExists = events.some(e => String(e.id) === String(createdEventId));
+              console.log('[EventCreation] Event check before navigation:', {
+                eventId: createdEventId,
+                eventExists,
+                eventsCount: events.length,
+                availableIds: events.map(e => e.id)
+              });
+              
+              if (eventExists) {
+                // Naviguer vers l'événement
+                window.location.hash = `#event/${createdEventId}`;
+                // Forcer le re-render
+                setTimeout(() => {
+                  window.dispatchEvent(new HashChangeEvent('hashchange'));
+                }, 100);
+                
+                // Fermer le formulaire de création
+                if (onClose) {
+                  onClose();
+                }
+              } else {
+                console.error('[EventCreation] Event not found in store, cannot navigate');
+                toast({
+                  variant: "destructive",
+                  title: "Erreur",
+                  description: "L'événement n'a pas été trouvé. Veuillez rafraîchir la page."
+                });
+              }
             }}
             className="gap-2 button-glow"
           >
@@ -585,6 +655,7 @@ export function EventCreation({ onEventCreated, onClose }) {
           <Button
             variant="outline"
             onClick={() => {
+              console.log('[EventCreation] Terminé clicked');
               setShowShareCode(false);
               setCreatedEventId(null);
               // Réinitialiser le formulaire
@@ -601,8 +672,13 @@ export function EventCreation({ onEventCreated, onClose }) {
               setEventCode(generateEventCode());
               setLocation(null);
               setCharterAccepted(false);
+              
+              // Fermer le formulaire et retourner au dashboard
               if (onEventCreated) {
                 onEventCreated(createdEventId);
+              }
+              if (onClose) {
+                onClose();
               }
             }}
             className="neon-border"
@@ -627,7 +703,7 @@ export function EventCreation({ onEventCreated, onClose }) {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0">
+    <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0 pb-24 sm:pb-8">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
         <div className="flex-1">
           <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text">Créer un événement</h2>
