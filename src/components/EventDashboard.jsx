@@ -49,7 +49,6 @@ export function EventDashboard({ onShowHistory }) {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [showCodeAlert, setShowCodeAlert] = useState({});
   const [paymentMethod, setPaymentMethod] = useState('card');
   const [savedCards, setSavedCards] = useState([
     { id: 'card1', last4: '4242', brand: 'Visa', expiryMonth: '12', expiryYear: '2025' }
@@ -250,34 +249,6 @@ export function EventDashboard({ onShowHistory }) {
     }
   }, [events, filteredEvents, activeTab]);
 
-  // Afficher automatiquement la bulle d'alerte pour les événements actifs après 2 secondes
-  useEffect(() => {
-    const activeEvents = filteredEvents.filter(e => e.status === 'active');
-    const timers = [];
-    
-    activeEvents.forEach(event => {
-      // Vérifier si l'alerte n'a pas déjà été fermée pour cet événement
-      const alertKey = `code-alert-${event.id}`;
-      const wasDismissed = localStorage.getItem(alertKey) === 'true';
-      
-      if (!wasDismissed && !showCodeAlert[event.id]) {
-        const timer = setTimeout(() => {
-          setShowCodeAlert(prev => ({ ...prev, [event.id]: true }));
-        }, 2000);
-        timers.push(timer);
-      }
-    });
-    
-    return () => {
-      timers.forEach(timer => clearTimeout(timer));
-    };
-  }, [filteredEvents, showCodeAlert]);
-
-  // Sauvegarder l'état de fermeture de l'alerte dans localStorage
-  const handleDismissAlert = (eventId) => {
-    setShowCodeAlert(prev => ({ ...prev, [eventId]: false }));
-    localStorage.setItem(`code-alert-${eventId}`, 'true');
-  };
 
   const handleSendReminder = (eventId) => {
     console.log('[EventDashboard] Opening reminder dialog for event:', eventId);
@@ -594,7 +565,16 @@ setPaymentMethod('card');
       return acc + (score / 3);
     }, 0) / event.participants.length * 100;
 
-    const paymentProgress = (event.totalPaid / event.amount) * 100;
+    // ✅ Calcul sécurisé du pourcentage de paiement
+    const totalPaid = event.totalPaid || 0;
+    const amount = event.amount || 0;
+    
+    let paymentProgress = 0;
+    if (amount > 0) {
+      paymentProgress = (totalPaid / amount) * 100;
+      // S'assurer que le résultat est entre 0 et 100
+      paymentProgress = Math.min(100, Math.max(0, paymentProgress));
+    }
 
     return {
       validation: validationProgress,
@@ -623,7 +603,7 @@ setPaymentMethod('card');
   });
 
   return (
-    <div className="space-y-6" style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
+    <div className="space-y-6" style={{ WebkitOverflowScrolling: 'touch' }}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
         <div className="flex items-center gap-3 flex-1">
           <Button
@@ -768,7 +748,6 @@ setPaymentMethod('card');
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            handleDismissAlert(event.id);
                             console.log('[EventDashboard] Badge code clicked:', { 
                               eventId: event?.id, 
                               eventCode: event?.code,
@@ -798,7 +777,6 @@ setPaymentMethod('card');
                               e.preventDefault();
                               e.stopPropagation();
                               if (!event?.id) return;
-                              handleDismissAlert(event.id);
                               window.location.hash = `#event/${event.id}`;
                               setTimeout(() => {
                                 window.dispatchEvent(new HashChangeEvent('hashchange'));
@@ -817,34 +795,6 @@ setPaymentMethod('card');
                             )}
                           </span>
                         </Badge>
-                        
-                        {/* Bulle d'alerte incitant à cliquer */}
-                        {showCodeAlert[event.id] !== false && (
-                          <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 z-50 animate-fade-in-up">
-                            <div className="bg-primary text-primary-foreground px-4 py-2 rounded-lg shadow-lg border border-primary/20 relative min-w-[200px] max-w-[280px] animate-bounce-gentle">
-                              <div className="flex items-center gap-2">
-                                <Sparkles className="w-4 h-4 animate-pulse" />
-                                <p className="text-sm font-medium">
-                                  Cliquez pour accéder aux fonctionnalités
-                                </p>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDismissAlert(event.id);
-                                  }}
-                                  className="ml-auto hover:bg-primary-foreground/20 rounded p-1 transition-colors"
-                                  aria-label="Fermer"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              </div>
-                              {/* Flèche pointant vers le badge */}
-                              <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
-                                <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-primary"></div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
                       </div>
 
                     </div>
@@ -879,9 +829,11 @@ setPaymentMethod('card');
                         <Euro className="w-5 h-5 text-primary" />
                         <h4 className="font-medium">Paiements</h4>
                       </div>
-                      <span className="text-sm">{progress.payment.toFixed(0)}%</span>
+                      <span className="text-sm">
+                        {isNaN(progress.payment) ? '0' : progress.payment.toFixed(0)}%
+                      </span>
                     </div>
-                    <Progress value={progress.payment} className="h-2" />
+                    <Progress value={isNaN(progress.payment) ? 0 : progress.payment} className="h-2" />
                   </div>
 
                   <div className="p-4 rounded-lg neon-border space-y-2">

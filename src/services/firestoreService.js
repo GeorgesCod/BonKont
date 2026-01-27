@@ -118,6 +118,11 @@ export async function findEventByCode(code) {
 
     console.log('[Firestore] 👥 Participants found:', participants.length);
 
+    // Calculer totalPaid à partir des participants
+    const totalPaid = participants.reduce((sum, p) => {
+      return sum + (parseFloat(p.paidAmount) || 0);
+    }, 0);
+
     // Formater la réponse selon le format attendu par le frontend
     const event = {
       id: eventDoc.id,
@@ -128,6 +133,7 @@ export async function findEventByCode(code) {
       startDate: eventData.startDate,
       endDate: eventData.endDate,
       amount: (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1),
+      totalPaid: totalPaid,
       deadline: eventData.deadline || 30,
       currency: eventData.currency || 'EUR',
       organizerId: eventData.organizerId,
@@ -853,6 +859,11 @@ export async function getEventsByOrganizer(organizerId) {
         console.log('[Firestore] ✅ Organizer added to participants list');
       }
       
+      // Calculer totalPaid à partir des participants
+      const totalPaid = participants.reduce((sum, p) => {
+        return sum + (parseFloat(p.paidAmount) || 0);
+      }, 0);
+
       events.push({
         id: docSnap.id,
         firestoreId: docSnap.id,
@@ -863,6 +874,7 @@ export async function getEventsByOrganizer(organizerId) {
         startDate: eventData.startDate,
         endDate: eventData.endDate,
         amount: (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1),
+        totalPaid: totalPaid,
         deadline: eventData.deadline || 30,
         currency: eventData.currency || 'EUR',
         organizerId: eventData.organizerId,

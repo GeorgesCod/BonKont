@@ -607,47 +607,56 @@ export default function App() {
   };
 
   return (
-     <div className="h-screen flex flex-col bg-background text-foreground" style={{ touchAction: 'pan-y' }}>
-       <header className="fixed top-0 left-0 right-0 py-3 sm:py-6 border-b border-border/50 backdrop-blur-sm bg-background z-50 safe-top w-full">
+     <div className="min-h-screen flex flex-col bg-background text-foreground" style={{ touchAction: 'pan-y', overflow: 'visible' }}>
+       <header className="fixed top-0 left-0 right-0 py-2 sm:py-3 border-b border-border/50 backdrop-blur-sm bg-background z-50 safe-top w-full">
         <div className="container mx-auto px-3 sm:px-4 max-w-full">
           <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              <Wallet2 className="w-6 h-6 sm:w-8 sm:h-8 text-primary hover-glow flex-shrink-0" />
+              <Wallet2 className="w-5 h-5 sm:w-6 sm:h-6 text-primary hover-glow flex-shrink-0" />
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-2xl lg:text-3xl font-bold neon-glow bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary truncate">
+                <h1 className="text-base sm:text-xl lg:text-2xl font-bold neon-glow bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary truncate">
                   BONKONT
                 </h1>
-                <p className="text-xs sm:text-sm text-muted-foreground italic hidden sm:block">
+                <p className="text-[10px] sm:text-xs text-muted-foreground italic hidden sm:block">
                   Les bons comptes font les bons amis
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-4 flex-shrink-0">
-              {/* Bouton "Rejoindre un évènement" - TOUJOURS visible */}
-              <Button
-                variant="outline"
-                className="neon-border gap-2 min-h-[44px] px-3 sm:px-4 border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground"
-                onClick={() => {
-                  console.log('[App] ===== JOIN EVENT BUTTON CLICKED =====');
-                  console.log('[App] Current view before:', currentView);
-                  console.log('[App] Setting hash to: #/join');
-                  window.location.hash = '#/join';
-                  setCurrentView('join');
-                  console.log('[App] Current view after setState:', currentView);
-                  console.log('[App] Hash after setState:', window.location.hash);
-                }}
-                title="Rejoindre un évènement"
-              >
-                <UserPlus className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span className="hidden sm:inline">Rejoindre</span>
-              </Button>
+              {/* Masquer "Rejoindre" dans le header quand on est sur une page d'événement (il est dans EventManagement) et sur mobile */}
+              {currentView !== 'event' && (
+                <div className="hidden sm:block">
+                  <Button
+                    variant="outline"
+                    className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground text-sm"
+                    onClick={() => {
+                      console.log('[App] ===== JOIN EVENT BUTTON CLICKED =====');
+                      console.log('[App] Current view before:', currentView);
+                      console.log('[App] Setting hash to: #/join');
+                      window.location.hash = '#/join';
+                      setCurrentView('join');
+                      console.log('[App] Current view after setState:', currentView);
+                      console.log('[App] Hash after setState:', window.location.hash);
+                    }}
+                    title="Rejoindre un évènement"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span className="hidden sm:inline">Rejoindre</span>
+                  </Button>
+                </div>
+              )}
               
               {!isLoggedIn ? (
                 <>
-                  <InviteFriends eventCode={selectedEventId ? (() => {
-                    const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
-                    return event?.code;
-                  })() : null} />
+                  {/* Masquer "Inviter des amis" dans le header quand on est sur une page d'événement (il est dans EventManagement) et sur mobile */}
+                  {currentView !== 'event' && (
+                    <div className="hidden sm:block">
+                      <InviteFriends eventCode={selectedEventId ? (() => {
+                        const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
+                        return event?.code;
+                      })() : null} />
+                    </div>
+                  )}
                   {/* 
                     En page d'accueil (currentView === 'dashboard'), 
                     on n'affiche PAS le bouton de connexion dans le header
@@ -656,10 +665,10 @@ export default function App() {
                   {currentView !== 'dashboard' && (
                     <Button
                       variant="outline"
-                      className="neon-border gap-2 min-h-[44px] px-3 sm:px-4"
+                      className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 text-sm"
                       onClick={() => setIsAuthOpen(true)}
                     >
-                      <LogIn className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <LogIn className="w-4 h-4" />
                       <span className="hidden sm:inline">Connexion</span>
                     </Button>
                   )}
@@ -667,18 +676,23 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <InviteFriends eventCode={selectedEventId ? (() => {
-                    const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
-                    return event?.code;
-                  })() : null} />
+                  {/* Masquer "Inviter des amis" dans le header quand on est sur une page d'événement (il est dans EventManagement) et sur mobile */}
+                  {currentView !== 'event' && (
+                    <div className="hidden sm:block">
+                      <InviteFriends eventCode={selectedEventId ? (() => {
+                        const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
+                        return event?.code;
+                      })() : null} />
+                    </div>
+                  )}
                   <Button
                     variant="outline"
                     size="icon"
-                    className="neon-border min-h-[44px] min-w-[44px]"
+                    className="neon-border h-9 w-9"
                     onClick={() => setIsSettingsOpen(true)}
                     title="Paramètres"
                   >
-                    <Settings className="w-5 h-5 sm:w-6 sm:h-6" />
+                    <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
                   </Button>
                   <ThemeToggle />
                 </>
@@ -688,7 +702,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full overflow-y-auto pb-24 pt-20 sm:pt-24" style={{ minHeight: 'calc(100vh - 80px)', marginTop: '80px' }}>
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full pb-32 pt-16 sm:pt-20" style={{ marginTop: '70px', overflow: 'visible', position: 'relative' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
           {(() => {
             console.log('[App] ===== RENDERING MAIN CONTENT =====');
@@ -1061,16 +1075,16 @@ export default function App() {
       <ScrollToTop />
 
       {/* Footer avec liens vers les pages publiques */}
-      <footer className="fixed bottom-0 left-0 right-0 border-t border-border/50 py-6 bg-background z-50">
-        <div className="container mx-auto px-3 sm:px-4 max-w-4xl">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6">
+      <footer className="border-t border-border/50 py-2 sm:py-3 bg-background mt-auto">
+        <div className="container mx-auto px-2 sm:px-4 max-w-4xl">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
               <button
                 onClick={() => {
                   setCurrentView('privacy');
                   window.location.hash = '#/privacy';
                 }}
-                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline text-xs sm:text-sm"
               >
                 {t('privacyPolicyShort')}
               </button>
@@ -1079,7 +1093,7 @@ export default function App() {
                   setCurrentView('terms');
                   window.location.hash = '#/terms';
                 }}
-                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline text-xs sm:text-sm"
               >
                 {t('termsOfServiceShort')}
               </button>
@@ -1088,7 +1102,7 @@ export default function App() {
                   setCurrentView('faq');
                   window.location.hash = '#/faq';
                 }}
-                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline text-xs sm:text-sm"
               >
                 {t('faqShort')}
               </button>
@@ -1097,12 +1111,12 @@ export default function App() {
                   setCurrentView('contact');
                   window.location.hash = '#/contact';
                 }}
-                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline text-xs sm:text-sm"
               >
                 {t('contact')}
               </button>
             </div>
-            <p className="text-xs italic text-center sm:text-right">
+            <p className="text-[10px] sm:text-xs italic text-center sm:text-right mt-1 sm:mt-0">
               {t('taglineFooter')}
             </p>
           </div>

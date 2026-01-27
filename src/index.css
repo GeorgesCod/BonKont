@@ -52,19 +52,31 @@
     @apply border-border;
   }
   
+  /* S'assurer que #root permet le scroll */
+  #root {
+    width: 100%;
+    min-height: 100%;
+    height: auto;
+    overflow: visible;
+    position: relative;
+  }
+  
   /* Empêcher le scroll horizontal global */
   html {
     overflow-x: hidden;
     overflow-y: auto; /* Permet le scroll vertical */
     width: 100%;
     max-width: 100vw;
-    height: 100%; /* Permet au html de prendre toute la hauteur */
+    height: auto; /* Permet au html de grandir avec le contenu */
+    min-height: 100%;
   }
 
   html, body {
     position: relative;
     overflow-x: hidden;
-    overflow-y: auto; /* Permet le scroll vertical sur html et body */
+    overflow-y: auto !important; /* Permet le scroll vertical sur html et body - FORCE */
+    height: auto;
+    min-height: 100%;
   }
   
   body {

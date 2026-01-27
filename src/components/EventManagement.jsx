@@ -36,7 +36,8 @@ import {
   Plus,
   Mail,
   RotateCcw,
-  Loader2
+  Loader2,
+  UserPlus
 } from 'lucide-react';
 import {
   Tooltip,
@@ -46,6 +47,7 @@ import {
 } from '@/components/ui/tooltip';
 import { EventLocation } from '@/components/EventLocation';
 import { EventTicketScanner } from '@/components/EventTicketScanner';
+import { InviteFriends } from '@/components/InviteFriends';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -2254,15 +2256,35 @@ const handleExportPDF = () => {
 
   return (
     <div className="space-y-6">
-      {/* Bouton retour au tableau de bord */}
-      <Button 
-        variant="outline" 
-        onClick={onBack} 
-        className="gap-2 min-h-[44px] w-full sm:w-auto touch-manipulation"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Retour au tableau de bord
-      </Button>
+      {/* Boutons retour, rejoindre et inviter */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+        <Button 
+          variant="outline" 
+          onClick={onBack} 
+          className="gap-2 min-h-[44px] w-full sm:w-auto touch-manipulation"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Retour au tableau de bord
+        </Button>
+        <Button
+          variant="outline"
+          className="neon-border gap-2 min-h-[44px] w-full sm:w-auto border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground touch-manipulation"
+          onClick={() => {
+            console.log('[EventManagement] ===== JOIN EVENT BUTTON CLICKED =====');
+            window.location.hash = '#/join';
+            setTimeout(() => {
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
+            }, 100);
+          }}
+          title="Rejoindre un évènement"
+        >
+          <UserPlus className="w-4 h-4" />
+          <span className="hidden sm:inline">Rejoindre</span>
+        </Button>
+        {event?.code && (
+          <InviteFriends eventCode={event.code} />
+        )}
+      </div>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">

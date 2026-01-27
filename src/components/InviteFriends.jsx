@@ -201,7 +201,7 @@ export function InviteFriends({ eventCode: propEventCode }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2 neon-border">
+        <Button variant="outline" className="gap-2 neon-border min-h-[44px] w-full sm:w-auto touch-manipulation">
           <Users className="w-4 h-4" />
           Inviter des amis
         </Button>
