@@ -606,91 +606,9 @@ setPaymentMethod('card');
     <div className="space-y-6" style={{ WebkitOverflowScrolling: 'touch' }}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
         <div className="flex items-center gap-3 flex-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              console.log('[EventDashboard] Return to home clicked');
-              console.log('[EventDashboard] Current hash:', window.location.hash);
-              // Toujours changer le hash pour déclencher la navigation
-              window.location.hash = '#';
-              // Forcer le hashchange après un court délai
-              setTimeout(() => {
-                window.location.hash = '';
-                window.dispatchEvent(new HashChangeEvent('hashchange'));
-              }, 10);
-            }}
-            className="neon-border min-h-[44px] min-w-[44px] touch-manipulation"
-            title="Retour à l'accueil"
-            style={{ touchAction: 'manipulation' }}
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
           <h2 className="text-xl sm:text-2xl font-bold gradient-text">Tableau de bord</h2>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            className="gap-2 neon-border min-h-[44px] touch-manipulation"
-            onClick={async (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              console.log('[EventDashboard] 🔄 Manual sync button clicked');
-              
-              const userData = localStorage.getItem('bonkont-user');
-              if (!userData) {
-                toast({
-                  variant: "destructive",
-                  title: "Erreur",
-                  description: "Vous devez être connecté pour synchroniser"
-                });
-                return;
-              }
-              
-              try {
-                const user = JSON.parse(userData);
-                const organizerId = user.email || null;
-                if (!organizerId) return;
-                
-                const { getEventsByOrganizer } = await import('@/services/api');
-                const firestoreEvents = await getEventsByOrganizer(organizerId);
-                
-                const currentEvents = useEventStore.getState().events;
-                let addedCount = 0;
-                
-                for (const firestoreEvent of firestoreEvents) {
-                  const exists = currentEvents.some(e => 
-                    String(e.id) === String(firestoreEvent.id) || 
-                    String(e.firestoreId) === String(firestoreEvent.id) ||
-                    (e.code && firestoreEvent.code && e.code.toUpperCase().replace(/[^A-Z]/g, '') === firestoreEvent.code.toUpperCase().replace(/[^A-Z]/g, ''))
-                  );
-                  
-                  if (!exists) {
-                    addEvent(firestoreEvent);
-                    addedCount++;
-                  }
-                }
-                
-                toast({
-                  title: "Synchronisation terminée",
-                  description: addedCount > 0 ? `${addedCount} événement(s) ajouté(s)` : "Tous les événements sont à jour"
-                });
-              } catch (error) {
-                console.error('[EventDashboard] ❌ Error in manual sync:', error);
-                toast({
-                  variant: "destructive",
-                  title: "Erreur",
-                  description: "Erreur lors de la synchronisation"
-                });
-              }
-            }}
-            style={{ touchAction: 'manipulation' }}
-          >
-            <ArrowRight className="w-4 h-4" />
-            <span className="text-xs sm:text-sm">Synchroniser</span>
-          </Button>
           <Button 
             variant="outline" 
             className="gap-2 neon-border w-full sm:w-auto min-h-[44px] touch-manipulation"

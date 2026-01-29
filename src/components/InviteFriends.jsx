@@ -17,17 +17,21 @@ import { useEventStore } from '@/store/eventStore';
 import { Mail, Share2, Copy, MessageSquare, Users, QrCode } from 'lucide-react';
 
 export function InviteFriends({ eventCode: propEventCode }) {
+  console.log('[InviteFriends] Component rendered with propEventCode:', propEventCode);
   const { toast } = useToast();
   const events = useEventStore((state) => state.events);
   const [emails, setEmails] = useState('');
   const [message, setMessage] = useState(
     `Rejoignez-moi sur BONKONT, l'application qui simplifie le partage des dépenses entre amis !`
   );
-  const [currentEventCode, setCurrentEventCode] = useState(propEventCode || null);
+  // ✅ Utiliser directement propEventCode - pas de logique complexe
+  const currentEventCode = propEventCode || null;
+  console.log('[InviteFriends] currentEventCode:', currentEventCode, 'propEventCode:', propEventCode);
 
   // URL de production pour le QR code - toujours accessible depuis mobile
   const productionUrl = 'https://bonkont-48a2c.web.app';
   const joinUrl = currentEventCode ? `${productionUrl}/#/join/${currentEventCode}` : `${productionUrl}/#/join`;
+  console.log('[InviteFriends] joinUrl:', joinUrl, 'willShowQR:', !!currentEventCode);
   
   // Mettre à jour le message avec le lien quand le code change
   useEffect(() => {
@@ -39,57 +43,6 @@ export function InviteFriends({ eventCode: propEventCode }) {
       setMessage(baseMessage);
     }
   }, [currentEventCode, joinUrl]);
-
-  // Récupérer le code depuis l'URL ou le store si non fourni en prop
-  useEffect(() => {
-    const updateEventCode = () => {
-      if (propEventCode) {
-        setCurrentEventCode(propEventCode);
-        return;
-      }
-
-      // Essayer de récupérer depuis l'URL hash
-      const hash = window.location.hash;
-      const eventMatch = hash.match(/#\/event\/([A-Z0-9-]+)/);
-      if (eventMatch) {
-        const eventId = eventMatch[1];
-        const event = events.find(e => e.id === eventId);
-        if (event?.code) {
-          setCurrentEventCode(event.code);
-          return;
-        }
-      }
-
-      // Si on est sur la page de gestion d'un événement, essayer de trouver le dernier événement ouvert
-      if (events.length > 0 && hash.includes('#/event/')) {
-        const eventId = hash.split('#/event/')[1]?.split('/')[0];
-        if (eventId) {
-          const event = events.find(e => e.id === eventId);
-          if (event?.code) {
-            setCurrentEventCode(event.code);
-            return;
-          }
-        }
-      }
-
-      // Sinon, utiliser le premier événement disponible (pour le dashboard)
-      if (events.length > 0) {
-        const firstEvent = events[0];
-        if (firstEvent?.code) {
-          setCurrentEventCode(firstEvent.code);
-        }
-      } else {
-        // Pas d'événements disponibles
-        setCurrentEventCode(null);
-      }
-    };
-
-    updateEventCode();
-
-    // Écouter les changements de hash
-    window.addEventListener('hashchange', updateEventCode);
-    return () => window.removeEventListener('hashchange', updateEventCode);
-  }, [propEventCode, events]);
 
   const handleSendInvitations = async () => {
     const emailList = emails.split(',').map(email => email.trim()).filter(email => email.length > 0);

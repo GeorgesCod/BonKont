@@ -3,6 +3,8 @@ import { useEventStore } from '@/store/eventStore';
 import { useTransactionsStore } from '@/store/transactionsStore';
 import { useJoinRequestsStore } from '@/store/joinRequestsStore';
 import { getJoinRequests, updateJoinRequest } from '@/services/api';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db, convertFirestoreDate } from '@/lib/firebase';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -73,11 +75,15 @@ export function EventManagement({ eventId, onBack }) {
   const updateEvent = useEventStore((state) => state.updateEvent);
   console.log('[EventManagement] All events:', allEvents.map(e => ({ id: e.id, title: e.title })));
   
+  // ✅ Utiliser directement le store pour forcer les mises à jour
   const event = allEvents.find(e => {
     const match = String(e.id) === String(eventId);
-    if (match) console.log('[EventManagement] Event matched:', { eventId, foundId: e.id, title: e.title });
+    if (match) console.log('[EventManagement] Event matched:', { eventId, foundId: e.id, title: e.title, participantsCount: e.participants?.length });
     return match;
   });
+  
+  // ✅ Forcer le re-render après synchronisation en utilisant un état local
+  const [syncTrigger, setSyncTrigger] = useState(0);
   
   const transactionsStore = useTransactionsStore();
   const transactions = transactionsStore.getTransactionsByEvent(eventId);
@@ -102,6 +108,7 @@ export function EventManagement({ eventId, onBack }) {
   const [showBonkontRule, setShowBonkontRule] = useState(true);
   const [firestoreJoinRequests, setFirestoreJoinRequests] = useState([]);
   const [loadingJoinRequests, setLoadingJoinRequests] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   // Ouvrir la section participants par défaut pour les organisateurs
   const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
   const currentUserIdForAccordion = userData ? (() => {
@@ -160,9 +167,11 @@ export function EventManagement({ eventId, onBack }) {
   const currentUserId = currentUserIdForAccordion;
   const isOrganizer = isOrganizerForAccordion;
 
-  // Définir participants avant de l'utiliser
-  const participants = Array.isArray(event.participants) ? event.participants : [];
-
+  // ✅ Utiliser syncTrigger pour forcer le re-render après synchronisation
+  // Cela garantit que les participants sont bien mis à jour après la sync
+  // Recalculer participants à chaque render pour prendre en compte les mises à jour du store
+  const participants = Array.isArray(event?.participants) ? event.participants : [];
+  
   // Séparer les participants par statut (Confirmés / En attente / Refusés)
   // Pour la compatibilité avec les événements existants : si pas de status, considérer comme confirmé
   const confirmedParticipants = participants.filter(p => {
@@ -180,7 +189,7 @@ export function EventManagement({ eventId, onBack }) {
   const pendingParticipants = participants.filter(p => p.status === 'pending' && !p.hasConfirmed && !p.isOrganizer);
   const rejectedParticipants = participants.filter(p => p.status === 'rejected');
   
-  console.log('[EventManagement] Participants status:', {
+  console.log('[EventManagement] Participants status (syncTrigger:', syncTrigger, '):', {
     total: participants.length,
     confirmed: confirmedParticipants.length,
     pending: pendingParticipants.length,
@@ -876,6 +885,145 @@ export function EventManagement({ eventId, onBack }) {
     };
   }, [event?.id, event?.code, isOrganizer, currentUserId]);
 
+  // ✅ Forcer le re-render après synchronisation
+  useEffect(() => {
+    if (syncTrigger > 0) {
+      console.log('[EventManagement] 🔄 Sync trigger activated, forcing re-render. Participants count:', event?.participants?.length);
+      // Le re-render se fera automatiquement car event vient du store Zustand
+    }
+  }, [syncTrigger, event?.participants?.length]);
+
+  // ✅ Écouter en temps réel les participants depuis Firestore
+  // Pour que la liste se mette à jour automatiquement quand un participant est ajouté
+  useEffect(() => {
+    if (!event?.id || !event?.code) {
+      return;
+    }
+
+    let unsubscribeFn = null;
+
+    // Trouver l'ID Firestore réel de l'événement et configurer le listener
+    const setupParticipantsListener = async () => {
+      try {
+        const { findEventByCode } = await import('@/services/api');
+        const firestoreEvent = await findEventByCode(event.code);
+        
+        if (!firestoreEvent || !firestoreEvent.id) {
+          console.log('[EventManagement] ⚠️ Cannot setup participants listener: Firestore event not found');
+          return;
+        }
+
+        const firestoreEventId = firestoreEvent.id;
+        console.log('[EventManagement] 👂 Setting up real-time participants listener:', {
+          eventId: firestoreEventId,
+          eventCode: event.code
+        });
+
+        const participantsRef = collection(db, 'events', firestoreEventId, 'participants');
+        
+        unsubscribeFn = onSnapshot(
+          participantsRef,
+          (snapshot) => {
+            console.log('[EventManagement] 👂 Participants snapshot received:', {
+              size: snapshot.size,
+              eventId: firestoreEventId
+            });
+
+            const firestoreParticipants = snapshot.docs.map(pDoc => ({
+              id: pDoc.id,
+              ...pDoc.data(),
+              joinedAt: convertFirestoreDate(pDoc.data().joinedAt)
+            }));
+
+            console.log('[EventManagement] 👂 Firestore participants:', firestoreParticipants.map(p => ({
+              id: p.id,
+              name: p.name,
+              email: p.email,
+              userId: p.userId,
+              status: p.status
+            })));
+
+            // Mettre à jour l'événement local avec les participants depuis Firestore
+            let syncedParticipants = firestoreParticipants.map((p, idx) => ({
+              ...p,
+              id: p.id || `p-${idx + 1}`,
+              status: p.approved || p.status === 'confirmed' ? 'confirmed' : 'pending'
+            }));
+
+            // ✅ DÉDUPLICATION : Supprimer les doublons de participants
+            const seenParticipants = new Map();
+            syncedParticipants = syncedParticipants.filter(p => {
+              const key = (p.email || p.userId || p.id || '').toLowerCase().trim();
+              if (!key) return true;
+              
+              if (seenParticipants.has(key)) {
+                console.warn('[EventManagement] ⚠️ Duplicate participant detected and removed:', {
+                  key,
+                  name: p.name,
+                  email: p.email,
+                  userId: p.userId
+                });
+                return false;
+              }
+              seenParticipants.set(key, p);
+              return true;
+            });
+
+            // ✅ Vérifier si l'organisateur est dans la liste (sans créer de doublon)
+            const organizerExists = syncedParticipants.some(p => {
+              const pKey = (p.email || p.userId || '').toLowerCase().trim();
+              const orgKey = (event.organizerId || '').toLowerCase().trim();
+              return pKey === orgKey || p.role === 'organizer' || p.isOrganizer === true;
+            });
+
+            // ✅ NE PAS ajouter l'organisateur s'il existe déjà (évite les doublons)
+            // L'organisateur doit être créé lors de la création de l'événement dans Firestore
+            if (!organizerExists && event.organizerId && event.organizerName) {
+              console.warn('[EventManagement] ⚠️ Organizer not found in participants (should exist in Firestore):', {
+                eventId: event.id,
+                organizerId: event.organizerId
+              });
+              // Ne pas ajouter automatiquement pour éviter les doublons
+            }
+
+            // Mettre à jour l'événement dans le store local
+            const existingEvent = useEventStore.getState().events.find(e => 
+              String(e.id) === String(event.id) || 
+              String(e.firestoreId) === String(firestoreEventId) ||
+              (e.code && event.code && e.code.toUpperCase().replace(/[^A-Z]/g, '') === event.code.toUpperCase().replace(/[^A-Z]/g, ''))
+            );
+
+            if (existingEvent) {
+              console.log('[EventManagement] ✅ Updating event participants in local store:', {
+                eventId: existingEvent.id,
+                participantsCount: syncedParticipants.length
+              });
+              useEventStore.getState().updateEvent(existingEvent.id, { 
+                participants: syncedParticipants 
+              });
+            } else {
+              console.log('[EventManagement] ⚠️ Event not found in local store, cannot update participants');
+            }
+          },
+          (error) => {
+            console.error('[EventManagement] ❌ Error in participants listener:', error);
+          }
+        );
+      } catch (error) {
+        console.error('[EventManagement] ❌ Error setting up participants listener:', error);
+      }
+    };
+
+    setupParticipantsListener();
+
+    return () => {
+      if (unsubscribeFn) {
+        console.log('[EventManagement] 🧹 Cleaning up participants listener');
+        unsubscribeFn();
+      }
+    };
+  }, [event?.id, event?.code, event?.organizerId, event?.organizerName]);
+
   console.log('[EventManagement] Event loaded:', {
     id: event.id,
     code: event.code,
@@ -969,7 +1117,268 @@ export function EventManagement({ eventId, onBack }) {
       }).catch(err => console.error('[EventManagement] Share error:', err));
     }
   };
-const handleExportPDF = () => {
+  // ✅ Fonction de synchronisation complète depuis Firestore
+  const handleSyncFromFirestore = async () => {
+    // ✅ LOGS TRÈS VISIBLES AU DÉBUT
+    console.log('🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄');
+    console.log('🔄 SYNC BUTTON CLICKED - FUNCTION CALLED');
+    console.log('🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄');
+    
+    if (!event || !event.code) {
+      console.error('❌❌❌ SYNC ERROR: No event or code');
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: "Code événement manquant, impossible de synchroniser."
+      });
+      return;
+    }
+
+    setIsSyncing(true);
+    console.log('[EventManagement] 🔄 ===== MANUAL SYNC FROM FIRESTORE =====');
+    console.log('[EventManagement] Event code:', event.code);
+    console.log('[EventManagement] Event ID:', event.id);
+    console.log('[EventManagement] Event ID:', event.id);
+    console.log('[EventManagement] Current participants BEFORE sync:', event.participants?.length || 0);
+    console.log('[EventManagement] Current participants details:', JSON.stringify(event.participants?.map(p => ({
+      id: p.id,
+      name: p.name,
+      email: p.email,
+      userId: p.userId,
+      role: p.role,
+      isOrganizer: p.isOrganizer
+    })), null, 2));
+
+    try {
+      // 1. Recharger l'événement depuis Firestore
+      const { findEventByCode } = await import('@/services/api');
+      console.log('[EventManagement] 🔍 Fetching event from Firestore with code:', event.code);
+      const updatedEvent = await findEventByCode(event.code);
+
+      if (!updatedEvent) {
+        throw new Error("Événement non trouvé dans Firestore");
+      }
+
+      console.log('[EventManagement] 📋 Event fetched from Firestore:', {
+        eventId: updatedEvent.id,
+        participantsCount: updatedEvent.participants?.length || 0,
+        title: updatedEvent.title
+      });
+      console.log('[EventManagement] 📋 Firestore participants BEFORE deduplication:', JSON.stringify(updatedEvent.participants?.map(p => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        userId: p.userId,
+        role: p.role,
+        isOrganizer: p.isOrganizer
+      })), null, 2));
+
+      // 2. Synchroniser les participants avec déduplication améliorée
+      let syncedParticipants = [];
+      
+      if (updatedEvent.participants && updatedEvent.participants.length > 0) {
+        // Normaliser les participants
+        syncedParticipants = updatedEvent.participants.map((p, idx) => ({
+          ...p,
+          id: p.id || `p-${idx + 1}`,
+          status: p.approved || p.status === 'confirmed' ? 'confirmed' : 'pending',
+          // Normaliser les emails et userIds pour la comparaison
+          email: p.email ? p.email.toLowerCase().trim() : '',
+          userId: p.userId ? p.userId.toLowerCase().trim() : ''
+        }));
+
+        // ✅ DÉDUPLICATION AMÉLIORÉE : Supprimer les doublons par email OU userId
+        const seenByEmail = new Map();
+        const seenByUserId = new Map();
+        const seenById = new Map(); // Ajouter aussi par ID de document Firestore
+        const duplicatesRemoved = [];
+
+        syncedParticipants = syncedParticipants.filter(p => {
+          const emailKey = p.email || '';
+          const userIdKey = p.userId || '';
+          const docId = (p.id || '').toLowerCase().trim();
+          
+          // ✅ Vérifier d'abord par ID de document (le plus fiable)
+          if (docId && seenById.has(docId)) {
+            duplicatesRemoved.push({ type: 'docId', key: docId, participant: p });
+            console.warn('⚠️⚠️⚠️ DUPLICATE BY DOC ID:', {
+              docId,
+              name: p.name,
+              email: p.email,
+              userId: p.userId,
+              existing: seenById.get(docId)
+            });
+            return false;
+          }
+          
+          // Vérifier les doublons par email
+          if (emailKey && seenByEmail.has(emailKey)) {
+            duplicatesRemoved.push({ type: 'email', key: emailKey, participant: p });
+            console.warn('[EventManagement] ⚠️ Duplicate by EMAIL detected and removed:', {
+              email: emailKey,
+              name: p.name,
+              userId: p.userId,
+              existing: seenByEmail.get(emailKey)
+            });
+            return false;
+          }
+          
+          // Vérifier les doublons par userId
+          if (userIdKey && seenByUserId.has(userIdKey)) {
+            duplicatesRemoved.push({ type: 'userId', key: userIdKey, participant: p });
+            console.warn('[EventManagement] ⚠️ Duplicate by USERID detected and removed:', {
+              userId: userIdKey,
+              name: p.name,
+              email: p.email,
+              existing: seenByUserId.get(userIdKey)
+            });
+            return false;
+          }
+          
+          // Si même email ET même userId que quelqu'un déjà vu, c'est un doublon
+          if (emailKey && userIdKey) {
+            const existingByEmail = seenByEmail.get(emailKey);
+            const existingByUserId = seenByUserId.get(userIdKey);
+            if (existingByEmail && existingByUserId && existingByEmail === existingByUserId) {
+              duplicatesRemoved.push({ type: 'both', email: emailKey, userId: userIdKey, participant: p });
+              console.warn('[EventManagement] ⚠️ Duplicate by BOTH email and userId detected:', {
+                email: emailKey,
+                userId: userIdKey,
+                name: p.name
+              });
+              return false;
+            }
+          }
+          
+          // Ajouter aux maps si pas de doublon
+          if (docId) seenById.set(docId, p);
+          if (emailKey) seenByEmail.set(emailKey, p);
+          if (userIdKey) seenByUserId.set(userIdKey, p);
+          
+          return true;
+        });
+
+        console.log('📊📊📊 DEDUPLICATION RESULTS 📊📊📊');
+        console.log('Before:', updatedEvent.participants.length);
+        console.log('After:', syncedParticipants.length);
+        console.log('Duplicates removed:', duplicatesRemoved.length);
+        console.log('Duplicates details:', duplicatesRemoved);
+        console.log('📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊');
+        console.log('[EventManagement] 📊 Final synced participants:', JSON.stringify(syncedParticipants.map(p => ({
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          userId: p.userId,
+          role: p.role,
+          isOrganizer: p.isOrganizer,
+          status: p.status
+        })), null, 2));
+
+        // ✅ Vérifier si l'organisateur est dans la liste (sans créer de doublon)
+        const organizerExists = syncedParticipants.some(p => {
+          const pEmail = p.email || '';
+          const pUserId = p.userId || '';
+          const orgKey = (event.organizerId || '').toLowerCase().trim();
+          return (pEmail === orgKey || pUserId === orgKey) || p.role === 'organizer' || p.isOrganizer === true;
+        });
+
+        if (!organizerExists && event.organizerId && event.organizerName) {
+          console.warn('[EventManagement] ⚠️ Organizer not found in synced participants (should exist in Firestore):', {
+            eventId: event.id,
+            organizerId: event.organizerId
+          });
+        }
+
+        // Mettre à jour l'événement local avec les participants synchronisés
+        console.log('[EventManagement] 🔄 Updating event in store with participants:', syncedParticipants.length);
+        updateEvent(event.id, { 
+          participants: syncedParticipants,
+          firestoreId: updatedEvent.id
+        });
+
+        // ✅ Forcer le re-render du composant
+        const newTrigger = syncTrigger + 1;
+        setSyncTrigger(newTrigger);
+        console.log('[EventManagement] ✅ Sync trigger updated:', newTrigger);
+        
+        // Attendre un peu pour que le store se mette à jour
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Forcer la mise à jour en récupérant l'événement depuis le store
+        const updatedEventFromStore = useEventStore.getState().events.find(e => String(e.id) === String(event.id));
+        console.log('[EventManagement] ✅ Event updated in store. New participants count:', updatedEventFromStore?.participants?.length || 0);
+        console.log('[EventManagement] ✅ Updated participants in store:', JSON.stringify(updatedEventFromStore?.participants?.map(p => ({
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          userId: p.userId
+        })), null, 2));
+      } else {
+        console.warn('[EventManagement] ⚠️ No participants in Firestore event');
+        // Mettre à jour quand même pour vider la liste si nécessaire
+        updateEvent(event.id, { 
+          participants: [],
+          firestoreId: updatedEvent.id
+        });
+      }
+
+      // 3. Recharger les demandes de participation
+      const firestoreEventId = updatedEvent.id;
+      const requests = await getJoinRequests(firestoreEventId, 'pending');
+      setFirestoreJoinRequests(requests);
+      console.log('[EventManagement] ✅ Join requests refreshed:', requests.length);
+
+      // 4. Mettre à jour les autres données de l'événement si nécessaire
+      if (updatedEvent.title !== event.title || updatedEvent.description !== event.description) {
+        updateEvent(event.id, {
+          title: updatedEvent.title,
+          description: updatedEvent.description,
+          totalPaid: updatedEvent.totalPaid || 0
+        });
+      }
+
+      // Attendre un peu plus pour que le store se mette à jour complètement
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      const finalEvent = useEventStore.getState().events.find(e => String(e.id) === String(event.id));
+      const finalCount = finalEvent?.participants?.length || 0;
+      const beforeCount = event.participants?.length || 0;
+      
+      console.log('[EventManagement] ✅✅✅ SYNC COMPLETE ✅✅✅');
+      console.log('[EventManagement] Final participants count:', finalCount);
+      console.log('[EventManagement] Participants before:', beforeCount);
+      console.log('[EventManagement] Participants after:', finalCount);
+      console.log('[EventManagement] Difference:', beforeCount - finalCount);
+      
+      const message = beforeCount !== finalCount 
+        ? `Synchronisation réussie ! ${beforeCount} → ${finalCount} participant(s) (${beforeCount - finalCount} doublon(s) supprimé(s))`
+        : `Synchronisation réussie. ${finalCount} participant(s) chargé(s).`;
+      
+      toast({
+        title: "✅ Synchronisation réussie",
+        description: message,
+        duration: 5000
+      });
+    } catch (error) {
+      console.error('[EventManagement] ❌❌❌ SYNC ERROR ❌❌❌');
+      console.error('[EventManagement] Error message:', error.message);
+      console.error('[EventManagement] Error name:', error.name);
+      console.error('[EventManagement] Error stack:', error.stack);
+      console.error('[EventManagement] Full error object:', error);
+      
+      toast({
+        variant: "destructive",
+        title: "❌ Erreur de synchronisation",
+        description: error.message || "Impossible de synchroniser l'événement depuis Firestore. Vérifiez la console pour plus de détails.",
+        duration: 6000
+      });
+    } finally {
+      setIsSyncing(false);
+      console.log('[EventManagement] 🔄 Sync process finished, isSyncing set to false');
+    }
+  };
+
+  const handleExportPDF = () => {
   console.log('[PDF] Exporting comprehensive event summary:', event.title);
   
   try {
@@ -2302,6 +2711,41 @@ const handleExportPDF = () => {
     Code: {event.code}
   </Badge>
 
+  <TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={(e) => {
+            console.log('🔄🔄🔄 BOUTON SYNCHRONISER CLIQUE 🔄🔄🔄');
+            console.log('Event:', event);
+            console.log('Event code:', event?.code);
+            e.preventDefault();
+            e.stopPropagation();
+            handleSyncFromFirestore();
+          }}
+          disabled={isSyncing}
+        >
+          {isSyncing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="hidden sm:inline">Synchronisation...</span>
+            </>
+          ) : (
+            <>
+              <RotateCcw className="w-4 h-4" />
+              <span className="hidden sm:inline">Synchroniser</span>
+            </>
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Recharger l'événement depuis Firestore</p>
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+
   <Button
     variant="outline"
     className="gap-2"
@@ -2732,7 +3176,9 @@ const handleExportPDF = () => {
                     }
                     
                     const localJoinRequests = useJoinRequestsStore.getState().getRequestsByEventCode(event.code);
-                    const allJoinRequests = [...firestoreJoinRequests, ...localJoinRequests];
+                    // ✅ Filtrer pour n'afficher QUE les demandes pending
+                    const allJoinRequests = [...firestoreJoinRequests, ...localJoinRequests]
+                      .filter(r => (r.status || 'pending') === 'pending');
                     
                     console.log('[EventManagement] 📊 ===== JOIN REQUESTS DISPLAY =====');
                     console.log('[EventManagement] 📊 Event ID:', event.id);
@@ -2794,14 +3240,9 @@ const handleExportPDF = () => {
                                 const participantEmail = (participant.email || request.email || '').trim().toLowerCase();
                                 const participantUserId = request.userId || participant.userId;
                                 
-                                // Pour événements "open", bypass authentification - SELON LE GUIDE
-                                const isOpenEvent = (event.status || 'active') === 'open';
-                                
-                                console.log('[EventManagement] 🔐 Authentication check:', {
-                                  eventStatus: event.status,
-                                  isOpenEvent,
-                                  participantUserId,
+                                console.log('[EventManagement] 🔐 Participant check:', {
                                   participantEmail,
+                                  participantUserId,
                                   organizerId: event.organizerId,
                                   requestEmail: request.email,
                                   participantEmailFromParticipant: participant.email
@@ -2818,23 +3259,17 @@ const handleExportPDF = () => {
                                   return;
                                 }
                                 
-                                // SELON LE GUIDE : Pour événements "open", on accepte SANS vérification
-                                // Pour les autres, on vérifie que l'email est présent et différent de l'organisateur
-                                if (!isOpenEvent) {
-                                  if (!participantEmail) {
-                                    console.warn('[EventManagement] ⚠️ Missing participant email');
-                                    toast({
-                                      variant: "destructive",
-                                      title: "Email manquant",
-                                      description: "L'email du participant est requis pour l'accepter."
-                                    });
-                                    return;
-                                  }
-                                  console.log('[EventManagement] ✅ Participant email validated for non-open event');
-                                } else {
-                                  // Pour événements "open" : on accepte directement, pas de vérification
-                                  console.log('[EventManagement] ✅ Open event - authentication bypassed, accepting directly');
+                                // ✅ Toujours vérifier que l'email est présent (pas de bypass pour "open event")
+                                if (!participantEmail) {
+                                  console.warn('[EventManagement] ⚠️ Missing participant email');
+                                  toast({
+                                    variant: "destructive",
+                                    title: "Email manquant",
+                                    description: "L'email du participant est requis pour l'accepter."
+                                  });
+                                  return;
                                 }
+                                console.log('[EventManagement] ✅ Participant email validated');
                                 
                                 try {
                                   if (isFirestoreRequest) {
@@ -2915,35 +3350,45 @@ const handleExportPDF = () => {
                                       });
                                       
                                       if (updatedEvent?.participants) {
-                                        const syncedParticipants = updatedEvent.participants.map((p, idx) => ({
+                                        let syncedParticipants = updatedEvent.participants.map((p, idx) => ({
                                           ...p,
                                           id: p.id || `p-${idx + 1}`,
                                           status: p.approved || p.status === 'confirmed' ? 'confirmed' : 'pending'
                                         }));
                                         
-                                        // S'assurer que l'organisateur est toujours dans la liste
-                                        const organizerExists = syncedParticipants.some(p => 
-                                          (p.userId && p.userId.toLowerCase() === event.organizerId?.toLowerCase()) ||
-                                          (p.email && p.email.toLowerCase() === event.organizerId?.toLowerCase()) ||
-                                          p.role === 'organizer' ||
-                                          p.isOrganizer === true
-                                        );
+                                        // ✅ DÉDUPLICATION : Supprimer les doublons de participants
+                                        const seenParticipants = new Map();
+                                        syncedParticipants = syncedParticipants.filter(p => {
+                                          const key = (p.email || p.userId || p.id || '').toLowerCase().trim();
+                                          if (!key) return true;
+                                          
+                                          if (seenParticipants.has(key)) {
+                                            console.warn('[EventManagement] ⚠️ Duplicate participant detected and removed:', {
+                                              key,
+                                              name: p.name,
+                                              email: p.email,
+                                              userId: p.userId
+                                            });
+                                            return false;
+                                          }
+                                          seenParticipants.set(key, p);
+                                          return true;
+                                        });
                                         
+                                        // ✅ Vérifier si l'organisateur est dans la liste (sans créer de doublon)
+                                        const organizerExists = syncedParticipants.some(p => {
+                                          const pKey = (p.email || p.userId || '').toLowerCase().trim();
+                                          const orgKey = (event.organizerId || '').toLowerCase().trim();
+                                          return pKey === orgKey || p.role === 'organizer' || p.isOrganizer === true;
+                                        });
+                                        
+                                        // ✅ NE PAS ajouter l'organisateur s'il existe déjà (évite les doublons)
                                         if (!organizerExists && event.organizerId && event.organizerName) {
-                                          console.log('[EventManagement] ⚠️ Organizer not found in synced participants, adding it...');
-                                          const organizerParticipant = {
-                                            id: 'organizer-1',
-                                            userId: event.organizerId,
-                                            name: event.organizerName || 'Organisateur',
-                                            email: event.organizerId,
-                                            role: 'organizer',
-                                            isOrganizer: true,
-                                            status: 'confirmed',
-                                            hasConfirmed: true,
-                                            approved: true
-                                          };
-                                          syncedParticipants.unshift(organizerParticipant); // Ajouter au début
-                                          console.log('[EventManagement] ✅ Organizer added to participants list');
+                                          console.warn('[EventManagement] ⚠️ Organizer not found in synced participants (should exist in Firestore):', {
+                                            eventId: event.id,
+                                            organizerId: event.organizerId
+                                          });
+                                          // Ne pas ajouter automatiquement pour éviter les doublons
                                         }
                                         
                                         console.log('[EventManagement] 📝 Syncing participants to local store:', {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,10 +11,15 @@ import { useJoinRequestsStore } from '@/store/joinRequestsStore';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { QRCodeScanner } from '@/components/QRCodeScanner';
-import { findEventByCode, createJoinRequest, checkParticipantAccess } from '@/services/api';
+import { findEventByCode, createJoinRequest, checkParticipantAccess, listenMyJoinRequest } from '@/services/api';
 
 export function EventJoin({ onAuthRequired }) {
   console.log('[EventJoin] ===== COMPONENT MOUNTED =====');
+  console.log('[EventJoin] onAuthRequired prop received:', {
+    exists: !!onAuthRequired,
+    type: typeof onAuthRequired,
+    isFunction: typeof onAuthRequired === 'function'
+  });
   const { toast } = useToast();
   const events = useEventStore((state) => state.events);
   const updateEvent = useEventStore((state) => state.updateEvent);
@@ -30,6 +35,8 @@ export function EventJoin({ onAuthRequired }) {
   const [currentUserId, setCurrentUserId] = useState(null);
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
+  const hasSentJoinRequestRef = useRef(false);
+  const [pendingRequestId, setPendingRequestId] = useState(null);
 
   // Log initial des événements
   useEffect(() => {
@@ -45,61 +52,95 @@ export function EventJoin({ onAuthRequired }) {
 
   // Vérifier l'authentification
   const [hasInitializedFields, setHasInitializedFields] = useState(false);
+  const prevAuthRef = useRef(false);
   
   useEffect(() => {
-    const checkAuth = () => {
+    const readAuth = () => {
       const userData = localStorage.getItem('bonkont-user');
       const authenticated = !!userData;
-      console.log('[EventJoin] Auth check:', authenticated);
+      const wasAuthenticated = prevAuthRef.current;
+      prevAuthRef.current = authenticated;
       setIsAuthenticated(authenticated);
-      
-      if (authenticated) {
-        try {
-          const user = JSON.parse(userData);
-          const userId = user.email || user.id || null;
-          setCurrentUserId(userId);
-          
-          // Pré-remplir seulement une fois au chargement initial (permet de modifier ensuite)
-          if (!hasInitializedFields) {
-          setPseudo(user.name || user.email?.split('@')[0] || '');
-          setEmail(user.email || '');
-            setHasInitializedFields(true);
-            console.log('[EventJoin] User data loaded (initial):', { name: user.name, email: user.email, userId });
-          }
-        } catch (e) {
-          console.error('[EventJoin] Erreur lors de la récupération de l\'utilisateur:', e);
-        }
-      } else {
+
+      if (!authenticated) {
         setCurrentUserId(null);
-        // Si non authentifié et que c'est le chargement initial, vider les champs
         if (!hasInitializedFields) {
           setPseudo('');
           setEmail('');
           setHasInitializedFields(true);
         }
+        return;
       }
-    };
-    
-    checkAuth();
-    
-    // Écouter les changements d'auth (mais ne pas réinitialiser les champs)
-    const interval = setInterval(() => {
-      const userData = localStorage.getItem('bonkont-user');
-      const authenticated = !!userData;
-      setIsAuthenticated(authenticated);
-      if (authenticated) {
-        try {
-          const user = JSON.parse(userData);
-          const userId = user.email || user.id || null;
-          setCurrentUserId(userId);
-        } catch (e) {
-          // Ignorer les erreurs de parsing
+
+      try {
+        const user = JSON.parse(userData);
+        const userId = (user.email || user.id || '').trim() || null;
+        setCurrentUserId(userId);
+
+        // ✅ IMPORTANT : Toujours mettre à jour les champs après authentification
+        // pour permettre la création automatique de la demande
+        const userPseudo = user.name || user.email?.split('@')[0] || '';
+        const userEmail = user.email || '';
+        
+        // Si les champs sont vides OU si l'utilisateur vient de s'authentifier (passage de false à true)
+        const justAuthenticated = !wasAuthenticated && authenticated;
+        if (!pseudo.trim() || !email.trim() || !hasInitializedFields || justAuthenticated) {
+          setPseudo(userPseudo);
+          setEmail(userEmail);
+          setHasInitializedFields(true);
+          console.log('[EventJoin] User data loaded/updated:', { 
+            name: user.name, 
+            email: user.email, 
+            userId,
+            wasInitialized: hasInitializedFields,
+            justAuthenticated,
+            action: justAuthenticated ? 'updated after auth' : (hasInitializedFields ? 'updated' : 'initialized')
+          });
         }
-      } else {
+      } catch (e) {
+        console.error('[EventJoin] Erreur lors de la récupération de l\'utilisateur:', e);
+        setIsAuthenticated(false);
         setCurrentUserId(null);
       }
-    }, 1000);
-    return () => clearInterval(interval);
+    };
+
+    readAuth();
+
+    // Écouter les changements de localStorage (quand l'auth change dans un autre onglet)
+    const onStorage = (e) => {
+      if (e.key === 'bonkont-user') {
+        readAuth();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    
+    // ✅ Écouter aussi les changements dans le même onglet (après login dans AuthDialog)
+    // Vérifier périodiquement si l'auth a changé (pour détecter le login dans le même onglet)
+    const checkAuthInterval = setInterval(() => {
+      const currentAuth = !!localStorage.getItem('bonkont-user');
+      if (currentAuth !== prevAuthRef.current) {
+        console.log('[EventJoin] 🔐 Auth state changed, reading auth and checking URL code');
+        readAuth();
+        
+        // ✅ Si l'utilisateur vient de s'authentifier et qu'un code est dans l'URL, vérifier le code
+        if (currentAuth && !prevAuthRef.current) {
+          const hash = window.location.hash;
+          const match = hash.match(/\/join\/([A-Z]+)/i);
+          if (match) {
+            const code = match[1].toUpperCase().replace(/[^A-Z]/g, '');
+            console.log('[EventJoin] ✅ User just authenticated, checking code from URL:', code);
+            setTimeout(() => {
+              handleCodeCheck(code).catch(err => console.error('[EventJoin] Error checking code after auth:', err));
+            }, 500);
+          }
+        }
+      }
+    }, 500); // Vérifier toutes les 500ms
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      clearInterval(checkAuthInterval);
+    };
   }, [hasInitializedFields]);
 
   // Fonction helper pour gérer un participant confirmé
@@ -130,48 +171,54 @@ export function EventJoin({ onAuthRequired }) {
     }, 100);
   };
 
-  // Vérifier si l'utilisateur est l'organisateur de l'événement
-  // IMPORTANT: Utiliser l'email saisi dans le formulaire, pas seulement l'utilisateur connecté
+  // ✅ Réinitialiser le flag de demande envoyée quand l'événement change
   useEffect(() => {
-    if (event) {
-      // Utiliser l'email saisi dans le formulaire pour la vérification
-      const emailToCheck = email.trim() || currentUserId;
-      const pseudoToCheck = pseudo.trim();
-      
-      // Vérifier si l'email saisi correspond à l'organisateur
-      const organizerMatch = emailToCheck && (
-        event.organizerId === emailToCheck || 
-        event.organizerId === emailToCheck?.toLowerCase() ||
-        event.organizerId === emailToCheck?.toUpperCase() ||
-        event.organizerName?.toLowerCase() === pseudoToCheck?.toLowerCase()
-      );
-      
-      // Vérifier si l'utilisateur est dans la liste des participants comme organisateur
-      const participantMatch = event.participants?.find(p => 
-        (p.email?.toLowerCase() === emailToCheck?.toLowerCase() || 
-         p.userId === emailToCheck ||
-         p.name?.toLowerCase() === pseudoToCheck?.toLowerCase()) &&
-        (p.isOrganizer === true || p.role === 'organizer')
-      );
-      
-      const isOrg = organizerMatch || !!participantMatch;
-      setIsOrganizer(isOrg);
-      
-      console.log('[EventJoin] Organizer check:', { 
-        eventId: event.id, 
-        organizerId: event.organizerId, 
-        organizerName: event.organizerName,
-        emailSaisi: emailToCheck,
-        pseudoSaisi: pseudoToCheck,
-        currentUserId, 
-        organizerMatch, 
-        participantMatch: !!participantMatch,
-        isOrganizer: isOrg 
-      });
-    } else {
+    hasSentJoinRequestRef.current = false;
+  }, [event?.id]);
+
+  // ✅ SÉCURITÉ : Vérifier si l'utilisateur est l'organisateur de l'événement
+  // IMPORTANT: Ne JAMAIS utiliser l'email saisi pour déterminer un rôle
+  // isOrganizer doit refléter uniquement l'utilisateur authentifié (currentUserId)
+  // ✅ Ne vérifier QUE si l'utilisateur est authentifié
+  useEffect(() => {
+    // ✅ Ne vérifier l'organisateur QUE si l'utilisateur est authentifié
+    if (!event || !currentUserId || !isAuthenticated) {
       setIsOrganizer(false);
+      console.log('[EventJoin] ⏸️ Skipping organizer check:', {
+        hasEvent: !!event,
+        hasCurrentUserId: !!currentUserId,
+        isAuthenticated,
+        reason: !event ? 'No event' : !currentUserId ? 'No userId' : 'Not authenticated'
+      });
+      return;
     }
-  }, [event, email, pseudo, currentUserId]);
+
+    const uid = currentUserId.trim().toLowerCase();
+
+    const organizerMatch =
+      (event.organizerId && event.organizerId.toLowerCase() === uid) ||
+      (event.organizerEmail && event.organizerEmail.toLowerCase() === uid);
+
+    const participantMatch = event.participants?.some((p) => {
+      const pEmail = (p.email || '').toLowerCase();
+      const pUserId = (p.userId || '').toLowerCase();
+      const isOrgFlag = p.isOrganizer === true || p.role === 'organizer';
+      return isOrgFlag && (pEmail === uid || pUserId === uid);
+    });
+
+    const isOrg = !!(organizerMatch || participantMatch);
+    setIsOrganizer(isOrg);
+
+    console.log('[EventJoin] ✅ Organizer check (AUTH ONLY):', {
+      eventId: event.id,
+      currentUserId,
+      organizerId: event.organizerId,
+      organizerMatch,
+      participantMatch,
+      isOrganizer: isOrg,
+      note: 'isOrganizer is true ONLY if user is authenticated AND matches organizer'
+    });
+  }, [event, currentUserId, isAuthenticated]);
 
   // Vérifier si un code est dans l'URL (depuis QR code ou lien direct)
   useEffect(() => {
@@ -186,6 +233,37 @@ export function EventJoin({ onAuthRequired }) {
       const code = match[1].toUpperCase().replace(/[^A-Z]/g, '');
       console.log('[EventJoin] ✅ Code found in URL (pattern 1):', code);
       setEventCode(code);
+      
+      // ✅ Ouvrir automatiquement la boîte de dialogue d'authentification si l'utilisateur n'est pas connecté
+      const userData = localStorage.getItem('bonkont-user');
+      const isAuthenticated = !!userData;
+      
+      console.log('[EventJoin] Auth check on URL code detection:', {
+        hasUserData: !!userData,
+        isAuthenticated,
+        onAuthRequiredExists: typeof onAuthRequired === 'function'
+      });
+      
+      if (!isAuthenticated) {
+        console.log('[EventJoin] 🔐 User not authenticated, opening auth dialog from URL');
+        // Attendre un peu pour que le composant soit complètement monté
+        setTimeout(() => {
+          if (onAuthRequired && typeof onAuthRequired === 'function') {
+            console.log('[EventJoin] ✅ Calling onAuthRequired() from URL detection');
+            try {
+              onAuthRequired();
+              console.log('[EventJoin] ✅ Auth dialog opened successfully');
+            } catch (error) {
+              console.error('[EventJoin] ❌ Error opening auth dialog:', error);
+            }
+          } else {
+            console.error('[EventJoin] ❌ onAuthRequired is not available!', {
+              type: typeof onAuthRequired,
+              value: onAuthRequired
+            });
+          }
+        }, 300);
+      }
       
       // Vérifier immédiatement si les événements sont déjà chargés
       if (events.length > 0) {
@@ -251,6 +329,49 @@ export function EventJoin({ onAuthRequired }) {
     console.log('[EventJoin] ❌ No code found in URL');
   }, [events.length, events]);
 
+  // ✅ Écouter les changements de hash pour détecter les codes dans l'URL (pour les liens directs et QR codes)
+  useEffect(() => {
+    const checkHashForCode = () => {
+      const hash = window.location.hash;
+      const match = hash.match(/\/join\/([A-Z]+)/i);
+      
+      if (match) {
+        const code = match[1].toUpperCase().replace(/[^A-Z]/g, '');
+        console.log('[EventJoin] 🔄 Hash change detected, code found:', code);
+        
+        // Vérifier l'authentification et ouvrir la boîte de dialogue si nécessaire
+        const userData = localStorage.getItem('bonkont-user');
+        const isAuthenticated = !!userData;
+        
+        if (!isAuthenticated) {
+          console.log('[EventJoin] 🔐 User not authenticated on hash change, opening auth dialog');
+          setTimeout(() => {
+            if (onAuthRequired && typeof onAuthRequired === 'function') {
+              console.log('[EventJoin] ✅ Opening auth dialog from hash change');
+              onAuthRequired();
+            }
+          }, 300);
+        }
+        
+        // Vérifier le code après un délai pour permettre l'authentification
+        setTimeout(() => {
+          setEventCode(code);
+          handleCodeCheck(code).catch(err => console.error('[EventJoin] Error checking code on hash change:', err));
+        }, isAuthenticated ? 100 : 800); // Plus de temps si l'utilisateur doit s'authentifier
+      }
+    };
+    
+    // Vérifier immédiatement
+    checkHashForCode();
+    
+    // Écouter les changements de hash
+    window.addEventListener('hashchange', checkHashForCode);
+    
+    return () => {
+      window.removeEventListener('hashchange', checkHashForCode);
+    };
+  }, [onAuthRequired]);
+
   const handleCodeCheck = async (code) => {
     console.log('[EventJoin] ===== handleCodeCheck CALLED =====');
     console.log('[EventJoin] Input code:', code);
@@ -278,12 +399,20 @@ export function EventJoin({ onAuthRequired }) {
       if (foundEvent) {
         console.log('[EventJoin] ✅✅✅ EVENT FOUND in local store!', { 
           id: foundEvent.id, 
+          firestoreId: foundEvent.firestoreId,
           title: foundEvent.title, 
-          code: foundEvent.code 
+          code: foundEvent.code,
+          note: 'Will use firestoreId || id for join requests'
         });
         setEvent(foundEvent);
         
-        // Vérifier immédiatement si l'utilisateur est déjà participant validé
+        // ✅ IMPORTANT : Réinitialiser l'état pour afficher le formulaire
+        setIsLoading(false);
+        setIsJoined(false);
+        setPendingParticipantId(null);
+        setPendingRequestId(null);
+        
+        // Vérifier immédiatement si l'utilisateur est déjà participant validé (SEULEMENT si authentifié)
         const userData = localStorage.getItem('bonkont-user');
         let userEmail = null;
         if (userData) {
@@ -295,7 +424,8 @@ export function EventJoin({ onAuthRequired }) {
           }
         }
         
-        if (userEmail) {
+        // ✅ Ne vérifier les participants que si l'utilisateur est authentifié
+        if (userEmail && isAuthenticated) {
           const existingParticipant = foundEvent.participants?.find(
             p => (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
                  (p.userId && p.userId === userEmail)
@@ -311,17 +441,13 @@ export function EventJoin({ onAuthRequired }) {
               // Participant déjà validé, rediriger directement vers l'événement
               handleConfirmedParticipant(foundEvent, existingParticipant, userEmail);
               return;
-            } else if (existingParticipant.status === 'pending') {
-              // Participant en attente, afficher le message d'attente
-              console.log('[EventJoin] ⏳ Participant has pending request');
-              setPendingParticipantId(existingParticipant.id);
-              setIsJoined(true);
-              setPseudo(existingParticipant.name || '');
-              setEmail(existingParticipant.email || userEmail);
-              return;
             }
+            // Note: Le statut "pending" sera géré par le listener joinRequests
           }
         }
+        
+        // Si l'utilisateur n'est pas encore participant, afficher le formulaire
+        console.log('[EventJoin] ✅ Event found locally, showing form. isAuthenticated:', isAuthenticated);
         
         return;
       }
@@ -345,12 +471,24 @@ export function EventJoin({ onAuthRequired }) {
       if (foundEvent) {
         console.log('[EventJoin] ✅✅✅ EVENT FOUND on backend!', { 
           id: foundEvent.id, 
+          firestoreId: foundEvent.firestoreId,
           title: foundEvent.title, 
-          code: foundEvent.code 
+          code: foundEvent.code,
+          note: 'This id IS the Firestore ID'
         });
-        setEvent(foundEvent);
+        // S'assurer que firestoreId est défini (id vient de Firestore)
+        setEvent({
+          ...foundEvent,
+          firestoreId: foundEvent.firestoreId || foundEvent.id
+        });
         
-        // Vérifier immédiatement si l'utilisateur est déjà participant validé
+        // ✅ IMPORTANT : Réinitialiser l'état pour afficher le formulaire
+        setIsLoading(false);
+        setIsJoined(false);
+        setPendingParticipantId(null);
+        setPendingRequestId(null);
+        
+        // Vérifier immédiatement si l'utilisateur est déjà participant validé (SEULEMENT si authentifié)
         const userData = localStorage.getItem('bonkont-user');
         let userEmail = null;
         if (userData) {
@@ -362,7 +500,8 @@ export function EventJoin({ onAuthRequired }) {
           }
         }
         
-        if (userEmail) {
+        // ✅ Ne vérifier les participants que si l'utilisateur est authentifié
+        if (userEmail && isAuthenticated) {
           const existingParticipant = foundEvent.participants?.find(
             p => (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
                  (p.userId && p.userId === userEmail)
@@ -378,26 +517,13 @@ export function EventJoin({ onAuthRequired }) {
               // Participant déjà validé, rediriger directement vers l'événement
               handleConfirmedParticipant(foundEvent, existingParticipant, userEmail);
               return;
-            } else if (existingParticipant.status === 'pending') {
-              // Participant en attente, afficher le message d'attente
-              console.log('[EventJoin] ⏳ Participant has pending request');
-              setPendingParticipantId(existingParticipant.id);
-              setIsJoined(true);
-              setPseudo(existingParticipant.name || '');
-              setEmail(existingParticipant.email || userEmail);
-              return;
             }
+            // Note: Le statut "pending" sera géré par le listener joinRequests
           }
         }
         
-        // Optionnel : ajouter l'événement au store local pour un accès plus rapide la prochaine fois
-        // (seulement si l'utilisateur est participant confirmé)
-        const addEvent = useEventStore.getState().addEvent;
-        const existingEvent = useEventStore.getState().events.find(e => e.id === foundEvent.id);
-        if (!existingEvent) {
-          // Ne pas ajouter automatiquement, attendre que l'utilisateur soit confirmé
-          console.log('[EventJoin] Event not in local store, will be added when participant is confirmed');
-        }
+        // Si l'utilisateur n'est pas encore participant, afficher le formulaire
+        console.log('[EventJoin] ✅ Event found on backend, showing form. isAuthenticated:', isAuthenticated);
       } else {
         // Événement non trouvé - réessayer avec différentes variations du code
         console.log('[EventJoin] ⚠️ Event not found with code:', cleanCode);
@@ -571,8 +697,8 @@ export function EventJoin({ onAuthRequired }) {
 
     // 🔐 SÉCURITÉ : Vérifier l'authentification OBLIGATOIRE pour tous les événements
     // L'authentification est requise pour créer une demande de participation
-    if (!isAuthenticated) {
-      console.log('[EventJoin] ❌ User not authenticated, requiring auth');
+    if (!isAuthenticated || !currentUserId) {
+      console.log('[EventJoin] ❌ User not authenticated or no currentUserId, requiring auth');
       toast({
         variant: "destructive",
         title: "Authentification requise",
@@ -819,7 +945,13 @@ export function EventJoin({ onAuthRequired }) {
           return;
         }
         
+        // ✅ Utiliser firestoreId si disponible, sinon id (pour garantir l'ID Firestore)
+        const firestoreEventId = event.firestoreId || event.id;
+        
         console.log('[EventJoin] 📝 Creating join request with:', {
+          eventId: firestoreEventId,
+          eventIdLocal: event.id,
+          firestoreId: event.firestoreId,
           userId: finalUserId,
           email: finalEmail,
           name: pseudo.trim(),
@@ -827,17 +959,18 @@ export function EventJoin({ onAuthRequired }) {
           eventStatus
         });
         
-        const requestResult = await createJoinRequest(event.id, {
-          userId: finalUserId, // Email saisi pour "open", email authentifié pour autres
-          email: finalEmail,   // Email saisi pour "open", email authentifié pour autres
+        // ✅ S'assurer que userId et email sont toujours en lowercase et cohérents
+        const requestResult = await createJoinRequest(firestoreEventId, {
+          userId: (finalUserId || '').trim().toLowerCase(), // Toujours en lowercase
+          email: (finalEmail || '').trim().toLowerCase(),   // Normaliser l'email aussi
           name: pseudo.trim()
         });
         
         console.log('[EventJoin] ✅ ===== JOIN REQUEST CREATED =====');
         console.log('[EventJoin] ✅ Result:', requestResult);
         console.log('[EventJoin] ✅ Request ID:', requestResult.requestId);
-        console.log('[EventJoin] ✅ Event ID used:', event.id);
-        console.log('[EventJoin] ✅ The request should now be visible in EventManagement for event:', event.id);
+        console.log('[EventJoin] ✅ Event ID used:', firestoreEventId);
+        console.log('[EventJoin] ✅ The request should now be visible in EventManagement for event:', firestoreEventId);
         console.log('[EventJoin] 🔔 Notification should have been sent to organizer:', {
           organizerId: event.organizerId,
           organizerName: event.organizerName,
@@ -904,110 +1037,283 @@ export function EventJoin({ onAuthRequired }) {
   };
 
 
-  // Vérifier le statut du participant s'il existe déjà
+  // ✅ NOUVEAU FLUX : Écouter les joinRequests (pas participants) pour l'état pending
+  // Le statut "pending" est dans joinRequests, pas dans participants
   useEffect(() => {
-    if (event && email) {
-      const existingParticipant = event.participants?.find(
-        p => p.email === email || (p.userId && email && p.userId === email)
-      );
-      
-      if (existingParticipant) {
-        console.log('[EventJoin] Existing participant found:', {
-          id: existingParticipant.id,
-          name: existingParticipant.name,
-          status: existingParticipant.status
-        });
-        
-        if (existingParticipant.status === 'pending') {
-          setIsJoined(true);
-          setPendingParticipantId(existingParticipant.id);
-        } else if (existingParticipant.status === 'confirmed') {
-          // Participant déjà accepté, rediriger vers l'événement
-          handleConfirmedParticipant(event, existingParticipant, email);
-        } else if (existingParticipant.status === 'rejected') {
-          // Participant rejeté
-          console.log('[EventJoin] Participant was rejected');
-          toast({
-            variant: "destructive",
-            title: "Demande rejetée",
-            description: "Votre demande de participation a été rejetée par l'organisateur."
-          });
-        }
-      }
+    if (!event?.id) return;
+    if (!isAuthenticated || !currentUserId) {
+      // Si pas authentifié, réinitialiser l'état
+      setIsJoined(false);
+      setPendingRequestId(null);
+      setPendingParticipantId(null);
+      return;
     }
-  }, [event, email, toast]);
 
-  if (isJoined && event) {
-    const participant = event.participants?.find(p => p.id === pendingParticipantId);
-    const status = participant?.status || 'pending';
+    // ✅ Utiliser firestoreId si disponible, sinon id (pour garantir l'ID Firestore)
+    const firestoreEventId = event.firestoreId || event.id;
 
-    // 🔄 Vérification automatique d'accès : dès que l'organisateur accepte,
-    // le participant est créé dans events/{eventId}/participants/{emailLower}
-    // → on redirige automatiquement vers l'événement.
-    useEffect(() => {
-      let intervalId;
-      let cancelled = false;
+    console.log('[EventJoin] 👂 Setting up join request listener:', {
+      eventId: firestoreEventId,
+      eventIdLocal: event.id,
+      firestoreId: event.firestoreId,
+      currentUserId
+    });
 
-      const startAccessCheck = () => {
-        if (!event?.id) return;
+    // ✅ Normaliser currentUserId en lowercase pour la recherche
+    const normalizedUserId = currentUserId.trim().toLowerCase();
+    
+    const unsubscribe = listenMyJoinRequest(firestoreEventId, normalizedUserId, (request) => {
+      if (!request) {
+        console.log('[EventJoin] 👂 No join request found');
+        setIsJoined(false);
+        setPendingRequestId(null);
+        setPendingParticipantId(null);
+        return;
+      }
 
-        // Email prioritaire : email saisi, sinon identifiant courant
-        const baseEmail = (email || currentUserId || '').trim();
-        if (!baseEmail) return;
+      console.log('[EventJoin] 👂 Join request updated:', {
+        requestId: request.id,
+        status: request.status,
+        userId: request.userId,
+        note: 'Status should be: pending | confirmed | rejected'
+      });
 
-        console.log('[EventJoin] 🔄 Starting auto access check for participant:', {
-          eventId: event.id,
-          email: baseEmail
-        });
+      if (request.status === 'pending') {
+        setIsJoined(true);
+        setPendingRequestId(request.id);
+        setPendingParticipantId(request.id); // Pour compatibilité avec l'UI existante
+        return;
+      }
 
-        intervalId = setInterval(async () => {
-          if (cancelled) return;
-
+      if (request.status === 'confirmed' || request.status === 'approved') {
+        // ✅ La demande est confirmée, recharger l'événement depuis Firestore pour avoir la liste à jour
+        console.log('[EventJoin] ✅ Join request confirmed, reloading event from Firestore to get updated participants list');
+        
+        const firestoreEventId = event.firestoreId || event.id;
+        const reloadEvent = async () => {
           try {
-            const allowed = await checkParticipantAccess(event.id, baseEmail);
-            console.log('[EventJoin] 🔎 checkParticipantAccess result:', {
-              eventId: event.id,
-              email: baseEmail,
-              allowed
-            });
-
-            if (allowed) {
-              console.log('[EventJoin] ✅ Participant access granted, redirecting to event');
-              clearInterval(intervalId);
-
-              toast({
-                title: '🎉 Accès accordé',
-                description: `Votre participation à "${event.title}" a été validée.`
+            const { findEventByCode } = await import('@/services/api');
+            const updatedEvent = await findEventByCode(event.code);
+            
+            if (updatedEvent) {
+              console.log('[EventJoin] ✅ Event reloaded from Firestore:', {
+                eventId: updatedEvent.id,
+                participantsCount: updatedEvent.participants?.length || 0
+              });
+              
+              // Mettre à jour l'événement dans le store local avec les participants à jour
+              const addEvent = useEventStore.getState().addEvent;
+              const existingEvent = useEventStore.getState().events.find(e => 
+                String(e.id) === String(updatedEvent.id) || 
+                String(e.firestoreId) === String(updatedEvent.id) ||
+                (e.code && updatedEvent.code && e.code.toUpperCase().replace(/[^A-Z]/g, '') === updatedEvent.code.toUpperCase().replace(/[^A-Z]/g, ''))
+              );
+              
+              if (existingEvent) {
+                // Mettre à jour l'événement existant avec les participants à jour
+                useEventStore.getState().updateEvent(existingEvent.id, {
+                  participants: updatedEvent.participants || []
+                });
+                console.log('[EventJoin] ✅ Event updated in local store with', updatedEvent.participants?.length || 0, 'participants');
+              } else {
+                // Ajouter l'événement s'il n'existe pas
+                addEvent({
+                  ...updatedEvent,
+                  firestoreId: updatedEvent.id
+                });
+                console.log('[EventJoin] ✅ Event added to local store');
+              }
+              
+              // Mettre à jour l'état local de l'événement
+              setEvent({
+                ...updatedEvent,
+                firestoreId: updatedEvent.id
+              });
+              
+              // Vérifier si le participant existe maintenant dans la liste mise à jour
+              const existingParticipant = updatedEvent.participants?.find((p) => {
+                const pEmail = (p.email || '').toLowerCase();
+                const pUserId = (p.userId || '').toLowerCase();
+                const uidKey = currentUserId?.trim().toLowerCase();
+                return pEmail === uidKey || pUserId === uidKey;
               });
 
-              // Réinitialiser l'écran "en attente"
-              setIsJoined(false);
-              setPendingParticipantId(null);
-
-              // Rediriger vers l'événement
-              window.location.hash = `#event/${event.id}`;
-              setTimeout(() => {
-                window.dispatchEvent(new HashChangeEvent('hashchange'));
-              }, 100);
+              if (existingParticipant) {
+                console.log('[EventJoin] ✅ Participant found in updated event, redirecting');
+                handleConfirmedParticipant(updatedEvent, existingParticipant, currentUserId);
+              } else {
+                // Le participant n'est pas encore dans participants, attendre un peu
+                console.log('[EventJoin] ⏳ Request confirmed but participant not yet in participants, waiting...');
+                // Le polling existant dans le useEffect ci-dessous gérera la redirection
+              }
             }
-          } catch (err) {
-            console.error('[EventJoin] ❌ Error during access check:', err);
+          } catch (reloadError) {
+            console.error('[EventJoin] ❌ Error reloading event from Firestore:', reloadError);
+            // En cas d'erreur, utiliser le polling existant
           }
-        }, 5000); // vérification toutes les 5s
-      };
-
-      // Démarrer la vérification uniquement si on est en état "en attente"
-      if (status === 'pending') {
-        startAccessCheck();
+        };
+        
+        // Recharger l'événement depuis Firestore
+        reloadEvent();
+        return;
       }
 
-      return () => {
-        cancelled = true;
-        if (intervalId) {
-          clearInterval(intervalId);
+      if (request.status === 'rejected') {
+        setIsJoined(false);
+        setPendingRequestId(null);
+        setPendingParticipantId(null);
+        toast({
+          variant: "destructive",
+          title: "Demande rejetée",
+          description: "Votre demande de participation a été rejetée par l'organisateur.",
+        });
+      }
+    });
+
+    return () => {
+      console.log('[EventJoin] 👂 Cleaning up join request listener');
+      unsubscribe?.();
+    };
+  }, [event?.id, event?.firestoreId, isAuthenticated, currentUserId, toast]);
+
+  // ✅ Créer automatiquement la demande après login si l'événement est trouvé
+  useEffect(() => {
+    if (!event?.id) return;
+    if (!isAuthenticated || !currentUserId) return;
+    if (!email?.trim()) return; // email prérempli par auth en général
+    if (!pseudo?.trim()) return; // pseudo requis
+
+    // Condition: ne pas spammer
+    if (isJoined) return; // déjà pending côté UI
+    if (hasSentJoinRequestRef.current) return;
+    
+    // ✅ Ne pas créer de demande pour les événements temporaires
+    if (event._isTemporary || event.id?.startsWith('temp-')) {
+      console.log('[EventJoin] ⚠️ Skipping auto-create for temporary event');
+      return;
+    }
+
+    // ✅ Utiliser firestoreId si disponible, sinon id (pour garantir l'ID Firestore)
+    const firestoreEventId = event.firestoreId || event.id;
+    
+    console.log('[EventJoin] 📝 Auto-creating join request after login:', {
+      eventId: firestoreEventId,
+      eventIdLocal: event.id,
+      firestoreId: event.firestoreId,
+      currentUserId,
+      email: email.trim(),
+      pseudo: pseudo.trim()
+    });
+
+    hasSentJoinRequestRef.current = true;
+
+    // ✅ S'assurer que userId est toujours currentUserId.toLowerCase() quand authentifié
+    createJoinRequest(firestoreEventId, {
+      userId: currentUserId.toLowerCase().trim(), // Toujours en lowercase
+      email: email.trim().toLowerCase(), // Normaliser l'email aussi
+      name: pseudo.trim(),
+      pseudo: pseudo.trim()
+    })
+      .then((result) => {
+        console.log('[EventJoin] ✅ Join request created automatically:', result);
+        // L'état pending sera mis à jour par l'écoute joinRequests ci-dessus
+      })
+      .catch((e) => {
+        console.error('[EventJoin] ❌ Error auto-creating join request:', e);
+        hasSentJoinRequestRef.current = false;
+        // Si déjà pending -> message ok, sinon erreur
+        if (e.message?.includes('déjà une demande')) {
+          toast({
+            title: "Info",
+            description: "Vous avez déjà une demande en attente pour cet événement.",
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Erreur",
+            description: e.message || "Impossible de créer la demande automatiquement.",
+          });
         }
-      };
-    }, [status, event?.id, email, currentUserId, toast]);
+      });
+  }, [event?.id, event?.firestoreId, event?._isTemporary, isAuthenticated, currentUserId, email, pseudo, isJoined, toast]);
+
+  // 🔄 Vérification automatique d'accès : dès que l'organisateur accepte,
+  // le participant est créé dans events/{eventId}/participants/{emailLower}
+  // → on redirige automatiquement vers l'événement.
+  // ✅ IMPORTANT : Ce useEffect doit être appelé TOUJOURS (pas conditionnellement)
+  // pour respecter les règles des Hooks React
+  useEffect(() => {
+    // Ne démarrer la vérification que si on est en état "en attente" (isJoined && event)
+    if (!isJoined || !event) {
+      return;
+    }
+
+    let intervalId;
+    let cancelled = false;
+
+    const startAccessCheck = () => {
+      if (!event?.id) return;
+
+      // Email prioritaire : email saisi, sinon identifiant courant
+      const baseEmail = (email || currentUserId || '').trim();
+      if (!baseEmail) return;
+
+      console.log('[EventJoin] 🔄 Starting auto access check for participant:', {
+        eventId: event.id,
+        email: baseEmail
+      });
+
+      intervalId = setInterval(async () => {
+        if (cancelled) return;
+
+        try {
+          const allowed = await checkParticipantAccess(event.id, baseEmail);
+          console.log('[EventJoin] 🔎 checkParticipantAccess result:', {
+            eventId: event.id,
+            email: baseEmail,
+            allowed
+          });
+
+          if (allowed) {
+            console.log('[EventJoin] ✅ Participant access granted, redirecting to event');
+            clearInterval(intervalId);
+
+            toast({
+              title: '🎉 Accès accordé',
+              description: `Votre participation à "${event.title}" a été validée.`
+            });
+
+            // Réinitialiser l'écran "en attente"
+            setIsJoined(false);
+            setPendingParticipantId(null);
+
+            // Rediriger vers l'événement
+            window.location.hash = `#event/${event.id}`;
+            setTimeout(() => {
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
+            }, 100);
+          }
+        } catch (err) {
+          console.error('[EventJoin] ❌ Error during access check:', err);
+        }
+      }, 5000); // vérification toutes les 5s
+    };
+
+    // Démarrer la vérification
+    startAccessCheck();
+
+    return () => {
+      cancelled = true;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [isJoined, event?.id, email, currentUserId, toast]);
+
+  if (isJoined && event) {
+    // ✅ Le statut "pending" vient maintenant de joinRequests, pas de participants
+    // On utilise pendingRequestId pour savoir qu'on a une demande en attente
+    const status = 'pending'; // Si isJoined est true, c'est qu'on a une demande pending
     
     return (
       <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0">
@@ -1106,6 +1412,22 @@ export function EventJoin({ onAuthRequired }) {
     }, 50);
   };
 
+  // ✅ Log de diagnostic avant le rendu
+  console.log('[EventJoin] ===== FORM DISPLAY CHECK =====', { 
+    hasEvent: !!event, 
+    eventId: event?.id,
+    eventCode: event?.code,
+    eventTitle: event?.title,
+    isJoined, 
+    isOrganizer, 
+    isAuthenticated,
+    currentUserId,
+    pendingRequestId,
+    pendingParticipantId,
+    willShowForm: !!event && !isJoined && !isOrganizer,
+    reason: !event ? 'No event' : isJoined ? 'Already joined' : isOrganizer ? 'Is organizer' : 'OK to show form'
+  });
+
   return (
     <div className="space-y-4 sm:space-y-6 mb-8 sm:mb-12 px-2 sm:px-0">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
@@ -1130,29 +1452,90 @@ export function EventJoin({ onAuthRequired }) {
         {/* 📋 Guide d'accueil pour les invités */}
         <Alert className="bg-primary/10 border-primary/20">
           <AlertCircle className="w-4 h-4 text-primary" />
-          <AlertDescription className="space-y-2">
-            <p className="font-semibold text-primary">📋 Guide : Comment rejoindre un événement</p>
-            <div className="text-sm space-y-1.5 mt-2">
-              <p><strong>1️⃣ Par code :</strong> Saisissez le code à 8 lettres majuscules reçu dans votre invitation (ex: VKCKVSOB) et cliquez sur "Rechercher"</p>
-              <p><strong>2️⃣ Par QR code :</strong> Cliquez sur le bouton QR code (📷) à droite et scannez le QR code reçu avec votre caméra</p>
-              <p><strong>3️⃣ Par lien :</strong> Si vous avez cliqué sur un lien d'invitation, le code est déjà pré-rempli automatiquement</p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                ⚠️ <strong>Important :</strong> Vous devez être connecté(e) pour rejoindre. Votre demande sera envoyée à l'organisateur qui devra la valider avant que vous ayez accès complet à l'événement.
-              </p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                💡 <strong>Astuce :</strong> Si l'événement n'est pas trouvé, vous pouvez quand même créer une demande de participation. L'organisateur pourra la valider manuellement.
-              </p>
+          <AlertDescription className="space-y-3">
+            <p className="font-semibold text-primary text-base">📋 Parcours complet : Comment rejoindre un événement</p>
+            <div className="text-sm space-y-2 mt-3">
+              <div className="bg-background/50 p-3 rounded-lg space-y-2">
+                <p className="font-semibold text-foreground">Étape 1 : Trouver l'événement</p>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-2">
+                  <li><strong>Par QR code :</strong> Scannez le QR code reçu (le code est automatiquement détecté)</li>
+                  <li><strong>Par code :</strong> Saisissez le code à 8 lettres majuscules (ex: AMDZQINI) et cliquez sur "Rechercher"</li>
+                  <li><strong>Par lien :</strong> Si vous avez cliqué sur un lien, le code est déjà pré-rempli</li>
+                </ul>
+              </div>
+              <div className="bg-background/50 p-3 rounded-lg space-y-2">
+                <p className="font-semibold text-foreground">Étape 2 : Se connecter</p>
+                <p className="text-muted-foreground ml-2">
+                  ⚠️ <strong>Obligatoire :</strong> Vous devez créer un compte ou vous connecter avec votre email pour envoyer votre demande de participation.
+                </p>
+                {!isAuthenticated && (
+                  <Button
+                    onClick={() => {
+                      if (onAuthRequired) {
+                        onAuthRequired();
+                      } else {
+                        toast({
+                          variant: "destructive",
+                          title: "Erreur",
+                          description: "Impossible d'ouvrir le formulaire de connexion."
+                        });
+                      }
+                    }}
+                    className="w-full mt-2 button-glow"
+                  >
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Se connecter ou créer un compte
+                  </Button>
+                )}
+              </div>
+              <div className="bg-background/50 p-3 rounded-lg space-y-2">
+                <p className="font-semibold text-foreground">Étape 3 : Remplir le formulaire</p>
+                <p className="text-muted-foreground ml-2">
+                  Une fois connecté(e), remplissez votre <strong>Pseudo</strong> et votre <strong>Email</strong>, puis cliquez sur "Rejoindre l'événement".
+                </p>
+              </div>
+              <div className="bg-background/50 p-3 rounded-lg space-y-2">
+                <p className="font-semibold text-foreground">Étape 4 : Attendre la validation</p>
+                <p className="text-muted-foreground ml-2">
+                  Votre demande sera envoyée à l'organisateur. Vous recevrez une notification une fois votre participation validée.
+                </p>
+              </div>
             </div>
           </AlertDescription>
         </Alert>
 
         <div className="space-y-4">
-          {/* 🔐 Alerte si non authentifié */}
+          {/* 🔐 Alerte si non authentifié - Plus visible et actionnable */}
           {!isAuthenticated && (
-            <Alert>
-              <AlertCircle className="w-4 h-4" />
-              <AlertDescription>
-                <strong>Authentification requise :</strong> Pour rejoindre un évènement, merci de vous connecter ou de créer un compte.
+            <Alert className="bg-destructive/10 border-destructive/20">
+              <AlertCircle className="w-5 h-5 text-destructive" />
+              <AlertDescription className="space-y-3">
+                <div>
+                  <p className="font-semibold text-destructive text-base mb-2">
+                    🔐 Connexion requise pour continuer
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Pour rejoindre cet événement, vous devez d'abord créer un compte ou vous connecter avec votre email.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => {
+                    if (onAuthRequired) {
+                      onAuthRequired();
+                    } else {
+                      toast({
+                        variant: "destructive",
+                        title: "Erreur",
+                        description: "Impossible d'ouvrir le formulaire de connexion."
+                      });
+                    }
+                  }}
+                  className="w-full sm:w-auto button-glow"
+                  size="lg"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Se connecter ou créer un compte
+                </Button>
               </AlertDescription>
             </Alert>
           )}
@@ -1227,7 +1610,7 @@ export function EventJoin({ onAuthRequired }) {
             )}
           </div>
 
-          {event && (
+          {event && !isJoined && !isOrganizer && (
             <>
               <div className="p-4 rounded-lg neon-border bg-primary/5 space-y-3">
                 <div>
@@ -1275,10 +1658,34 @@ export function EventJoin({ onAuthRequired }) {
                 </div>
               </div>
 
+              {/* Message si non authentifié */}
+              {!isAuthenticated && (
+                <Alert className="bg-yellow-500/10 border-yellow-500/20">
+                  <AlertCircle className="w-4 h-4 text-yellow-600" />
+                  <AlertDescription>
+                    <p className="text-sm">
+                      <strong>Vous devez vous connecter</strong> pour remplir ce formulaire et envoyer votre demande de participation.
+                    </p>
+                    <Button
+                      onClick={() => {
+                        if (onAuthRequired) {
+                          onAuthRequired();
+                        }
+                      }}
+                      className="mt-2 w-full sm:w-auto button-glow"
+                      size="sm"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Se connecter maintenant
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                  <Label htmlFor="pseudo">Pseudo</Label>
+                  <Label htmlFor="pseudo">Pseudo {!isAuthenticated && <span className="text-destructive">*</span>}</Label>
                     {pseudo && (
                       <Button
                         type="button"
@@ -1301,7 +1708,13 @@ export function EventJoin({ onAuthRequired }) {
                     placeholder="Votre pseudo"
                     className="neon-border"
                     required
+                    disabled={!isAuthenticated}
                   />
+                  {!isAuthenticated && (
+                    <p className="text-xs text-muted-foreground">
+                      Connectez-vous pour débloquer ce champ
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -1336,11 +1749,18 @@ export function EventJoin({ onAuthRequired }) {
                     }}
                     placeholder="votre@email.com"
                     className="neon-border"
+                    disabled={!isAuthenticated}
                   />
+                  {!isAuthenticated && (
+                    <p className="text-xs text-muted-foreground">
+                      Connectez-vous pour débloquer ce champ
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {isOrganizer ? (
+              {/* ✅ Afficher le message organisateur SEULEMENT si authentifié ET organisateur */}
+              {isAuthenticated && isOrganizer ? (
                 <div className="space-y-2">
                   <Alert>
                     <AlertCircle className="w-4 h-4" />
@@ -1362,7 +1782,7 @@ export function EventJoin({ onAuthRequired }) {
               ) : (
                 <Button
                   onClick={handleJoin}
-                  disabled={isLoading || !pseudo.trim() || !event || (!isAuthenticated && !event?._isTemporary)}
+                  disabled={isLoading || !pseudo.trim() || !event}
                   className="w-full gap-2 button-glow"
                 >
                   {isLoading ? (
@@ -1375,10 +1795,10 @@ export function EventJoin({ onAuthRequired }) {
                       <AlertCircle className="w-4 h-4" />
                       Code invalide
                     </>
-                  ) : !isAuthenticated && !event?._isTemporary ? (
+                  ) : !isAuthenticated ? (
                     <>
                       <AlertCircle className="w-4 h-4" />
-                      Authentification requise
+                      Se connecter pour rejoindre
                     </>
                   ) : (
                     <>
@@ -1398,7 +1818,20 @@ export function EventJoin({ onAuthRequired }) {
   isOpen={isQRScannerOpen}
   onClose={() => setIsQRScannerOpen(false)}
   onScanSuccess={(scannedCode) => {
-    console.log('[EventJoin] QR code scanned, received code:', scannedCode);
+    console.log('[EventJoin] ===== QR CODE SCANNED =====');
+    console.log('[EventJoin] Scanned code:', scannedCode);
+    console.log('[EventJoin] onAuthRequired prop:', typeof onAuthRequired);
+
+    // ✅ IMPORTANT : Réinitialiser tous les états avant de traiter le nouveau code
+    console.log('[EventJoin] 🔄 Resetting states before processing QR code');
+    setIsJoined(false);
+    setPendingParticipantId(null);
+    setPendingRequestId(null);
+    setEvent(null);
+    setPseudo('');
+    setEmail('');
+    setIsLoading(false);
+    hasSentJoinRequestRef.current = false;
 
     // Nettoyer le code : garder uniquement les lettres majuscules
     const cleanCode =
@@ -1409,29 +1842,78 @@ export function EventJoin({ onAuthRequired }) {
     if (cleanCode && cleanCode.length === 8) {
       setEventCode(cleanCode);
 
-      // Attendre un peu pour que le state soit mis à jour, puis vérifier
-      setTimeout(() => {
-        console.log(
-          '[EventJoin] Calling handleCodeCheck with cleaned code:',
-          cleanCode
-        );
-        handleCodeCheck(cleanCode).catch((err) =>
-          console.error('[EventJoin] Error in handleCodeCheck:', err)
-        );
-      }, 100);
+      // ✅ Ouvrir automatiquement le dialogue d'authentification si l'utilisateur n'est pas connecté
+      const userData = localStorage.getItem('bonkont-user');
+      const isAuthenticated = !!userData;
+      
+      console.log('[EventJoin] Auth check:', {
+        hasUserData: !!userData,
+        isAuthenticated,
+        onAuthRequiredExists: typeof onAuthRequired === 'function'
+      });
+      
+      if (!isAuthenticated) {
+        console.log('[EventJoin] 🔐 User not authenticated, opening auth dialog after QR scan');
+        
+        // Fermer d'abord le scanner pour éviter les conflits
+        setIsQRScannerOpen(false);
+        
+        // Attendre un peu pour que le scanner se ferme complètement
+        setTimeout(() => {
+          console.log('[EventJoin] 🔐 Attempting to open auth dialog...');
+          
+          if (onAuthRequired && typeof onAuthRequired === 'function') {
+            console.log('[EventJoin] ✅ Calling onAuthRequired()');
+            try {
+              onAuthRequired();
+              console.log('[EventJoin] ✅ onAuthRequired() called successfully');
+            } catch (error) {
+              console.error('[EventJoin] ❌ Error calling onAuthRequired:', error);
+              toast({
+                variant: 'destructive',
+                title: 'Erreur',
+                description: 'Impossible d\'ouvrir le formulaire de connexion. Veuillez cliquer sur "Se connecter".'
+              });
+            }
+          } else {
+            console.error('[EventJoin] ❌ onAuthRequired is not a function!', {
+              type: typeof onAuthRequired,
+              value: onAuthRequired
+            });
+            toast({
+              variant: 'destructive',
+              title: 'Erreur',
+              description: 'Impossible d\'ouvrir le formulaire de connexion. Veuillez cliquer sur "Se connecter".'
+            });
+          }
+          
+          // Vérifier l'événement après un délai pour permettre l'authentification
+          setTimeout(() => {
+            console.log('[EventJoin] Calling handleCodeCheck with cleaned code:', cleanCode);
+            handleCodeCheck(cleanCode).catch((err) =>
+              console.error('[EventJoin] Error in handleCodeCheck:', err)
+            );
+          }, 500);
+        }, 200);
+      } else {
+        // Utilisateur déjà authentifié, fermer le scanner et vérifier le code
+        setIsQRScannerOpen(false);
+        setTimeout(() => {
+          console.log('[EventJoin] User already authenticated, calling handleCodeCheck');
+          handleCodeCheck(cleanCode).catch((err) =>
+            console.error('[EventJoin] Error in handleCodeCheck:', err)
+          );
+        }, 100);
+      }
     } else {
-      console.warn(
-        '[EventJoin] No valid code extracted from QR scan:',
-        scannedCode
-      );
+      console.warn('[EventJoin] ❌ No valid code extracted from QR scan:', scannedCode);
+      setIsQRScannerOpen(false);
       toast({
         variant: 'destructive',
         title: 'Code invalide',
         description: 'Le code doit contenir exactement 8 lettres majuscules (A-Z).',
       });
     }
-
-    setIsQRScannerOpen(false);
   }}
 /></div>
 ); }

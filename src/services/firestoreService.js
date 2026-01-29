@@ -21,7 +21,9 @@ import {
   serverTimestamp,
   Timestamp,
   setDoc,
-  writeBatch
+  writeBatch,
+  onSnapshot,
+  deleteDoc
 } from 'firebase/firestore';
 
 /**
@@ -110,13 +112,117 @@ export async function findEventByCode(code) {
     console.log('[Firestore] 👥 Fetching participants for event:', eventDoc.id);
     const participantsRef = collection(db, 'events', eventDoc.id, 'participants');
     const participantsSnapshot = await getDocs(participantsRef);
-    const participants = participantsSnapshot.docs.map(pDoc => ({
+    let participants = participantsSnapshot.docs.map(pDoc => ({
       id: pDoc.id,
       ...pDoc.data(),
       joinedAt: convertFirestoreDate(pDoc.data().joinedAt)
     }));
 
-    console.log('[Firestore] 👥 Participants found:', participants.length);
+    // ✅ DÉDUPLICATION AMÉLIORÉE : Supprimer les doublons par email ET userId
+    console.log('[Firestore] 👥 Participants BEFORE deduplication:', participants.length);
+    console.log('[Firestore] 👥 Participants details BEFORE:', JSON.stringify(participants.map(p => ({
+      id: p.id,
+      name: p.name,
+      email: p.email,
+      userId: p.userId,
+      role: p.role,
+      isOrganizer: p.isOrganizer
+    })), null, 2));
+
+    const seenByEmail = new Map();
+    const seenByUserId = new Map();
+    const seenById = new Map(); // Par ID de document Firestore
+    const duplicatesRemoved = [];
+
+    participants = participants.filter(p => {
+      // Normaliser les emails et userIds
+      const emailKey = (p.email || '').toLowerCase().trim();
+      const userIdKey = (p.userId || '').toLowerCase().trim();
+      const docId = (p.id || '').toLowerCase().trim();
+      
+      // ✅ Vérifier d'abord par ID de document (le plus fiable)
+      if (docId && seenById.has(docId)) {
+        duplicatesRemoved.push({ type: 'docId', key: docId, participant: p });
+        console.warn('[Firestore] ⚠️⚠️⚠️ DUPLICATE BY DOC ID:', {
+          docId,
+          name: p.name,
+          email: p.email,
+          userId: p.userId,
+          existing: seenById.get(docId)
+        });
+        return false;
+      }
+      
+      // Vérifier les doublons par email
+      if (emailKey && seenByEmail.has(emailKey)) {
+        const existing = seenByEmail.get(emailKey);
+        duplicatesRemoved.push({ type: 'email', key: emailKey, participant: p, existing });
+        console.warn('[Firestore] ⚠️⚠️⚠️ DUPLICATE BY EMAIL:', {
+          email: emailKey,
+          name: p.name,
+          userId: p.userId,
+          id: p.id,
+          existingName: existing.name,
+          existingId: existing.id,
+          existingEmail: existing.email
+        });
+        return false;
+      }
+      
+      // Vérifier les doublons par userId
+      if (userIdKey && seenByUserId.has(userIdKey)) {
+        const existing = seenByUserId.get(userIdKey);
+        duplicatesRemoved.push({ type: 'userId', key: userIdKey, participant: p, existing });
+        console.warn('[Firestore] ⚠️⚠️⚠️ DUPLICATE BY USERID:', {
+          userId: userIdKey,
+          name: p.name,
+          email: p.email,
+          id: p.id,
+          existingName: existing.name,
+          existingId: existing.id,
+          existingUserId: existing.userId
+        });
+        return false;
+      }
+      
+      // ✅ Cas spécial : si email === userId (comme "rsi.info9@gmail.com")
+      // Vérifier si on a déjà vu quelqu'un avec le même email OU userId
+      if (emailKey && userIdKey && emailKey === userIdKey) {
+        // Si on a déjà vu cet email/userId, c'est un doublon
+        if (seenByEmail.has(emailKey) || seenByUserId.has(userIdKey)) {
+          duplicatesRemoved.push({ type: 'emailEqualsUserId', key: emailKey, participant: p });
+          console.warn('[Firestore] ⚠️⚠️⚠️ DUPLICATE BY EMAIL=USERID:', {
+            key: emailKey,
+            name: p.name,
+            id: p.id
+          });
+          return false;
+        }
+      }
+      
+      // Ajouter aux maps si pas de doublon
+      if (docId) seenById.set(docId, p);
+      if (emailKey) seenByEmail.set(emailKey, p);
+      if (userIdKey) seenByUserId.set(userIdKey, p);
+      
+      return true;
+    });
+
+    console.log('[Firestore] 📊 Deduplication results:', {
+      before: participants.length + duplicatesRemoved.length,
+      after: participants.length,
+      duplicatesRemoved: duplicatesRemoved.length,
+      duplicates: duplicatesRemoved
+    });
+    console.log('[Firestore] 👥 Participants AFTER deduplication:', participants.length);
+    console.log('[Firestore] 👥 Participants details AFTER:', participants.map(p => ({
+      id: p.id,
+      name: p.name,
+      email: p.email,
+      userId: p.userId,
+      role: p.role,
+      isOrganizer: p.isOrganizer
+    })));
 
     // Calculer totalPaid à partir des participants
     const totalPaid = participants.reduce((sum, p) => {
@@ -380,11 +486,20 @@ export async function createJoinRequest(eventId, participantData) {
       organizerName: eventData.organizerName
     });
 
+    // ✅ Normaliser userId et email en lowercase pour éviter les problèmes de casse
+    // (fait une seule fois au début pour éviter les redéclarations)
+    const normalizedUserId = (participantData.userId || participantData.email || '').trim().toLowerCase();
+    const normalizedEmail = (participantData.email || '').trim().toLowerCase();
+    
+    if (!normalizedUserId) {
+      throw new Error("Impossible de créer la demande : userId ou email manquant.");
+    }
+    
     // Vérifier si l'utilisateur n'a pas déjà une demande en attente
     const joinRequestsRef = collection(db, 'events', eventId, 'joinRequests');
     const existingQuery = query(
       joinRequestsRef,
-      where('userId', '==', participantData.userId || participantData.email),
+      where('userId', '==', normalizedUserId),
       where('status', '==', 'pending')
     );
     const existingSnapshot = await getDocs(existingQuery);
@@ -396,9 +511,9 @@ export async function createJoinRequest(eventId, participantData) {
 
     // Créer la demande de participation
     const requestData = {
-      userId: participantData.userId || participantData.email,
-      email: participantData.email || '',
-      name: participantData.name || participantData.pseudo,
+      userId: normalizedUserId,
+      email: normalizedEmail,
+      name: (participantData.name || participantData.pseudo || '').trim(),
       status: 'pending',
       requestedAt: serverTimestamp(),
       approvedAt: null
@@ -468,6 +583,65 @@ export async function createJoinRequest(eventId, participantData) {
     console.error('[Firestore] ❌ Error creating join request:', error);
     throw error;
   }
+}
+
+/**
+ * Écoute en temps réel la demande de participation de l'utilisateur pour un événement
+ * @param {string} eventId - ID de l'événement
+ * @param {string} userKey - Email ou userId de l'utilisateur
+ * @param {Function} onChange - Callback appelé avec la demande (ou null si aucune)
+ * @returns {Function} Fonction pour désabonner le listener
+ */
+export function listenMyJoinRequest(eventId, userKey, onChange) {
+  if (!eventId || !userKey) {
+    console.warn('[Firestore] ⚠️ listenMyJoinRequest: eventId or userKey missing');
+    return () => {};
+  }
+
+  console.log('[Firestore] 👂 Listening to join request:', { eventId, userKey });
+
+  const joinRequestsRef = collection(db, 'events', eventId, 'joinRequests');
+  const q = query(joinRequestsRef, where('userId', '==', userKey));
+
+  const unsubscribe = onSnapshot(
+    q,
+    (snap) => {
+      if (snap.empty) {
+        console.log('[Firestore] 👂 No join request found for user:', userKey);
+        onChange(null);
+        return;
+      }
+
+      // S'il y en a plusieurs, prends la plus récente
+      const docs = snap.docs
+        .map((d) => ({
+          id: d.id,
+          ...d.data(),
+          requestedAt: convertFirestoreDate(d.data().requestedAt),
+          approvedAt: d.data().approvedAt ? convertFirestoreDate(d.data().approvedAt) : null
+        }))
+        .sort((a, b) => {
+          const aTime = a.requestedAt?.getTime?.() || 0;
+          const bTime = b.requestedAt?.getTime?.() || 0;
+          return bTime - aTime;
+        });
+
+      const latestRequest = docs[0];
+      console.log('[Firestore] 👂 Join request updated:', {
+        requestId: latestRequest.id,
+        status: latestRequest.status,
+        userId: latestRequest.userId
+      });
+
+      onChange(latestRequest);
+    },
+    (error) => {
+      console.error('[Firestore] ❌ Error listening to join request:', error);
+      onChange(null);
+    }
+  );
+
+  return unsubscribe;
 }
 
 /**
@@ -731,20 +905,38 @@ export async function updateJoinRequest(eventId, requestId, action, organizerId)
         throw new Error("Impossible d'approuver : email/userId participant manquant dans la demande.");
       }
 
+      // ✅ Vérifier que le participant n'est pas l'organisateur
+      if (participantEmail === eventOrganizerId) {
+        console.error('[Firestore] ❌ Cannot approve: participant is the organizer');
+        throw new Error("L'organisateur ne peut pas être ajouté comme participant.");
+      }
+
       console.log('[Firestore] ✅ Participant email determined:', participantEmail);
 
       // Doc participant stable : events/{eventId}/participants/{emailLower}
       const participantDocRef = doc(db, 'events', eventId, 'participants', participantEmail);
       console.log('[Firestore] 📍 Participant doc path:', `events/${eventId}/participants/${participantEmail}`);
+      
+      // ✅ Vérifier si le participant existe déjà (évite les doublons)
+      const existingParticipantDoc = await getDoc(participantDocRef);
+      if (existingParticipantDoc.exists()) {
+        const existingData = existingParticipantDoc.data();
+        console.log('[Firestore] ⚠️ Participant already exists, updating instead of creating:', {
+          participantEmail,
+          existingStatus: existingData.status
+        });
+        // Le participant existe déjà, on met juste à jour la demande
+        // Le participant reste dans la liste (pas de doublon créé)
+      }
 
       const batch = writeBatch(db);
 
       // 1) Mettre à jour la demande
       batch.update(requestDocRef, {
-        status: 'approved',
+        status: 'confirmed',
         approvedAt: serverTimestamp()
       });
-      console.log('[Firestore] ✅ Batch: joinRequest update queued');
+      console.log('[Firestore] ✅ Batch: joinRequest update queued (status: confirmed)');
 
       // 2) Créer / fusionner le participant
       const participantData = {
@@ -825,38 +1017,47 @@ export async function getEventsByOrganizer(organizerId) {
       // Récupérer les participants depuis Firestore
       const participantsRef = collection(db, 'events', docSnap.id, 'participants');
       const participantsSnapshot = await getDocs(participantsRef);
-      const participants = participantsSnapshot.docs.map(pDoc => ({
+      let participants = participantsSnapshot.docs.map(pDoc => ({
         id: pDoc.id,
         ...pDoc.data(),
         joinedAt: convertFirestoreDate(pDoc.data().joinedAt)
       }));
       
-      // S'assurer que l'organisateur est dans la liste des participants
-      const organizerExists = participants.some(p => 
-        (p.userId && p.userId.toLowerCase() === eventData.organizerId?.toLowerCase()) ||
-        (p.email && p.email.toLowerCase() === eventData.organizerId?.toLowerCase()) ||
-        p.role === 'organizer' ||
-        p.isOrganizer === true
-      );
+      // ✅ DÉDUPLICATION : Supprimer les doublons de participants
+      const seenParticipants = new Map();
+      participants = participants.filter(p => {
+        const key = (p.email || p.userId || p.id || '').toLowerCase().trim();
+        if (!key) return true;
+        
+        if (seenParticipants.has(key)) {
+          console.warn('[Firestore] ⚠️ Duplicate participant detected and removed:', {
+            key,
+            name: p.name,
+            email: p.email,
+            userId: p.userId
+          });
+          return false;
+        }
+        seenParticipants.set(key, p);
+        return true;
+      });
       
+      // ✅ Vérifier si l'organisateur est dans la liste (sans créer de doublon)
+      const organizerExists = participants.some(p => {
+        const pKey = (p.email || p.userId || '').toLowerCase().trim();
+        const orgKey = (eventData.organizerId || '').toLowerCase().trim();
+        return pKey === orgKey || p.role === 'organizer' || p.isOrganizer === true;
+      });
+      
+      // ✅ NE PAS ajouter l'organisateur s'il existe déjà (évite les doublons)
+      // L'organisateur doit être créé lors de la création de l'événement, pas après
       if (!organizerExists && eventData.organizerId && eventData.organizerName) {
-        console.log('[Firestore] ⚠️ Organizer not found in participants, adding it...', {
+        console.warn('[Firestore] ⚠️ Organizer not found in participants (should have been created during event creation):', {
           eventId: docSnap.id,
           organizerId: eventData.organizerId
         });
-        const organizerParticipant = {
-          id: 'organizer-1',
-          userId: eventData.organizerId,
-          name: eventData.organizerName || 'Organisateur',
-          email: eventData.organizerId,
-          role: 'organizer',
-          isOrganizer: true,
-          status: 'confirmed',
-          hasConfirmed: true,
-          approved: true
-        };
-        participants.unshift(organizerParticipant); // Ajouter au début
-        console.log('[Firestore] ✅ Organizer added to participants list');
+        // Ne pas ajouter automatiquement pour éviter les doublons
+        // L'organisateur doit être créé lors de createEvent
       }
       
       // Calculer totalPaid à partir des participants
@@ -890,6 +1091,147 @@ export async function getEventsByOrganizer(organizerId) {
   } catch (error) {
     console.error('[Firestore] ❌ Error getting events by organizer:', error);
     return [];
+  }
+}
+
+/**
+ * Supprime les doublons de participants dans Firestore pour un événement
+ * @param {string} eventCode - Code de l'événement
+ * @returns {Promise<Object>} Résultat avec le nombre de doublons supprimés
+ */
+export async function removeDuplicateParticipants(eventCode) {
+  try {
+    console.log('[Firestore] 🧹 Removing duplicate participants for event:', eventCode);
+    
+    // Trouver l'événement par code
+    const event = await findEventByCode(eventCode);
+    if (!event || !event.id) {
+      throw new Error(`Événement non trouvé avec le code: ${eventCode}`);
+    }
+    
+    const eventId = event.id;
+    console.log('[Firestore] 📋 Event found:', { eventId, title: event.title });
+    
+    // Récupérer tous les participants depuis Firestore
+    const participantsRef = collection(db, 'events', eventId, 'participants');
+    const participantsSnapshot = await getDocs(participantsRef);
+    const allParticipants = participantsSnapshot.docs.map(pDoc => ({
+      id: pDoc.id,
+      docRef: pDoc.ref,
+      ...pDoc.data()
+    }));
+    
+    console.log('[Firestore] 👥 Total participants found:', allParticipants.length);
+    console.log('[Firestore] 👥 Participants details:', JSON.stringify(allParticipants.map(p => ({
+      id: p.id,
+      name: p.name,
+      email: p.email,
+      userId: p.userId,
+      role: p.role,
+      isOrganizer: p.isOrganizer
+    })), null, 2));
+    
+    // Identifier les doublons avec la même logique améliorée
+    const seenByEmail = new Map();
+    const seenByUserId = new Map();
+    const seenById = new Map(); // Par ID de document Firestore
+    const duplicatesToDelete = [];
+    const participantsToKeep = [];
+    
+    allParticipants.forEach(p => {
+      const emailKey = (p.email || '').toLowerCase().trim();
+      const userIdKey = (p.userId || '').toLowerCase().trim();
+      const docId = (p.id || '').toLowerCase().trim();
+      
+      let isDuplicate = false;
+      let reason = '';
+      
+      // ✅ Vérifier d'abord par ID de document
+      if (docId && seenById.has(docId)) {
+        isDuplicate = true;
+        reason = `docId: ${docId}`;
+      }
+      
+      // Vérifier par email
+      if (!isDuplicate && emailKey && seenByEmail.has(emailKey)) {
+        isDuplicate = true;
+        reason = `email: ${emailKey}`;
+      }
+      
+      // Vérifier par userId
+      if (!isDuplicate && userIdKey && seenByUserId.has(userIdKey)) {
+        isDuplicate = true;
+        reason = `userId: ${userIdKey}`;
+      }
+      
+      // ✅ Cas spécial : si email === userId
+      if (!isDuplicate && emailKey && userIdKey && emailKey === userIdKey) {
+        if (seenByEmail.has(emailKey) || seenByUserId.has(userIdKey)) {
+          isDuplicate = true;
+          reason = `email=userId: ${emailKey}`;
+        }
+      }
+      
+      if (isDuplicate) {
+        duplicatesToDelete.push({ participant: p, reason });
+        console.warn('[Firestore] ⚠️⚠️⚠️ DUPLICATE TO DELETE:', {
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          userId: p.userId,
+          reason,
+          existing: seenByEmail.get(emailKey) || seenByUserId.get(userIdKey) || seenById.get(docId)
+        });
+      } else {
+        // Garder le premier (celui qu'on garde)
+        participantsToKeep.push(p);
+        if (docId) seenById.set(docId, p);
+        if (emailKey) seenByEmail.set(emailKey, p);
+        if (userIdKey) seenByUserId.set(userIdKey, p);
+      }
+    });
+    
+    console.log('[Firestore] 📊 Deduplication analysis:', {
+      total: allParticipants.length,
+      toKeep: participantsToKeep.length,
+      toDelete: duplicatesToDelete.length
+    });
+    
+    console.log('[Firestore] 📊 Duplicates to delete:', duplicatesToDelete.length);
+    
+    if (duplicatesToDelete.length === 0) {
+      return {
+        success: true,
+        message: 'Aucun doublon trouvé',
+        deleted: 0
+      };
+    }
+    
+    // Supprimer les doublons dans Firestore
+    const batch = writeBatch(db);
+    duplicatesToDelete.forEach(({ participant }) => {
+      batch.delete(participant.docRef);
+      console.log('[Firestore] 🗑️ Queued deletion:', participant.id);
+    });
+    
+    await batch.commit();
+    console.log('[Firestore] ✅✅✅ Duplicates deleted successfully ✅✅✅');
+    console.log('[Firestore] Deleted', duplicatesToDelete.length, 'duplicate participants');
+    
+    return {
+      success: true,
+      message: `${duplicatesToDelete.length} doublon(s) supprimé(s)`,
+      deleted: duplicatesToDelete.length,
+      details: duplicatesToDelete.map(d => ({
+        id: d.participant.id,
+        name: d.participant.name,
+        email: d.participant.email,
+        reason: d.reason
+      }))
+    };
+  } catch (error) {
+    console.error('[Firestore] ❌ Error removing duplicates:', error);
+    throw error;
   }
 }
 

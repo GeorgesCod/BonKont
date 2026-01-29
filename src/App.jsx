@@ -24,7 +24,13 @@ import { useI18nStore } from '@/lib/i18n';
 export default function App() {
   const { toast } = useToast();
   const { t } = useI18nStore();
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    try {
+      return !!localStorage.getItem('bonkont-user');
+    } catch {
+      return false;
+    }
+  });
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState('account');
@@ -110,30 +116,54 @@ export default function App() {
     
     console.log('[App] ✅ Utility function window.findEventByCode() is now available');
     console.log('[App] 💡 Usage: window.findEventByCode("JELHFMFA")');
+    
+    // Exposer removeDuplicateParticipants dans la console pour supprimer les doublons
+    window.removeDuplicateParticipants = async (code) => {
+      const { removeDuplicateParticipants } = await import('@/services/firestoreService');
+      return removeDuplicateParticipants(code);
+    };
+    console.log('[App] ✅ Utility function window.removeDuplicateParticipants() is now available');
+    console.log('[App] 💡 Usage: window.removeDuplicateParticipants("AMDZQINI")');
   }, []);
 
-   // Vérifier l'état d'authentification au chargement (PATCH 2)
+  // Synchroniser l'état d'auth avec localStorage (sans polling)
   useEffect(() => {
-    const checkAuthState = () => {
-      const userData = localStorage.getItem('bonkont-user');
-      const shouldBeLoggedIn = !!userData;
-      
+    const readAuth = () => {
+      let shouldBeLoggedIn = false;
+      try {
+        shouldBeLoggedIn = !!localStorage.getItem('bonkont-user');
+      } catch {
+        shouldBeLoggedIn = false;
+      }
+
       console.log('[App] Checking auth state:', shouldBeLoggedIn ? 'LOGGED IN' : 'LOGGED OUT');
-      
-      if (shouldBeLoggedIn !== isLoggedIn) {
-        console.log('[App] Auth state mismatch, correcting:', shouldBeLoggedIn);
-        setIsLoggedIn(shouldBeLoggedIn);
+      setIsLoggedIn(shouldBeLoggedIn);
+    };
+
+    // Init
+    readAuth();
+
+    // Changement depuis un autre onglet
+    const onStorage = (e) => {
+      if (e.key === 'bonkont-user') {
+        readAuth();
       }
     };
-    
-    // Vérifier immédiatement
-    checkAuthState();
-    
-    // Vérifier périodiquement (fallback)
-    const interval = setInterval(checkAuthState, 1000);
-    
-    return () => clearInterval(interval);
-  }, [isLoggedIn]);
+    window.addEventListener('storage', onStorage);
+
+    // Re-vérifier au retour sur l’onglet (cas mobile / PWA)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        readAuth();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   useEffect(() => {
   console.log('[App] Component mounted, setting up hash routing');
@@ -253,21 +283,24 @@ export default function App() {
 
     // Si pas de hash ou hash vide
     if (!hash || hash === '' || hash === '#') {
-      console.log('[App] No hash on load');
+      console.log('[App] No hash on load -> go home (public)');
+      // NE PAS ouvrir AuthDialog automatiquement sur la Home
+      // L’utilisateur voit toujours le bouton "Se connecter"
 
-      if (!isAuthenticated) {
-        // ⚠️ Sécurité : forcer l’ouverture de la fenêtre d’authentification
-        console.log('[App] User NOT authenticated on initial load -> forcing auth dialog');
-        setIsLoggedIn(false);
-        setIsAuthOpen(true);
+      // Important : ne pas écraser une navigation explicite vers le tableau de bord
+      // (ex: juste après un login où on met currentView = "dashboard-view").
+      if (isAuthenticated && currentView === 'dashboard-view') {
+        console.log('[App] No hash but already on dashboard-view (authenticated) -> keeping view');
+        return;
       }
 
       console.log('[App] Navigating to dashboard (home page)');
-      setCurrentView('dashboard'); // Vue d'accueil, mais protégée par le dialog de connexion
+      setCurrentView('dashboard');
       setSelectedEventId(null);
       setViewMode('management');
       setShowHistory(false);
       setShowStats(false); // S'assurer que les stats ne s'affichent pas
+      setShowEventCreation(false);
       // Ne pas afficher EventCreation par défaut
       return;
     }
@@ -303,30 +336,26 @@ export default function App() {
     }
     // Route pour le tableau de bord (nécessite une authentification)
     if (hash === '#/dashboard' || hash === '#dashboard') {
-      console.log('[App] Navigating to dashboard view');
-      // Vérifier l'authentification directement dans localStorage
+      console.log('[App] Navigating to dashboard view from hash');
       const userData = localStorage.getItem('bonkont-user');
-      const isAuthenticated = !!userData;
-      console.log('[App] Auth check for dashboard:', { isLoggedIn, isAuthenticated, hasUserData: !!userData });
-      
-      if (!isAuthenticated) {
-        console.log('[App] User not logged in, redirecting to auth');
+      const isAuthenticatedForDashboard = !!userData;
+      console.log('[App] Auth check for dashboard route:', { isLoggedIn, isAuthenticatedForDashboard });
+
+      if (!isAuthenticatedForDashboard) {
+        console.log('[App] User not logged in for dashboard route, opening auth dialog');
         setIsAuthOpen(true);
-        window.location.hash = '';
-        setCurrentView('dashboard');
-        // Mettre à jour l'état si nécessaire
+        // On conserve le hash pour permettre un retour automatique après login
         if (isLoggedIn) {
           setIsLoggedIn(false);
         }
         return;
       }
-      
-      // Mettre à jour l'état si nécessaire
+
       if (!isLoggedIn) {
-        console.log('[App] Updating isLoggedIn state to true');
+        console.log('[App] Updating isLoggedIn state to true for dashboard route');
         setIsLoggedIn(true);
       }
-      
+
       setCurrentView('dashboard-view');
       setSelectedEventId(null);
       setViewMode('management');
@@ -425,12 +454,74 @@ export default function App() {
         return;
       }
       
-      // Si l'utilisateur n'est pas connecté mais qu'un événement existe, on peut quand même naviguer
-      // (pour permettre l'accès via lien partagé)
-      if (!isLoggedIn && eventExists) {
-        console.log('[App] User not logged in but event exists, allowing navigation');
-        // Optionnel: on pourrait rediriger vers la connexion ici
-        // setIsAuthOpen(true);
+      // Vérifier si l'utilisateur est un participant confirmé de l'événement
+      if (eventExists && isAuthenticated) {
+        const foundEvent = events.find(e => 
+          String(e.id) === String(eventId) || 
+          String(e.firestoreId) === String(eventId) ||
+          String(e.firestoreEventId) === String(eventId)
+        );
+        
+        if (foundEvent && foundEvent.code) {
+          const userEmail = (() => {
+            try {
+              const userData = localStorage.getItem('bonkont-user');
+              if (!userData) return null;
+              const user = JSON.parse(userData);
+              return user.email || null;
+            } catch {
+              return null;
+            }
+          })();
+          
+          // Vérifier si l'utilisateur est un participant confirmé
+          const isParticipant = userEmail && foundEvent.participants?.some(p => 
+            (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
+            (p.userId && p.userId.toLowerCase() === userEmail.toLowerCase())
+          ) && foundEvent.participants?.find(p => 
+            (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
+            (p.userId && p.userId.toLowerCase() === userEmail.toLowerCase())
+          )?.status === 'confirmed';
+          
+          // Vérifier si l'utilisateur est l'organisateur
+          const isOrganizer = userEmail && foundEvent.organizerId && 
+            foundEvent.organizerId.toLowerCase() === userEmail.toLowerCase();
+          
+          if (!isParticipant && !isOrganizer) {
+            console.log('[App] User is not a confirmed participant, redirecting to join page:', {
+              userEmail,
+              eventCode: foundEvent.code,
+              isParticipant,
+              isOrganizer
+            });
+            // Rediriger vers la page de rejoindre avec le code
+            window.location.hash = `#/join/${foundEvent.code}`;
+            setCurrentView('join');
+            setSelectedEventId(null);
+            setShowHistory(false);
+            setShowStats(false);
+            return;
+          }
+        }
+      }
+      
+      // Si l'utilisateur n'est pas connecté mais qu'un événement existe, rediriger vers la page de rejoindre
+      if (!isAuthenticated && eventExists) {
+        const foundEvent = events.find(e => 
+          String(e.id) === String(eventId) || 
+          String(e.firestoreId) === String(eventId) ||
+          String(e.firestoreEventId) === String(eventId)
+        );
+        
+        if (foundEvent && foundEvent.code) {
+          console.log('[App] User not logged in, redirecting to join page:', foundEvent.code);
+          window.location.hash = `#/join/${foundEvent.code}`;
+          setCurrentView('join');
+          setSelectedEventId(null);
+          setShowHistory(false);
+          setShowStats(false);
+          return;
+        }
       }
       
       setSelectedEventId(eventId);
@@ -468,17 +559,20 @@ export default function App() {
     console.log('[App] Auth success, setting logged in');
     setIsLoggedIn(true);
     setIsAuthOpen(false);
-    // S'assurer qu'on est sur le dashboard après connexion
-    setCurrentView('dashboard');
-    setShowHistory(false);
-    setShowStats(false);
-    setShowEventCreation(false);
-    window.location.hash = '';
-    // Forcer un re-render pour que les boutons s'affichent correctement
-    setTimeout(() => {
-      console.log('[App] Forcing re-render after auth success');
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    }, 100);
+    
+    // ✅ IMPORTANT : Si on est sur EventJoin, rester sur EventJoin pour permettre la création automatique de la demande
+    // Sinon, aller au tableau de bord après connexion
+    if (currentView === 'join') {
+      console.log('[App] Staying on EventJoin page after auth - join request will be created automatically');
+      // Ne pas changer la vue, rester sur EventJoin
+      // Le useEffect dans EventJoin créera automatiquement la demande
+    } else {
+      // Après connexion depuis une autre page : aller au tableau de bord
+      setCurrentView('dashboard-view');
+      setShowHistory(false);
+      setShowStats(false);
+      setShowEventCreation(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -623,39 +717,35 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-4 flex-shrink-0">
-              {/* Masquer "Rejoindre" dans le header quand on est sur une page d'événement (il est dans EventManagement) et sur mobile */}
-              {currentView !== 'event' && (
-                <div className="hidden sm:block">
-                  <Button
-                    variant="outline"
-                    className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground text-sm"
-                    onClick={() => {
-                      console.log('[App] ===== JOIN EVENT BUTTON CLICKED =====');
-                      console.log('[App] Current view before:', currentView);
-                      console.log('[App] Setting hash to: #/join');
-                      window.location.hash = '#/join';
-                      setCurrentView('join');
-                      console.log('[App] Current view after setState:', currentView);
-                      console.log('[App] Hash after setState:', window.location.hash);
-                    }}
-                    title="Rejoindre un évènement"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    <span className="hidden sm:inline">Rejoindre</span>
-                  </Button>
-                </div>
+              {/* Bouton "Rejoindre" - masqué UNIQUEMENT sur la page d'accueil */}
+              {currentView !== 'dashboard' && (
+                <Button
+                  variant="outline"
+                  className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground text-sm"
+                  onClick={() => {
+                    console.log('[App] ===== JOIN EVENT BUTTON CLICKED =====');
+                    console.log('[App] Current view before:', currentView);
+                    console.log('[App] Setting hash to: #/join');
+                    window.location.hash = '#/join';
+                    setCurrentView('join');
+                    console.log('[App] Current view after setState:', currentView);
+                    console.log('[App] Hash after setState:', window.location.hash);
+                  }}
+                  title="Rejoindre un évènement"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Rejoindre</span>
+                </Button>
               )}
               
               {!isLoggedIn ? (
                 <>
-                  {/* Masquer "Inviter des amis" dans le header quand on est sur une page d'événement (il est dans EventManagement) et sur mobile */}
-                  {currentView !== 'event' && (
-                    <div className="hidden sm:block">
-                      <InviteFriends eventCode={selectedEventId ? (() => {
-                        const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
-                        return event?.code;
-                      })() : null} />
-                    </div>
+                  {/* Bouton "Inviter des amis" - masqué UNIQUEMENT sur la page d'accueil */}
+                  {currentView !== 'dashboard' && (
+                    <InviteFriends eventCode={selectedEventId ? (() => {
+                      const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
+                      return event?.code;
+                    })() : null} />
                   )}
                   {/* 
                     En page d'accueil (currentView === 'dashboard'), 
@@ -676,14 +766,12 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  {/* Masquer "Inviter des amis" dans le header quand on est sur une page d'événement (il est dans EventManagement) et sur mobile */}
-                  {currentView !== 'event' && (
-                    <div className="hidden sm:block">
-                      <InviteFriends eventCode={selectedEventId ? (() => {
-                        const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
-                        return event?.code;
-                      })() : null} />
-                    </div>
+                  {/* Bouton "Inviter des amis" - masqué UNIQUEMENT sur la page d'accueil */}
+                  {currentView !== 'dashboard' && (
+                    <InviteFriends eventCode={selectedEventId ? (() => {
+                      const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
+                      return event?.code;
+                    })() : null} />
                   )}
                   <Button
                     variant="outline"
@@ -745,11 +833,15 @@ export default function App() {
             (() => {
               console.log('[App] ✅✅✅ RENDERING EventJoin component, currentView:', currentView);
               console.log('[App] EventJoin will be mounted now');
+              const handleAuthRequired = () => {
+                console.log('[App] 🔐 Auth required for joining event - opening dialog');
+                console.log('[App] Current isAuthOpen state:', isAuthOpen);
+                setIsAuthOpen(true);
+                console.log('[App] ✅ setIsAuthOpen(true) called');
+              };
+              console.log('[App] Passing onAuthRequired prop to EventJoin:', typeof handleAuthRequired);
               return (
-                <EventJoin onAuthRequired={() => {
-                  console.log('[App] Auth required for joining event');
-                  setIsAuthOpen(true);
-                }} />
+                <EventJoin onAuthRequired={handleAuthRequired} />
               );
             })()
           ) : currentView === 'event' && selectedEventId ? (
@@ -807,51 +899,37 @@ export default function App() {
                   <EventManagement
                     eventId={selectedEventId}
                     onBack={() => {
-                      console.log('[App] Back to dashboard from event management');
+                      console.log('[App] Back to dashboard-view from event management');
                       setSelectedEventId(null);
                       setViewMode('management');
                       setShowHistory(false);
                       setShowStats(false);
-                      setCurrentView('dashboard');
-                      window.location.hash = '';
-                      // Force le re-render
-                      setTimeout(() => {
-                        window.dispatchEvent(new HashChangeEvent('hashchange'));
-                      }, 50);
+                      // Revenir au tableau de bord (vue interne), pas à la home publique
+                      setCurrentView('dashboard-view');
                     }}
                   />
                 ) : viewMode === 'transactions' ? (
                   <TransactionManagement
                     eventId={selectedEventId}
                     onBack={() => {
-                      console.log('[App] Back to dashboard from transactions');
+                      console.log('[App] Back to dashboard-view from transactions');
                       setSelectedEventId(null);
                       setViewMode('management');
                       setShowHistory(false);
                       setShowStats(false);
-                      setCurrentView('dashboard');
-                      window.location.hash = '';
-                      // Force le re-render
-                      setTimeout(() => {
-                        window.dispatchEvent(new HashChangeEvent('hashchange'));
-                      }, 50);
+                      setCurrentView('dashboard-view');
                     }}
                   />
                 ) : (
                   <EventClosure
                     eventId={selectedEventId}
                     onBack={() => {
-                      console.log('[App] Back to dashboard from closure');
+                      console.log('[App] Back to dashboard-view from closure');
                       setSelectedEventId(null);
                       setViewMode('management');
                       setShowHistory(false);
                       setShowStats(false);
-                      setCurrentView('dashboard');
-                      window.location.hash = '';
-                      // Force le re-render
-                      setTimeout(() => {
-                        window.dispatchEvent(new HashChangeEvent('hashchange'));
-                      }, 50);
+                      setCurrentView('dashboard-view');
                     }}
                   />
                 )}
@@ -964,44 +1042,14 @@ export default function App() {
                         Créez ou rejoignez un événement pour partager vos dépenses
                       </p>
                       <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                        {isLoggedIn ? (
-                          <>
-                            <Button
-                              className="gap-2 button-glow"
-                              onClick={() => {
-                                console.log('[App] Create event button clicked from home (logged in)');
-                                setShowEventCreation(true);
-                              }}
-                            >
-                              <Plus className="w-4 h-4" />
-                              Créer un événement
-                            </Button>
-                            <Button
-                              variant="default"
-                              className="gap-2"
-                              onClick={() => {
-                                console.log('[App] Dashboard button clicked from home (logged in)');
-                                window.location.hash = '#/dashboard';
-                                window.dispatchEvent(new HashChangeEvent('hashchange'));
-                              }}
-                            >
-                              <Wallet2 className="w-4 h-4" />
-                              Tableau de bord
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            variant="default"
-                            className="gap-2 button-glow"
-                            onClick={() => {
-                              console.log('[App] Se connecter button clicked from home');
-                              setIsAuthOpen(true);
-                            }}
-                          >
-                            <LogIn className="w-4 h-4" />
-                            Se connecter
-                          </Button>
-                        )}
+                        <Button
+                          variant="default"
+                          className="gap-2 button-glow"
+                          onClick={() => setIsAuthOpen(true)}
+                        >
+                          <LogIn className="w-4 h-4" />
+                          Se connecter
+                        </Button>
                       </div>
                     </div>
                   </div>

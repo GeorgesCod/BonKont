@@ -17,5 +17,7 @@ export {
   getNotifications,
   markNotificationAsRead,
   getEventsByOrganizer,
-  checkParticipantAccess
+  checkParticipantAccess,
+  listenMyJoinRequest,
+  removeDuplicateParticipants
 } from './firestoreService';
