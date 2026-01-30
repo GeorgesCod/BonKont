@@ -37,21 +37,28 @@ export default function App() {
   const [showStats, setShowStats] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showEventCreation, setShowEventCreation] = useState(false); // Contrôle l'affichage de EventCreation
-  // Initialiser la vue depuis le hash pour que #/join/CODE affiche immédiatement le formulaire invité (pas de flash dashboard)
+  // Ouvrir BONKONT sur la page login (home) UNIQUEMENT si non connecté
   const [currentView, setCurrentView] = useState(() => {
-    if (typeof window === 'undefined') return 'dashboard';
+    if (typeof window === 'undefined') return 'home';
     const h = window.location.hash;
     if (h.startsWith('#/join') || h === '#/join') return 'join';
-    if (h === '#/dashboard' || h === '#dashboard') return 'dashboard-view';
+    if (h === '#/dashboard' || h === '#dashboard') {
+      try {
+        if (!localStorage.getItem('bonkont-user')) return 'home'; // non connecté → page login
+      } catch (_) {}
+      return 'dashboard-view';
+    }
     if (h.startsWith('#event/')) {
       const segment = h.replace('#event/', '').split('/')[0] || '';
       if (/^[A-Z]{8}$/i.test(segment)) return 'join'; // code 8 lettres → formulaire
       return 'event';
     }
-    return 'dashboard';
+    return 'home';
   });
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [viewMode, setViewMode] = useState('management'); // 'management', 'transactions', or 'closure'
+  const [showDashboardList, setShowDashboardList] = useState(false); // false = ouvrir sur EventManagement (1er événement)
+  const events = useEventStore((state) => state.events);
 
   // Fonction utilitaire pour rechercher et ouvrir un événement par code
   // Accessible depuis la console : window.findEventByCode('JELHFMFA')
@@ -179,6 +186,16 @@ export default function App() {
 
   useEffect(() => {
   console.log('[App] Component mounted, setting up hash routing');
+  // Toujours ouvrir sur la homepage (Se connecter), jamais sur tableau de bord ni créer un événement
+  const h = window.location.hash;
+  if (!h || h === '' || h === '#') {
+    window.location.hash = '';
+    setCurrentView('home');
+    setSelectedEventId(null);
+    setShowEventCreation(false);
+    setShowHistory(false);
+    setShowStats(false);
+  }
   const logScreenInfo = () => {
     const width = window.innerWidth;
     const height = window.innerHeight;
@@ -295,25 +312,16 @@ export default function App() {
 
     // Si pas de hash ou hash vide
     if (!hash || hash === '' || hash === '#') {
-      console.log('[App] No hash on load -> go home (public)');
       // NE PAS ouvrir AuthDialog automatiquement sur la Home
       // L’utilisateur voit toujours le bouton "Se connecter"
 
-      // Important : ne pas écraser une navigation explicite vers le tableau de bord
-      // (ex: juste après un login où on met currentView = "dashboard-view").
-      if (isAuthenticated && currentView === 'dashboard-view') {
-        console.log('[App] No hash but already on dashboard-view (authenticated) -> keeping view');
-        return;
-      }
-
-      console.log('[App] Navigating to dashboard (home page)');
-      setCurrentView('dashboard');
+      // Toujours la homepage (Se connecter uniquement).
+      setCurrentView('home');
       setSelectedEventId(null);
       setViewMode('management');
       setShowHistory(false);
-      setShowStats(false); // S'assurer que les stats ne s'affichent pas
+      setShowStats(false);
       setShowEventCreation(false);
-      // Ne pas afficher EventCreation par défaut
       return;
     }
 
@@ -354,12 +362,14 @@ export default function App() {
       console.log('[App] Auth check for dashboard route:', { isLoggedIn, isAuthenticatedForDashboard });
 
       if (!isAuthenticatedForDashboard) {
-        console.log('[App] User not logged in for dashboard route, opening auth dialog');
-        setIsAuthOpen(true);
-        // On conserve le hash pour permettre un retour automatique après login
-        if (isLoggedIn) {
-          setIsLoggedIn(false);
-        }
+        // Non connecté : ouvrir BONKONT sur la page login (home) UNIQUEMENT, pas sur le dashboard
+        console.log('[App] User not logged in, redirecting to login page (home)');
+        window.location.hash = '';
+        setCurrentView('home');
+        setSelectedEventId(null);
+        setShowEventCreation(false);
+        setShowHistory(false);
+        if (isLoggedIn) setIsLoggedIn(false);
         return;
       }
 
@@ -374,6 +384,7 @@ export default function App() {
       setShowHistory(false);
       setShowStats(false);
       setShowEventCreation(false);
+      setShowDashboardList(false); // ouvrir sur EventManagement (1er événement)
       return;
     }
     // Route pour rejoindre un événement (seulement si hash explicite #/join ou #/join/CODE)
@@ -469,9 +480,9 @@ export default function App() {
             setShowHistory(false);
             setShowStats(false);
           } else {
-            console.error('[App] Event still not found after wait, redirecting to dashboard');
+            console.error('[App] Event still not found after wait, redirecting to home');
             window.location.hash = '';
-            setCurrentView('dashboard');
+            setCurrentView('home');
             setSelectedEventId(null);
           }
         }, 300);
@@ -554,9 +565,9 @@ export default function App() {
       setShowHistory(false);
       setShowStats(false);
     } else {
-      // Pas d'événement spécifique dans l'URL, afficher le dashboard (page d'accueil)
-      console.log('[App] Navigating to dashboard (home page)');
-      setCurrentView('dashboard');
+      // Pas d'événement spécifique dans l'URL, afficher la homepage
+      console.log('[App] Navigating to home page');
+      setCurrentView('home');
       setSelectedEventId(null);
       setViewMode('management');
       setShowHistory(false);
@@ -589,12 +600,10 @@ export default function App() {
     if (currentView === 'join') {
       console.log('[App] Staying on EventJoin page after auth');
     } else {
-      setCurrentView('dashboard-view');
-      setShowHistory(false);
-      setShowStats(false);
-      setShowEventCreation(false);
+      // Rediriger vers le tableau de bord (visible uniquement après login)
       window.location.hash = '#/dashboard';
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
+      setCurrentView('dashboard-view');
+      setShowEventCreation(false);
     }
   };
 
@@ -609,24 +618,25 @@ export default function App() {
       // 2) Laisser React appliquer le state (mini "yield")
       await new Promise(resolve => setTimeout(resolve, 0));
       
-      // 3) Nettoyer les données utilisateur
+      // 3) Nettoyer les données utilisateur et le store d'événements (chaque utilisateur voit uniquement les siens)
       try {
         localStorage.removeItem('bonkont-user');
-        console.log('[App] User data cleared');
+        useEventStore.getState().clearEvents();
+        console.log('[App] User data and event store cleared');
       } catch (e) {
-        console.warn('Erreur lors du nettoyage localStorage:', e);
+        console.warn('Erreur lors du nettoyage localStorage / store:', e);
       }
       
       // 4) Réinitialiser l'état de l'application (PATCH 2 - source de vérité)
       setIsLoggedIn(false); // CRITIQUE : doit être fait APRÈS la fermeture des dialogs
-      setCurrentView('dashboard');
+      setCurrentView('home');
       setSelectedEventId(null);
       setShowStats(false);
       setShowHistory(false);
       setSettingsDefaultTab('account');
       console.log('[App] State reset, isLoggedIn = false');
       
-      // 5) Réinitialiser le hash et rediriger (PATCH 3)
+      // 5) Réinitialiser le hash et rediriger vers la homepage (PATCH 3)
       try {
         window.location.hash = '';
         console.log('[App] Hash reset');
@@ -678,7 +688,7 @@ export default function App() {
         // Forcer isLoggedIn à false (PATCH 2)
         setIsLoggedIn(false);
         setIsSettingsOpen(false);
-        setCurrentView('dashboard');
+        setCurrentView('home');
         setSelectedEventId(null);
         setShowStats(false);
         setShowHistory(false);
@@ -711,14 +721,12 @@ export default function App() {
     localStorage.removeItem('bonkont-currency');
     localStorage.removeItem('bonkont-language');
     localStorage.removeItem('bonkont-subscription');
-    // Supprimer les événements (optionnel - selon les besoins)
-    useEventStore.getState().events.forEach(event => {
-      useEventStore.getState().removeEvent(event.id);
-    });
+    // Supprimer les événements du store (chaque utilisateur ne voit que les siens)
+    useEventStore.getState().clearEvents();
     
     setIsLoggedIn(false);
     setIsSettingsOpen(false);
-    setCurrentView('dashboard');
+    setCurrentView('home');
     setSelectedEventId(null);
     window.location.hash = '';
   };
@@ -740,8 +748,8 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-4 flex-shrink-0">
-              {/* Bouton "Rejoindre" - masqué UNIQUEMENT sur la page d'accueil */}
-              {currentView !== 'dashboard' && (
+              {/* Bouton "Rejoindre" - masqué sur la homepage */}
+              {currentView !== 'home' && (
                 <Button
                   variant="outline"
                   className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground text-sm"
@@ -763,19 +771,15 @@ export default function App() {
               
               {!isLoggedIn ? (
                 <>
-                  {/* Bouton "Inviter des amis" - masqué UNIQUEMENT sur la page d'accueil */}
-                  {currentView !== 'dashboard' && (
+                  {/* Bouton "Inviter des amis" - masqué sur la homepage */}
+                  {currentView !== 'home' && (
                     <InviteFriends eventCode={selectedEventId ? (() => {
                       const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
                       return event?.code;
                     })() : null} />
                   )}
-                  {/* 
-                    En page d'accueil (currentView === 'dashboard'), 
-                    on n'affiche PAS le bouton de connexion dans le header
-                    pour éviter le doublon avec le bouton central "Se connecter".
-                  */}
-                  {currentView !== 'dashboard' && (
+                  {/* Sur la homepage, pas de bouton Connexion dans le header (présent dans le contenu) */}
+                  {currentView !== 'home' && (
                     <Button
                       variant="outline"
                       className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 text-sm"
@@ -789,8 +793,17 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  {/* Bouton "Inviter des amis" - masqué UNIQUEMENT sur la page d'accueil */}
-                  {currentView !== 'dashboard' && (
+                  {currentView === 'dashboard-view' && (
+                    <Button
+                      variant="outline"
+                      className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 text-sm"
+                      onClick={() => setShowEventCreation(true)}
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span className="hidden sm:inline">Créer un événement</span>
+                    </Button>
+                  )}
+                  {currentView !== 'home' && (
                     <InviteFriends eventCode={selectedEventId ? (() => {
                       const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
                       return event?.code;
@@ -813,7 +826,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full pb-32 pt-16 sm:pt-20 scroll-main" style={{ marginTop: '70px', overflow: 'visible', position: 'relative' }}>
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full pt-16 sm:pt-20 scroll-main pb-[10.5rem]" style={{ marginTop: '70px', overflow: 'visible', position: 'relative' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
           {(() => {
             console.log('[App] ===== RENDERING MAIN CONTENT =====');
@@ -826,28 +839,28 @@ export default function App() {
           {/* Pages publiques */}
           {currentView === 'privacy' ? (
             <PrivacyPolicy onBack={() => {
-              setCurrentView('dashboard');
+              setCurrentView('home');
               window.location.hash = '';
               setSettingsDefaultTab('preferences');
               setIsSettingsOpen(true);
             }} />
           ) : currentView === 'terms' ? (
             <TermsOfService onBack={() => {
-              setCurrentView('dashboard');
+              setCurrentView('home');
               window.location.hash = '';
               setSettingsDefaultTab('preferences');
               setIsSettingsOpen(true);
             }} />
           ) : currentView === 'faq' ? (
             <FAQ onBack={() => {
-              setCurrentView('dashboard');
+              setCurrentView('home');
               window.location.hash = '';
               setSettingsDefaultTab('preferences');
               setIsSettingsOpen(true);
             }} />
           ) : currentView === 'contact' ? (
             <Contact onBack={() => {
-              setCurrentView('dashboard');
+              setCurrentView('home');
               window.location.hash = '';
               setSettingsDefaultTab('preferences');
               setIsSettingsOpen(true);
@@ -991,131 +1004,136 @@ export default function App() {
                 );
               }
               
-              return showHistory ? (
-                <div className="space-y-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      console.log('[App] Back to dashboard from history');
-                      setShowHistory(false);
-                    }}
-                    className="gap-2 mb-4"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    Retour au tableau de bord
-                  </Button>
-                  <EventHistory />
-                </div>
-              ) : (
-                <EventDashboard onShowHistory={() => setShowHistory(true)} />
-              );
-            })()
-          ) : currentView === 'dashboard' ? (
-            isLoggedIn ? (
-              showHistory ? (
-                <div className="space-y-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      console.log('[App] Back to dashboard from history');
-                      setShowHistory(false);
-                    }}
-                    className="gap-2 mb-4"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    Retour au tableau de bord
-                  </Button>
-                  <EventHistory />
-                </div>
-              ) : showEventCreation ? (
-                isLoggedIn ? (
-                  <EventCreation 
+              if (showEventCreation) {
+                return (
+                  <EventCreation
                     onEventCreated={() => {
-                      console.log('[App] Event created, closing creation form');
                       setShowEventCreation(false);
                     }}
-                    onClose={() => {
-                      console.log('[App] Event creation form closed');
-                      setShowEventCreation(false);
-                    }}
+                    onClose={() => setShowEventCreation(false)}
                   />
-                ) : (
-                  <div className="text-center py-12">
-                    <h2 className="text-2xl font-bold mb-4">Connexion requise</h2>
-                    <p className="text-muted-foreground mb-8">
-                      Vous devez être connecté pour créer un événement
-                    </p>
+                );
+              }
+              if (showHistory) {
+                return (
+                  <div className="space-y-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowHistory(false)}
+                      className="gap-2 mb-4"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      Retour au tableau de bord
+                    </Button>
+                    <EventHistory />
+                  </div>
+                );
+              }
+              // Tableau de bord ouvre sur EventManagement (1er événement) avec tous les boutons de gestion
+              if (!showDashboardList && events.length > 0) {
+                const firstEventId = events[0].id;
+                return (
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 border-b border-border pb-4">
+                      <Button
+                        variant={viewMode === 'management' ? 'default' : 'outline'}
+                        onClick={() => {
+                          setViewMode('management');
+                          window.location.hash = `#event/${firstEventId}`;
+                        }}
+                        className="gap-2 min-h-[44px] w-full sm:w-auto"
+                      >
+                        <span className="text-sm sm:text-base">Gestion de l'événement</span>
+                      </Button>
+                      <Button
+                        variant={viewMode === 'transactions' ? 'default' : 'outline'}
+                        onClick={() => {
+                          setViewMode('transactions');
+                          window.location.hash = `#event/${firstEventId}/transactions`;
+                        }}
+                        className="gap-2 min-h-[44px] w-full sm:w-auto"
+                      >
+                        <span className="text-sm sm:text-base">Gestion des transactions</span>
+                      </Button>
+                      <Button
+                        variant={viewMode === 'closure' ? 'default' : 'outline'}
+                        onClick={() => {
+                          setViewMode('closure');
+                          window.location.hash = `#event/${firstEventId}/closure`;
+                        }}
+                        className="gap-2 min-h-[44px] w-full sm:w-auto"
+                      >
+                        <span className="text-sm sm:text-base">Gérer la fin Évènementielle</span>
+                      </Button>
+                    </div>
+                    {viewMode === 'management' ? (
+                      <EventManagement
+                        eventId={firstEventId}
+                        onBack={() => {
+                          setShowDashboardList(true);
+                        }}
+                      />
+                    ) : viewMode === 'transactions' ? (
+                      <TransactionManagement
+                        eventId={firstEventId}
+                        onBack={() => {
+                          setShowDashboardList(true);
+                        }}
+                      />
+                    ) : (
+                      <EventClosure
+                        eventId={firstEventId}
+                        onBack={() => {
+                          setShowDashboardList(true);
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              }
+              return <EventDashboard onShowHistory={() => setShowHistory(true)} />;
+            })()
+          ) : currentView === 'home' ? (
+            /* Page d'accueil : uniquement le bouton "Tableau de bord". */
+            <div className="space-y-8">
+              <div className="text-center py-12">
+                <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
+                <p className="text-muted-foreground mb-8">
+                  {isLoggedIn
+                    ? 'Accédez à votre tableau de bord ou créez un nouvel événement'
+                    : 'Connectez-vous pour accéder à votre tableau de bord et créer des événements'}
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                  <Button
+                    variant="outline"
+                    className="gap-2 neon-border"
+                    onClick={() => {
+                      if (!isLoggedIn) {
+                        setIsAuthOpen(true);
+                        return;
+                      }
+                      window.location.hash = '#/dashboard';
+                      setCurrentView('dashboard-view');
+                      setShowEventCreation(true);
+                      window.dispatchEvent(new HashChangeEvent('hashchange'));
+                    }}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Créer un événement
+                  </Button>
+                  {!isLoggedIn && (
                     <Button
                       variant="default"
-                      className="gap-2"
+                      className="gap-2 button-glow"
                       onClick={() => setIsAuthOpen(true)}
                     >
                       <LogIn className="w-4 h-4" />
                       Se connecter
                     </Button>
-                  </div>
-                )
-              ) : (
-                <>
-                  {/* Page d'accueil connecté : accès Tableau de bord et Créer un événement */}
-                  <div className="space-y-8">
-                    <div className="text-center py-12">
-                      <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
-                      <p className="text-muted-foreground mb-8">
-                        Accédez à votre tableau de bord ou créez un nouvel événement
-                      </p>
-                      <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                        <Button
-                          variant="default"
-                          className="gap-2 button-glow"
-                          onClick={() => {
-                            window.location.hash = '#/dashboard';
-                            setCurrentView('dashboard-view');
-                            setShowEventCreation(false);
-                            window.dispatchEvent(new HashChangeEvent('hashchange'));
-                          }}
-                        >
-                          <Wallet2 className="w-4 h-4" />
-                          Tableau de bord
-                        </Button>
-                        <Button
-                          variant="outline"
-                          className="gap-2 neon-border"
-                          onClick={() => {
-                            setShowEventCreation(true);
-                          }}
-                        >
-                          <Plus className="w-4 h-4" />
-                          Créer un événement
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )
-            ) : (
-              <div className="space-y-8">
-                <div className="text-center py-12">
-                  <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
-                  <p className="text-muted-foreground mb-8">
-                    Créez ou rejoignez un événement pour partager vos dépenses
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                    <Button
-                      variant="default"
-                      className="gap-2 button-glow"
-                      onClick={() => {
-                        console.log('[App] Se connecter button clicked from home');
-                        setIsAuthOpen(true);
-                      }}
-                    >
-                      <LogIn className="w-4 h-4" />
-                      Se connecter
-                    </Button>
-                  </div>
+                  )}
                 </div>
               </div>
-            )
+            </div>
           ) : (
             <div className="space-y-8">
               <div className="text-center py-20">
@@ -1160,17 +1178,17 @@ export default function App() {
 
       <ScrollToTop />
 
-      {/* Footer avec liens vers les pages publiques */}
-      <footer className="border-t border-border/50 py-2 sm:py-3 bg-background mt-auto">
+      {/* Footer fixe en bas, compact */}
+      <footer className="fixed bottom-0 left-0 right-0 z-10 border-t border-border/50 py-1 sm:py-1.5 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="container mx-auto px-2 sm:px-4 max-w-4xl">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-1 sm:gap-2 text-[10px] sm:text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
               <button
                 onClick={() => {
                   setCurrentView('privacy');
                   window.location.hash = '#/privacy';
                 }}
-                className="hover:text-foreground transition-colors underline-offset-4 hover:underline text-xs sm:text-sm"
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
               >
                 {t('privacyPolicyShort')}
               </button>
@@ -1179,7 +1197,7 @@ export default function App() {
                   setCurrentView('terms');
                   window.location.hash = '#/terms';
                 }}
-                className="hover:text-foreground transition-colors underline-offset-4 hover:underline text-xs sm:text-sm"
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
               >
                 {t('termsOfServiceShort')}
               </button>
@@ -1188,7 +1206,7 @@ export default function App() {
                   setCurrentView('faq');
                   window.location.hash = '#/faq';
                 }}
-                className="hover:text-foreground transition-colors underline-offset-4 hover:underline text-xs sm:text-sm"
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
               >
                 {t('faqShort')}
               </button>
@@ -1197,12 +1215,12 @@ export default function App() {
                   setCurrentView('contact');
                   window.location.hash = '#/contact';
                 }}
-                className="hover:text-foreground transition-colors underline-offset-4 hover:underline text-xs sm:text-sm"
+                className="hover:text-foreground transition-colors underline-offset-4 hover:underline"
               >
                 {t('contact')}
               </button>
             </div>
-            <p className="text-[10px] sm:text-xs italic text-center sm:text-right mt-1 sm:mt-0">
+            <p className="text-[9px] sm:text-[10px] italic text-center sm:text-right leading-tight">
               {t('taglineFooter')}
             </p>
           </div>

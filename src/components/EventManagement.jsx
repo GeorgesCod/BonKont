@@ -149,18 +149,13 @@ export function EventManagement({ eventId, onBack }) {
   )?.status === 'confirmed';
   
   const [accordionValue, setAccordionValue] = useState(() => {
-    // Ouvrir participants pour les organisateurs ET les participants confirmés
-    const shouldOpenParticipants = isOrganizerForAccordion || isConfirmedParticipant;
-    const initialValue = shouldOpenParticipants
-      ? ['event', 'bonkont-rule', 'participants'] // Ouvrir participants pour les organisateurs et participants confirmés
-      : ['event', 'bonkont-rule']; // Par défaut, événement et règle Bonkont ouverts
+    // Par défaut toutes les sections restent repliées (aucune ouverte)
+    const initialValue = [];
     
-    console.log('[EventManagement] 🎯 Initial accordion value:', {
+    console.log('[EventManagement] 🎯 Initial accordion value (toutes repliées):', {
       initialValue,
       isOrganizerForAccordion,
-      isConfirmedParticipant,
-      currentUserIdForAccordion,
-      organizerId: event?.organizerId
+      isConfirmedParticipant
     });
     
     return initialValue;
@@ -387,36 +382,7 @@ export function EventManagement({ eventId, onBack }) {
     );
   }
 
-  // Ouvrir automatiquement la section participants pour les organisateurs
-  useEffect(() => {
-    console.log('[EventManagement] 🔄 Checking if should open participants section:', {
-      hasEvent: !!event,
-      eventId: event?.id,
-      isOrganizer,
-      currentUserId,
-      organizerId: event?.organizerId,
-      currentAccordionValue: accordionValue
-    });
-    
-    if (event && isOrganizer) {
-      console.log('[EventManagement] ✅ Opening participants section for organizer');
-      setAccordionValue(prev => {
-        if (!prev.includes('participants')) {
-          const newValue = [...prev, 'participants'];
-          console.log('[EventManagement] ✅ Updated accordion value:', newValue);
-          return newValue;
-        }
-        console.log('[EventManagement] ℹ️ Participants section already open');
-        return prev;
-      });
-    } else {
-      console.log('[EventManagement] ⚠️ Cannot open participants section:', {
-        hasEvent: !!event,
-        isOrganizer,
-        reason: !event ? 'No event' : !isOrganizer ? 'Not organizer' : 'Unknown'
-      });
-    }
-  }, [event?.id, isOrganizer, currentUserId]);
+  // Par défaut toutes les sections restent repliées (pas d'ouverture auto)
 
   // Charger les demandes de participation depuis Firestore
   useEffect(() => {

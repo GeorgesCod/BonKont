@@ -9,6 +9,7 @@
     "build": " vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "git": "node scripts/git-commit-push.js",
     "git:commit-push": "node scripts/git-commit-push.js",
     "git:cp": "node scripts/git-commit-push.js"
   },

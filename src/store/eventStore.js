@@ -78,6 +78,12 @@ export const useEventStore = create()(
         return eventId;
       },
 
+      /** Remplace toute la liste d'événements (sync tableau de bord = uniquement l'utilisateur connecté) */
+      setEvents: (eventsArray) => set({ events: Array.isArray(eventsArray) ? eventsArray : [] }),
+
+      /** Vide le store (logout : ne pas garder les événements d'un autre utilisateur) */
+      clearEvents: () => set({ events: [] }),
+
       updateEvent: (id, updates) => set((state) => ({
         events: state.events.map((event) =>
           event.id === id

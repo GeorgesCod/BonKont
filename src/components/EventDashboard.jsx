@@ -70,12 +70,12 @@ export function EventDashboard({ onShowHistory }) {
   const [scannerEventId, setScannerEventId] = useState(null);
   
   const events = useEventStore((state) => state.events);
-  const addEvent = useEventStore((state) => state.addEvent);
+  const setEvents = useEventStore((state) => state.setEvents);
   const updateEvent = useEventStore((state) => state.updateEvent);
   const deleteEvent = useEventStore((state) => state.deleteEvent);
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   
-  // Synchroniser les événements depuis Firestore au chargement
+  // Synchroniser le tableau de bord : uniquement les événements de l'utilisateur connecté (organisateur)
   useEffect(() => {
     const syncEventsFromFirestore = async () => {
       const userData = localStorage.getItem('bonkont-user');
@@ -92,60 +92,18 @@ export function EventDashboard({ onShowHistory }) {
           return;
         }
         
-        console.log('[EventDashboard] 🔄 Syncing events from Firestore for organizer:', organizerId);
-        console.log('[EventDashboard] 📊 Current local events count:', events.length);
-        console.log('[EventDashboard] 📊 Current local events:', events.map(e => ({ id: e.id, code: e.code, title: e.title, status: e.status })));
-        
         const { getEventsByOrganizer } = await import('@/services/api');
         const firestoreEvents = await getEventsByOrganizer(organizerId);
-        
-        console.log('[EventDashboard] 📊 Firestore events received:', firestoreEvents.length);
-        console.log('[EventDashboard] 📊 Firestore events details:', firestoreEvents.map(e => ({ id: e.id, code: e.code, title: e.title, status: e.status })));
-        
-        // Récupérer les événements actuels du store pour la vérification
-        const currentEvents = useEventStore.getState().events;
-        console.log('[EventDashboard] 📊 Current store events for comparison:', currentEvents.map(e => ({ id: e.id, code: e.code, title: e.title })));
-        
-        // Ajouter les événements qui ne sont pas déjà dans le store
-        let addedCount = 0;
-        for (const firestoreEvent of firestoreEvents) {
-          const exists = currentEvents.some(e => 
-            String(e.id) === String(firestoreEvent.id) || 
-            String(e.firestoreId) === String(firestoreEvent.id) ||
-            (e.code && firestoreEvent.code && e.code.toUpperCase().replace(/[^A-Z]/g, '') === firestoreEvent.code.toUpperCase().replace(/[^A-Z]/g, ''))
-          );
-          
-          if (!exists) {
-            console.log('[EventDashboard] ➕ Adding missing event from Firestore:', {
-              id: firestoreEvent.id,
-              code: firestoreEvent.code,
-              title: firestoreEvent.title,
-              status: firestoreEvent.status
-            });
-            addEvent(firestoreEvent);
-            addedCount++;
-          } else {
-            console.log('[EventDashboard] ✓ Event already exists in store:', {
-              id: firestoreEvent.id,
-              code: firestoreEvent.code,
-              title: firestoreEvent.title
-            });
-          }
-        }
-        
-        console.log('[EventDashboard] ✅ Sync complete. Added', addedCount, 'new events');
-        
-        // Vérifier les événements après synchronisation
-        const eventsAfterSync = useEventStore.getState().events;
-        console.log('[EventDashboard] 📊 Events after sync:', eventsAfterSync.length);
-        console.log('[EventDashboard] 📊 Events after sync details:', eventsAfterSync.map(e => ({ id: e.id, code: e.code, title: e.title, status: e.status })));
+        // Remplacer le store par les événements de cet utilisateur uniquement (pas de mélange avec d'autres comptes)
+        setEvents(firestoreEvents);
+        console.log('[EventDashboard] ✅ Sync: store contains', firestoreEvents.length, 'events for current user');
       } catch (error) {
         console.error('[EventDashboard] ❌ Error syncing events from Firestore:', error);
       }
     };
     
     syncEventsFromFirestore();
-  }, []); // Exécuter une seule fois au montage
+  }, [setEvents]);
 
   // Fonction pour vérifier si l'utilisateur est l'organisateur d'un événement
   const isOrganizer = (event) => {
