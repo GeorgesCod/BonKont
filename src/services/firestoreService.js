@@ -574,6 +574,27 @@ export async function createJoinRequest(eventId, participantData) {
       console.warn('[Firestore] ⚠️ No organizerId found in event data, cannot send notification');
     }
 
+    // ✅ Inscrire immédiatement le participant sur la liste de l'événement (status pending)
+    // pour qu'il apparaisse dans la liste dès l'inscription nom/email, avant acceptation organisateur
+    const participantId = normalizedEmail;
+    const participantRef = doc(db, 'events', eventId, 'participants', participantId);
+    const participantPayload = {
+      userId: normalizedUserId,
+      email: normalizedEmail,
+      name: (participantData.name || participantData.pseudo || '').trim() || 'Participant',
+      role: 'participant',
+      status: 'pending',
+      joinedAt: serverTimestamp(),
+      approved: false,
+      fromRequestId: requestDocRef.id
+    };
+    await setDoc(participantRef, participantPayload, { merge: true });
+    console.log('[Firestore] ✅ Participant added to event list (pending):', {
+      eventId,
+      participantId,
+      path: `events/${eventId}/participants/${participantId}`
+    });
+
     return {
       success: true,
       requestId: requestDocRef.id,
@@ -974,7 +995,16 @@ export async function updateJoinRequest(eventId, requestId, action, organizerId)
       };
     }
 
-    // ❌ Cas REJECT : simple update de la demande
+    // ❌ Cas REJECT : mettre à jour la demande et retirer le participant de la liste s'il y a été ajouté (status pending)
+    const participantEmail = (requestData.email || requestData.userId || '').trim().toLowerCase();
+    if (participantEmail) {
+      const participantDocRef = doc(db, 'events', eventId, 'participants', participantEmail);
+      const participantSnap = await getDoc(participantDocRef);
+      if (participantSnap.exists() && participantSnap.data().status === 'pending') {
+        await deleteDoc(participantDocRef);
+        console.log('[Firestore] Participant removed from list after reject:', participantEmail);
+      }
+    }
     await updateDoc(requestDocRef, {
       status: 'rejected',
       approvedAt: null

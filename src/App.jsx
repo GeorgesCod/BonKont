@@ -37,7 +37,19 @@ export default function App() {
   const [showStats, setShowStats] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showEventCreation, setShowEventCreation] = useState(false); // Contrôle l'affichage de EventCreation
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'event', 'transactions', 'history', 'privacy', 'terms', 'faq', 'contact', 'join'
+  // Initialiser la vue depuis le hash pour que #/join/CODE affiche immédiatement le formulaire invité (pas de flash dashboard)
+  const [currentView, setCurrentView] = useState(() => {
+    if (typeof window === 'undefined') return 'dashboard';
+    const h = window.location.hash;
+    if (h.startsWith('#/join') || h === '#/join') return 'join';
+    if (h === '#/dashboard' || h === '#dashboard') return 'dashboard-view';
+    if (h.startsWith('#event/')) {
+      const segment = h.replace('#event/', '').split('/')[0] || '';
+      if (/^[A-Z]{8}$/i.test(segment)) return 'join'; // code 8 lettres → formulaire
+      return 'event';
+    }
+    return 'dashboard';
+  });
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [viewMode, setViewMode] = useState('management'); // 'management', 'transactions', or 'closure'
 
@@ -395,6 +407,18 @@ export default function App() {
 
     if (hash.startsWith('#event/')) {
       const eventId = hash.replace('#event/', '').split('/')[0];
+      // Si le segment ressemble à un code événement (8 lettres majuscules), rediriger vers le formulaire invité
+      const looksLikeEventCode = /^[A-Z]{8}$/.test(String(eventId).toUpperCase());
+      if (looksLikeEventCode && !hash.includes('/transactions') && !hash.includes('/closure')) {
+        const code = String(eventId).toUpperCase();
+        console.log('[App] #event/ segment is event code, redirecting to join form:', code);
+        window.location.hash = `#/join/${code}`;
+        setCurrentView('join');
+        setSelectedEventId(null);
+        setShowHistory(false);
+        setShowStats(false);
+        return;
+      }
       let mode = 'management';
       if (hash.includes('/transactions')) {
         mode = 'transactions';
@@ -560,18 +584,17 @@ export default function App() {
     setIsLoggedIn(true);
     setIsAuthOpen(false);
     
-    // ✅ IMPORTANT : Si on est sur EventJoin, rester sur EventJoin pour permettre la création automatique de la demande
-    // Sinon, aller au tableau de bord après connexion
+    // ✅ Si on est sur EventJoin, rester sur EventJoin pour la demande
+    // Sinon : aller au tableau de bord et mettre à jour l’URL pour un routage correct
     if (currentView === 'join') {
-      console.log('[App] Staying on EventJoin page after auth - join request will be created automatically');
-      // Ne pas changer la vue, rester sur EventJoin
-      // Le useEffect dans EventJoin créera automatiquement la demande
+      console.log('[App] Staying on EventJoin page after auth');
     } else {
-      // Après connexion depuis une autre page : aller au tableau de bord
       setCurrentView('dashboard-view');
       setShowHistory(false);
       setShowStats(false);
       setShowEventCreation(false);
+      window.location.hash = '#/dashboard';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
   };
 
@@ -701,7 +724,7 @@ export default function App() {
   };
 
   return (
-     <div className="min-h-screen flex flex-col bg-background text-foreground" style={{ touchAction: 'pan-y', overflow: 'visible' }}>
+     <div className="min-h-screen flex flex-col bg-background text-foreground scroll-page-host" style={{ overflow: 'visible' }}>
        <header className="fixed top-0 left-0 right-0 py-2 sm:py-3 border-b border-border/50 backdrop-blur-sm bg-background z-50 safe-top w-full">
         <div className="container mx-auto px-3 sm:px-4 max-w-full">
           <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-0">
@@ -790,7 +813,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full pb-32 pt-16 sm:pt-20" style={{ marginTop: '70px', overflow: 'visible', position: 'relative' }}>
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full pb-32 pt-16 sm:pt-20 scroll-main" style={{ marginTop: '70px', overflow: 'visible', position: 'relative' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
           {(() => {
             console.log('[App] ===== RENDERING MAIN CONTENT =====');
@@ -1034,21 +1057,36 @@ export default function App() {
                 )
               ) : (
                 <>
-                  {/* Page d'accueil épurée */}
+                  {/* Page d'accueil connecté : accès Tableau de bord et Créer un événement */}
                   <div className="space-y-8">
                     <div className="text-center py-12">
                       <h2 className="text-2xl font-bold mb-4">Bienvenue sur BONKONT</h2>
                       <p className="text-muted-foreground mb-8">
-                        Créez ou rejoignez un événement pour partager vos dépenses
+                        Accédez à votre tableau de bord ou créez un nouvel événement
                       </p>
                       <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                         <Button
                           variant="default"
                           className="gap-2 button-glow"
-                          onClick={() => setIsAuthOpen(true)}
+                          onClick={() => {
+                            window.location.hash = '#/dashboard';
+                            setCurrentView('dashboard-view');
+                            setShowEventCreation(false);
+                            window.dispatchEvent(new HashChangeEvent('hashchange'));
+                          }}
                         >
-                          <LogIn className="w-4 h-4" />
-                          Se connecter
+                          <Wallet2 className="w-4 h-4" />
+                          Tableau de bord
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="gap-2 neon-border"
+                          onClick={() => {
+                            setShowEventCreation(true);
+                          }}
+                        >
+                          <Plus className="w-4 h-4" />
+                          Créer un événement
                         </Button>
                       </div>
                     </div>

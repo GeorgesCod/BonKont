@@ -169,6 +169,26 @@ export function EventDashboard({ onShowHistory }) {
     }
   };
 
+  // Vérifier si l'utilisateur est un participant confirmé (invité ayant rejoint via le code)
+  const isConfirmedParticipant = (event) => {
+    const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+    if (!userData) return false;
+    try {
+      const user = JSON.parse(userData);
+      const currentUserId = (user.email || user.id || '').trim().toLowerCase();
+      if (!currentUserId) return false;
+      const participant = event.participants?.find(
+        p => (p.email?.toLowerCase() === currentUserId || p.userId?.toLowerCase() === currentUserId)
+      );
+      return !!(participant && (participant.status === 'confirmed' || participant.approved === true));
+    } catch {
+      return false;
+    }
+  };
+
+  // Ne montrer que les événements auxquels l'utilisateur a accès : organisateur OU participant confirmé
+  const myEvents = events.filter(event => isOrganizer(event) || isConfirmedParticipant(event));
+
   // Éviter l'affichage de doublons : on garde un seul événement par (code + organisateur / Firestore ID)
   const uniqueEvents = (() => {
     const seen = new Set();
@@ -178,7 +198,7 @@ export function EventDashboard({ onShowHistory }) {
         .toUpperCase()
         .replace(/[^A-Z]/g, '');
 
-    return events.filter((event) => {
+    return myEvents.filter((event) => {
       const keyParts = [
         event.firestoreId || '',
         normalizeCode(event.code),
