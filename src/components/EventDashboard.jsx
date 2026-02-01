@@ -43,7 +43,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Lock, Mail, MessageSquare, Send, Scan, X } from 'lucide-react';
 import { EventDashboardScanner } from '@/components/EventDashboardScanner';
 
-export function EventDashboard({ onShowHistory }) {
+export function EventDashboard({ onShowHistory, onBack }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('active');
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -68,6 +68,7 @@ export function EventDashboard({ onShowHistory }) {
   const [reminderMethod, setReminderMethod] = useState('email'); // 'email', 'sms', 'both'
   const [showScannerDialog, setShowScannerDialog] = useState(false);
   const [scannerEventId, setScannerEventId] = useState(null);
+  const [scannerManualMode, setScannerManualMode] = useState(false);
   
   const events = useEventStore((state) => state.events);
   const setEvents = useEventStore((state) => state.setEvents);
@@ -242,13 +243,16 @@ export function EventDashboard({ onShowHistory }) {
     }
     
     setReminderEvent(event);
-    // Sélectionner par défaut les participants qui n'ont pas payé
+    // Sélectionner par défaut les participants qui n'ont pas payé (IDs en string pour cohérence)
     const unpaidParticipants = event.participants?.filter(p => {
       const totalDue = event.amount / (event.participants?.length || 1);
       const amountPaid = p.paidAmount || 0;
       return amountPaid < totalDue;
     }) || [];
-    setSelectedParticipants(unpaidParticipants.map(p => p.id));
+    const idsToSelect = unpaidParticipants.length > 0
+      ? unpaidParticipants.map(p => String(p.id ?? p.email ?? '')).filter(Boolean)
+      : (event.participants || []).map(p => String(p.id ?? p.email ?? '')).filter(Boolean);
+    setSelectedParticipants(idsToSelect);
     setShowReminderDialog(true);
   };
 
@@ -273,8 +277,8 @@ export function EventDashboard({ onShowHistory }) {
       method: reminderMethod
     });
 
-    const participantsToNotify = reminderEvent.participants?.filter(p => 
-      selectedParticipants.includes(p.id)
+    const participantsToNotify = reminderEvent.participants?.filter(p =>
+      selectedParticipants.includes(String(p.id ?? '')) || selectedParticipants.includes(String(p.email ?? ''))
     ) || [];
 
     let sentCount = 0;
@@ -370,13 +374,13 @@ Merci de votre attention.
   };
 
   const toggleParticipantSelection = (participantId) => {
-    console.log('[EventDashboard] Toggling participant selection:', participantId);
+    const idStr = String(participantId ?? '');
+    if (!idStr) return;
     setSelectedParticipants(prev => {
-      if (prev.includes(participantId)) {
-        return prev.filter(id => id !== participantId);
-      } else {
-        return [...prev, participantId];
+      if (prev.includes(idStr)) {
+        return prev.filter(id => String(id) !== idStr);
       }
+      return [...prev, idStr];
     });
   };
 
@@ -585,6 +589,16 @@ setPaymentMethod('card');
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0">
         <div className="flex items-center gap-3 flex-1">
           <h2 className="text-xl sm:text-2xl font-bold gradient-text">Tableau de bord</h2>
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0 h-9 w-9 neon-border"
+            onClick={() => (onBack ? onBack() : window.history.back())}
+            title="Retour à l'événement"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="sr-only">Retour à l'événement</span>
+          </Button>
         </div>
         <div className="flex gap-2">
           <Button 
@@ -697,6 +711,11 @@ setPaymentMethod('card');
                     <p className="text-sm text-muted-foreground">
                       {event.description}
                     </p>
+                    {event.organizerId && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        <span className="font-medium text-primary">Organisateur :</span> {event.organizerName || event.organizerId}
+                      </p>
+                    )}
                   </div>
                   <Badge
                     variant={remainingDays > 5 ? 'outline' : 'destructive'}
@@ -813,17 +832,16 @@ setPaymentMethod('card');
   </Button>
 
   {/* Scanner un ticket - Innovation mise en avant */}
-  <div className="relative">
+  <div className="relative space-y-2">
   <Button
     variant="outline"
-      className="relative gap-2 neon-border scanner-ticket-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300 border-primary/50 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent"
+      className="relative gap-2 neon-border scanner-ticket-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300 border-primary/50 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent w-full"
     onClick={(e) => {
       e.preventDefault();
       e.stopPropagation();
-
       console.log('[EventDashboard] ===== SCANNER BUTTON CLICKED =====');
       localStorage.setItem('bonkont_scanner_eventId', event.id);
-
+      setScannerManualMode(false);
       setScannerEventId(event.id);
       setShowScannerDialog(true);
     }}
@@ -844,14 +862,36 @@ setPaymentMethod('card');
     >
       ✨ Innovation
     </Badge>
+    <p className="text-xs text-muted-foreground italic text-center">
+      Un simple scan de ton ticket CB, Tu valides collectivement, Tu partages les frais
+    </p>
+    <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/20 px-1.5 py-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full gap-2 text-muted-foreground hover:text-foreground h-9 text-sm"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          localStorage.setItem('bonkont_scanner_eventId', event.id);
+          setScannerManualMode(true);
+          setScannerEventId(event.id);
+          setShowScannerDialog(true);
+        }}
+      >
+        Saisie manuelle
+      </Button>
+    </div>
   </div>
 
   {/* Envoyer un rappel */}
   <Button
+    type="button"
     variant="outline"
     className="gap-2 neon-border"
-    onClick={() => {
-      console.log('[EventDashboard] Reminder button clicked for event:', event.id);
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
       handleSendReminder(event.id);
     }}
   >
@@ -954,6 +994,7 @@ setPaymentMethod('card');
                         const pAlreadyPaid = p.paidAmount || 0;
                         const pRemainingDue = Math.max(0, pTotalDue - pAlreadyPaid);
                         const isSelected = selectedParticipant === p.id;
+                        const isOrganizerParticipant = event.organizerId && ((p.email || '').toLowerCase().trim() === (event.organizerId || '').toLowerCase().trim() || String(p.id) === String(event.organizerId));
 
                         return (
                           <div
@@ -975,7 +1016,12 @@ setPaymentMethod('card');
                           >
                             <div className="flex items-center justify-between">
                               <div className="flex-1">
-                                <p className="font-medium">{p.name}</p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-medium">{p.name}</p>
+                                  {isOrganizerParticipant && (
+                                    <Badge variant="secondary" className="text-xs font-medium text-primary border-primary/50">Organisateur</Badge>
+                                  )}
+                                </div>
                                 <p className="text-sm text-muted-foreground">{p.email}</p>
                                 <div className="flex items-center gap-4 mt-2 text-xs">
                                   <span className="text-muted-foreground">
@@ -1516,7 +1562,8 @@ setPaymentMethod('card');
                       const totalDue = reminderEvent.amount / (reminderEvent.participants?.length || 1);
                       const amountPaid = participant.paidAmount || 0;
                       const remainingAmount = totalDue - amountPaid;
-                      const isSelected = selectedParticipants.includes(participant.id);
+                      const participantIdStr = String(participant.id ?? participant.email ?? '');
+                      const isSelected = selectedParticipants.includes(participantIdStr);
                       const hasEmail = !!participant.email;
                       const hasPhone = !!(participant.mobile || participant.phone);
                       const canReceiveReminder = (reminderMethod === 'email' && hasEmail) || 
@@ -1535,7 +1582,7 @@ setPaymentMethod('card');
                             checked={isSelected}
                             onCheckedChange={() => {
                               if (canReceiveReminder) {
-                                toggleParticipantSelection(participant.id);
+                                toggleParticipantSelection(participant.id ?? participant.email);
                               }
                             }}
                             disabled={!canReceiveReminder}
@@ -1546,7 +1593,12 @@ setPaymentMethod('card');
                           >
                             <div className="flex items-center justify-between">
                               <div>
-                                <p className="font-medium">{participant.name || participant.email}</p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-medium">{participant.name || participant.email}</p>
+                                  {reminderEvent.organizerId && ((participant.email || '').toLowerCase().trim() === (reminderEvent.organizerId || '').toLowerCase().trim() || String(participant.id) === String(reminderEvent.organizerId)) && (
+                                    <Badge variant="secondary" className="text-xs font-medium text-primary border-primary/50">Organisateur</Badge>
+                                  )}
+                                </div>
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                   {remainingAmount > 0 ? (
                                     <span className="text-destructive">
@@ -1590,8 +1642,13 @@ setPaymentMethod('card');
 
   {/* Envoyer rappel */}
   <Button
+    type="button"
     className="flex-1 button-glow"
-    onClick={handleSendReminderConfirm}
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleSendReminderConfirm();
+    }}
     disabled={selectedParticipants.length === 0}
   >
     <Send className="w-4 h-4 mr-2" />
@@ -1620,10 +1677,12 @@ setPaymentMethod('card');
       <EventDashboardScanner
         eventId={scannerEventId}
         isOpen={showScannerDialog}
+        mode={scannerManualMode ? 'manual' : 'scan'}
         onClose={() => {
           console.log('[EventDashboard] Closing scanner dialog');
           setShowScannerDialog(false);
           setScannerEventId(null);
+          setScannerManualMode(false);
         }}
         onPaymentProcessed={() => {
            console.log('[EventDashboard] Payment processed from scanner -> go to EventManagement', scannerEventId);

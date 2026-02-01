@@ -11,6 +11,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useEventStore } from '@/store/eventStore';
 import { Euro, GripHorizontal, History } from 'lucide-react';
@@ -184,17 +185,25 @@ export function PaymentDetails({ eventId, onClose }) {
                     <div className="space-y-2">
                       <Label>Participants à notifier</Label>
                       <div className="space-y-2">
-                        {event.participants.map((participant) => (
+                        {event.participants.map((participant) => {
+                          const isOrganizerParticipant = event?.organizerId && ((participant.email || '').toLowerCase().trim() === (event.organizerId || '').toLowerCase().trim() || String(participant.id) === String(event.organizerId));
+                          return (
                           <div
                             key={participant.id}
                             className="flex items-center justify-between p-2 rounded-lg bg-muted"
                           >
-                            <span>{participant.name}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>{participant.name}</span>
+                              {isOrganizerParticipant && (
+                                <Badge variant="secondary" className="text-xs font-medium text-primary border-primary/50">Organisateur</Badge>
+                              )}
+                            </div>
                             <span className="text-sm text-muted-foreground">
                               {participant.email}
                             </span>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                     <Button

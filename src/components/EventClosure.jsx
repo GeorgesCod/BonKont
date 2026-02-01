@@ -973,6 +973,7 @@ export function EventClosure({ eventId, onBack }) {
                   {participants.map((participant) => {
                     const isSigned = closureSignatures[participant.id];
                     const participantName = participant.name || participant.firstName || participant.email || 'Participant';
+                    const isOrganizerParticipant = event?.organizerId && ((participant.email || '').toLowerCase().trim() === (event.organizerId || '').toLowerCase().trim() || String(participant.id) === String(event.organizerId));
                     return (
                       <div key={participant.id} className={`flex items-center justify-between p-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-white dark:bg-gray-900 transition-all ${
                         isSigned 
@@ -981,6 +982,9 @@ export function EventClosure({ eventId, onBack }) {
                       }`}>
                         <div className="flex items-center gap-2">
                           <span className={`text-sm font-medium ${isSigned ? 'text-muted-foreground' : ''}`}>{participantName}</span>
+                          {isOrganizerParticipant && (
+                            <Badge variant="secondary" className="text-xs font-medium text-primary border-primary/50">Organisateur</Badge>
+                          )}
                           {isSigned && (
                             <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 text-xs ml-2">
                               Confirmé
@@ -1704,9 +1708,15 @@ export function EventClosure({ eventId, onBack }) {
                   {participants.map((p) => {
                     const sig = closureSignatures[p.id];
                     const name = p.name || p.firstName || p.email || 'Participant';
+                    const isOrganizerParticipant = event?.organizerId && ((p.email || '').toLowerCase().trim() === (event.organizerId || '').toLowerCase().trim() || String(p.id) === String(event.organizerId));
                     return (
                       <div key={p.id} className="flex items-center justify-between text-xs p-1">
-                        <span>{name}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{name}</span>
+                          {isOrganizerParticipant && (
+                            <Badge variant="secondary" className="text-[10px] font-medium text-primary border-primary/50 px-1 py-0">Organisateur</Badge>
+                          )}
+                        </div>
                         {sig ? (
                           <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 text-xs h-5">
                             <CheckCircle className="w-3 h-3 mr-1" />

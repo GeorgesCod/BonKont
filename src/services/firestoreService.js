@@ -2,6 +2,14 @@
  * Service Firestore pour Bonkont
  * Remplace les Firebase Functions par des appels Firestore directs
  * Compatible avec le plan Spark gratuit
+ *
+ * CONTRACT FIRESTORE – ORGANISATEUR (cohérence de bout en bout)
+ * - Chaque document events/{eventId} DOIT contenir organizerId et organizerName.
+ * - organizerId : identifiant de l'initiateur (souvent l'email). Utilisé pour getEventsByOrganizer, notifications, join requests.
+ * - organizerName : nom affiché de l'organisateur (initiateur, leader, modérateur, clôture).
+ * - createEvent : exige organizerId, persiste organizerId + organizerName, ajoute l'organisateur en participant avec role='organizer'.
+ * - findEventByCode / getEventsByOrganizer : retournent toujours organizerId et organizerName (organizerName || '' si absent).
+ * - Aucune mise à jour du document événement après création ne doit écraser organizerId/organizerName.
  */
 
 import { 
@@ -307,6 +315,12 @@ export async function createEvent(eventData) {
     if (!cleanCode || cleanCode.length < 8) {
       console.error('[Firestore] ❌ Invalid code:', { original: originalCode, cleaned: cleanCode });
       throw new Error('Le code événement doit contenir au moins 8 caractères alphabétiques');
+    }
+
+    // CONTRACT : organizerId obligatoire pour cohérence Firestore de bout en bout
+    if (!eventData.organizerId || String(eventData.organizerId).trim() === '') {
+      console.error('[Firestore] ❌ organizerId manquant');
+      throw new Error('L\'organisateur (organizerId) est requis pour créer un événement.');
     }
 
     // Vérifier que le code n'existe pas déjà

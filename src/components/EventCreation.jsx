@@ -1009,6 +1009,9 @@ export function EventCreation({ onEventCreated, onClose }) {
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground mt-2">
+                  L'organisateur est l'<strong>initiateur du projet</strong>. En cochant la charte, les participants acceptent son statut. Pour mener à bien un projet événementiel il faut un <strong>leader</strong> : participant, organisateur, modérateur — pour une meilleure expérience. C'est aussi celui qui <strong>clôturera l'événement</strong> à la fin de l'expérience (voyage, séjour, colocation…).
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
                   Les autres participants rejoindront l'événement avec le code.
                 </p>
               </div>
@@ -1055,6 +1058,9 @@ export function EventCreation({ onEventCreated, onClose }) {
                 </div>
               </ScrollArea>
 
+              <p className="text-xs text-muted-foreground mb-3">
+                  En cochant ci-dessous, vous acceptez la charte et le <strong>statut de l'organisateur</strong> (initiateur, leader et modérateur de l'événement, qui en assurera la clôture).
+                </p>
               <div className="flex items-start space-x-2 sm:space-x-3 p-3 sm:p-4 rounded-lg bg-background border border-border">
                 <Checkbox
                   id="charter"

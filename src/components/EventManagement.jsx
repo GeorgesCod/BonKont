@@ -104,6 +104,7 @@ export function EventManagement({ eventId, onBack }) {
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerParticipantId, setScannerParticipantId] = useState(null);
+  const [scannerManualMode, setScannerManualMode] = useState(false);
   const [showHelpIncompleteDistribution, setShowHelpIncompleteDistribution] = useState(false);
   const [showBonkontRule, setShowBonkontRule] = useState(true);
   const [firestoreJoinRequests, setFirestoreJoinRequests] = useState([]);
@@ -2703,13 +2704,13 @@ export function EventManagement({ eventId, onBack }) {
           variant="outline"
           className="neon-border gap-2 min-h-[44px] w-full sm:w-auto border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground touch-manipulation"
           onClick={() => {
-            console.log('[EventManagement] ===== JOIN EVENT BUTTON CLICKED =====');
-            window.location.hash = '#/join';
+            const code = event?.code?.toUpperCase?.().replace?.(/[^A-Z]/g, '');
+            window.location.hash = code && code.length >= 8 ? `#/join/${code}` : '#/join';
             setTimeout(() => {
               window.dispatchEvent(new HashChangeEvent('hashchange'));
             }, 100);
           }}
-          title="Rejoindre un évènement"
+          title={event?.code ? `Rejoindre l'événement (code ${event.code})` : "Rejoindre un évènement"}
         >
           <UserPlus className="w-4 h-4" />
           <span className="hidden sm:inline">Rejoindre</span>
@@ -2725,6 +2726,16 @@ export function EventManagement({ eventId, onBack }) {
           <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text truncate">{event.title}</h1>
             <p className="text-sm sm:text-base text-muted-foreground truncate">{event.description}</p>
+            {event.organizerId && (
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+                <Badge variant="secondary" className="font-medium text-primary border-primary/50">
+                  Organisateur : {event.organizerName || event.organizerId}
+                </Badge>
+                <span className="text-muted-foreground/90">
+                  Initiateur du projet, leader et modérateur — clôturera l’événement à la fin de l’expérience.
+                </span>
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -3121,12 +3132,6 @@ export function EventManagement({ eventId, onBack }) {
                       const reqEmail = (r.email || r.participant?.email || '').trim().toLowerCase();
                       return !reqEmail || reqEmail !== organizerEmailLower;
                     });
-                    
-                    console.log('[EventManagement] 📊 ===== JOIN REQUESTS DISPLAY =====');
-                    console.log('[EventManagement] 📊 Event ID:', event.id);
-                    console.log('[EventManagement] 📊 Event Code:', event.code);
-                    console.log('[EventManagement] 📊 Total pending:', allPending.length);
-                    console.log('[EventManagement] 📊 Visible (excl. organisateur):', allJoinRequests.length);
                     
                     if (allJoinRequests.length > 0) {
                       joinRequestsRef.current = allJoinRequests;
@@ -3644,7 +3649,10 @@ export function EventManagement({ eventId, onBack }) {
           <div className="space-y-3 pr-4">
                   {confirmedParticipants.map((participant) => {
               const stats = getParticipantStats(participant);
-              
+              const isOrganizerParticipant = event?.organizerId && (
+                (participant.email || '').toLowerCase().trim() === (event.organizerId || '').toLowerCase().trim() ||
+                String(participant.id) === String(event.organizerId)
+              );
               return (
                 <div
                   key={participant.id}
@@ -3652,7 +3660,14 @@ export function EventManagement({ eventId, onBack }) {
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-lg">{participant.name}</h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-semibold text-lg">{participant.name}</h3>
+                        {isOrganizerParticipant && (
+                          <Badge variant="default" className="text-xs font-medium bg-primary/90">
+                            Organisateur
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-sm text-muted-foreground">{participant.email}</p>
                     </div>
                     {stats.hasPaid && (
@@ -3663,8 +3678,8 @@ export function EventManagement({ eventId, onBack }) {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2 mb-3">
-                          <div className="relative">
+                  <div className="flex items-center gap-2 mb-3 flex-wrap">
+                          <div className="relative space-y-1">
                     <Button
                       variant="outline"
                       size="sm"
@@ -3676,6 +3691,7 @@ export function EventManagement({ eventId, onBack }) {
                           participantName: participant.name,
                           eventId
                         });
+                        setScannerManualMode(false);
                         setScannerParticipantId(participant.id);
                         setIsScannerOpen(true);
                       }}
@@ -3696,6 +3712,21 @@ export function EventManagement({ eventId, onBack }) {
                             >
                               ✨ Innovation
                             </Badge>
+                            <div className="rounded-md border border-dashed border-muted-foreground/50 bg-muted/30 p-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="w-full gap-2 text-muted-foreground hover:text-foreground text-xs"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setScannerManualMode(true);
+                                  setScannerParticipantId(participant.id);
+                                  setIsScannerOpen(true);
+                                }}
+                              >
+                                Saisie manuelle
+                              </Button>
+                            </div>
                           </div>
                     <TooltipProvider>
                       <Tooltip>
@@ -3991,10 +4022,19 @@ export function EventManagement({ eventId, onBack }) {
                       const solde = balance.solde || 0;
                       const hasTransfers = participantTransfers.toReceive.length > 0 || participantTransfers.toPay.length > 0;
                       
+                        const isOrganizerBalance = event?.organizerId && (() => {
+                              const p = event.participants?.find(px => String(px.id) === String(balance.participantId));
+                              return p && ((p.email || '').toLowerCase().trim() === (event.organizerId || '').toLowerCase().trim() || String(p.id) === String(event.organizerId));
+                            })();
                         return (
                         <Card key={balance.participantId} className="p-4 border-2">
                           <div className="mb-3">
-                            <h4 className="font-semibold text-base mb-3">{balance.participantName}</h4>
+                            <div className="flex items-center gap-2 flex-wrap mb-3">
+                              <h4 className="font-semibold text-base">{balance.participantName}</h4>
+                              {isOrganizerBalance && (
+                                <Badge variant="default" className="text-xs font-medium bg-primary/90">Organisateur</Badge>
+                              )}
+                            </div>
                             
                             {/* Détail financier complet */}
                             <div className="mb-3 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
@@ -4144,10 +4184,12 @@ export function EventManagement({ eventId, onBack }) {
         eventId={eventId}
         participantId={scannerParticipantId}
         isOpen={isScannerOpen}
+        mode={scannerManualMode ? 'manual' : 'scan'}
         onClose={() => {
           console.log('[EventManagement] Closing scanner');
           setIsScannerOpen(false);
           setScannerParticipantId(null);
+          setScannerManualMode(false);
         }}
         onPaymentProcessed={() => {
           console.log('[EventManagement] Payment processed, refreshing view');
@@ -4171,13 +4213,14 @@ export function EventManagement({ eventId, onBack }) {
                 <p className="text-muted-foreground">{selectedParticipant.email}</p>
               </div>
               
-              <div className="relative">
+              <div className="relative space-y-2">
               <Button
                 variant="outline"
                   className="relative w-full gap-2 scanner-ticket-btn animate-pulse-slow hover:animate-none hover:scale-105 transition-all duration-300 border-primary/50 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent"
                 onClick={() => {
                   console.log('[EventManagement] Opening scanner from participant dialog');
                   setSelectedParticipant(null);
+                  setScannerManualMode(false);
                   setScannerParticipantId(selectedParticipant.id);
                   setIsScannerOpen(true);
                 }}
@@ -4198,10 +4241,23 @@ export function EventManagement({ eventId, onBack }) {
                 >
                   ✨ Innovation
                 </Badge>
-                <div className="mt-2 text-center">
-                  <p className="text-xs text-muted-foreground italic">
-                    Un simple scan de ton ticket CB, Tu valides collectivement, Tu partages les frais
-                  </p>
+                <p className="text-xs text-muted-foreground italic text-center">
+                  Un simple scan de ton ticket CB, Tu valides collectivement, Tu partages les frais
+                </p>
+                <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/20 px-1.5 py-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full gap-2 text-muted-foreground hover:text-foreground h-9 text-sm"
+                    onClick={() => {
+                      setSelectedParticipant(null);
+                      setScannerManualMode(true);
+                      setScannerParticipantId(selectedParticipant.id);
+                      setIsScannerOpen(true);
+                    }}
+                  >
+                    Saisie manuelle
+                  </Button>
                 </div>
               </div>
 

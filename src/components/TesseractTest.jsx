@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import Webcam from 'react-webcam';
-import { createWorker } from 'tesseract.js';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -144,7 +143,6 @@ const compressImage = (file, maxSizeMB = 2, maxDim = 1600, initialQ = 0.8) => {
 // Composant principal
 // -----------------------------------------------------------------------------
 export function TesseractTest({ onDataExtracted, showEventSelection = false, autoOpenCamera = false }) {
-  console.log('[TesseractTest] Component rendered with autoOpenCamera:', autoOpenCamera);
   
   // ---------- state ----------
   const [image, setImage] = useState(null);
@@ -183,17 +181,10 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
   // Effet : ouvrir automatiquement la caméra si demandé
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    console.log('[TesseractTest] useEffect triggered, autoOpenCamera:', autoOpenCamera, 'current isCameraOpen:', isCameraOpen);
     if (autoOpenCamera) {
-      console.log('[TesseractTest] ✅ Opening camera automatically');
-      // Utiliser setTimeout pour s'assurer que le DOM est prêt
-      const timer = setTimeout(() => {
-        console.log('[TesseractTest] Setting isCameraOpen to true');
-        setIsCameraOpen(true);
-      }, 200);
+      const timer = setTimeout(() => setIsCameraOpen(true), 200);
       return () => clearTimeout(timer);
     } else {
-      console.log('[TesseractTest] ✅ Closing camera because autoOpenCamera is false');
       setIsCameraOpen(false);
     }
   }, [autoOpenCamera]);
@@ -323,102 +314,73 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
           setScanProgress(80);
           result = await res.json();
           console.log("🧾 Résultat OCR brut (API) :", result);
-          texteOCR = result.ocrResult || result.text || result.texte || "";
+          texteOCR = result?.ocrResult || result?.text || result?.texte || "";
         } else {
           throw new Error(`API ${res.status}`);
         }
       } catch (apiError) {
-        console.warn("⚠️ API WalletFamily non disponible, utilisation de Tesseract.js en fallback");
-        // Fallback vers Tesseract.js
-        setScanProgress(30);
-        const worker = await createWorker('fra');
-        setScanProgress(50);
-        const { data: { text } } = await worker.recognize(compressed);
-        await worker.terminate();
-        setScanProgress(80);
-        texteOCR = text;
-        console.log("🧾 Résultat OCR brut (Tesseract) :", texteOCR.substring(0, 200));
+        console.warn("⚠️ API WalletFamily non disponible :", apiError?.message || apiError);
+        throw new Error(
+          apiError?.message?.includes("Failed to fetch") || apiError?.name === "TypeError"
+            ? "API OCR indisponible. Vérifiez votre connexion ou réessayez plus tard."
+            : "API OCR WalletFamily indisponible. Réessayez plus tard."
+        );
       }
 
       // -------------------------------------------------------------------
       // Nettoyage des tickets CB AVANT setOcrResult
       // -------------------------------------------------------------------
-      if (texteOCR.trim()) {
-        const cleanedText = cleanCBBankTicket(texteOCR);
-        setOcrResult(cleanedText);
-        setScannedText(cleanedText);
-        setExtractedData(result.donnees_extraites || null);
-        
-        // Extraire les données manuellement si l'API ne les fournit pas
-        if (!result.donnees_extraites) {
-          const enseigne = extractStoreName(cleanedText);
-          const date = extractDate(cleanedText);
-          const heure = extractTime(cleanedText);
-          
-          // Essayer d'abord avec le texte nettoyé, puis avec le texte brut si rien trouvé
-          let total = extractTotalAmount(cleanedText);
-          if (!total) {
-            console.log("⚠️ Montant non trouvé dans le texte nettoyé, recherche dans le texte brut...");
-            total = extractTotalAmount(texteOCR); // Essayer avec le texte OCR brut
-          }
-          
-          // Extraire la devise si présente
-          let devise = "€";
-          const deviseMatch = cleanedText.match(/(EUR|€|CHF|\$)/i) || texteOCR.match(/(EUR|€|CHF|\$)/i);
-          if (deviseMatch) {
-            devise = deviseMatch[1].toUpperCase() === "EUR" ? "€" : deviseMatch[1];
-          }
-          
-          const extracted = {
-            enseigne,
-            date,
-            heure,
-            total,
-            devise,
-          };
-          console.log("🔍 Données extraites:", extracted);
-          console.log("📝 Texte analysé:", cleanedText);
-          console.log("📝 Texte OCR brut (premiers 500 chars):", texteOCR.substring(0, 500));
-          setExtractedData(extracted);
-          
-          // Appeler le callback si fourni
-          if (onDataExtracted) {
-            console.log("[TesseractTest] Calling onDataExtracted callback");
-            onDataExtracted(extracted);
-          }
-        } else {
-          // Utiliser les données de l'API mais compléter si nécessaire
-          const apiData = result.donnees_extraites;
-          
-          // Appeler le callback si fourni
-          if (onDataExtracted && apiData) {
-            console.log("[TesseractTest] Calling onDataExtracted callback with API data");
-            onDataExtracted(apiData);
-          }
-          
-          // Si le montant n'est pas dans les données de l'API, essayer de l'extraire
-          if (!apiData.total || apiData.total === "" || apiData.total === "0") {
-            console.log("⚠️ Montant non trouvé dans les données API, extraction manuelle...");
-            const total = extractTotalAmount(cleanedText) || extractTotalAmount(texteOCR);
-            if (total) {
-              apiData.total = total;
-            }
-          }
-          
-          // S'assurer que la devise est incluse
-          if (!apiData.devise) {
-            const deviseMatch = cleanedText.match(/(EUR|€|CHF|\$)/i) || texteOCR.match(/(EUR|€|CHF|\$)/i);
-            if (deviseMatch) {
-              apiData.devise = deviseMatch[1].toUpperCase() === "EUR" ? "€" : deviseMatch[1];
-            } else {
-              apiData.devise = "€";
-            }
-          }
-          
-          console.log("🔍 Données extraites (API):", apiData);
-          setExtractedData(apiData);
+      const hasText = texteOCR.trim().length > 0;
+      const hasApiData = result?.donnees_extraites && typeof result.donnees_extraites === "object";
+
+      if (hasText || hasApiData) {
+        const cleanedText = hasText ? cleanCBBankTicket(texteOCR) : "";
+        if (hasText) {
+          setOcrResult(cleanedText);
+          setScannedText(cleanedText);
         }
-        
+        setExtractedData(result?.donnees_extraites ?? null);
+
+        // Extraire les données manuellement si l'API ne les fournit pas
+        if (!result?.donnees_extraites) {
+          const enseigne = hasText ? extractStoreName(cleanedText) : "";
+          const date = hasText ? extractDate(cleanedText) : "";
+          const heure = hasText ? extractTime(cleanedText) : "";
+          let total = hasText ? extractTotalAmount(cleanedText) : "";
+          if (!total && hasText) total = extractTotalAmount(texteOCR);
+
+          let devise = "€";
+          if (hasText) {
+            const deviseMatch = cleanedText.match(/(EUR|€|CHF|\$)/i) || texteOCR.match(/(EUR|€|CHF|\$)/i);
+            if (deviseMatch) devise = deviseMatch[1].toUpperCase() === "EUR" ? "€" : deviseMatch[1];
+          }
+
+          const extracted = { enseigne, date, heure, total, devise };
+          console.log("🔍 Données extraites:", extracted);
+          setExtractedData(extracted);
+          if (onDataExtracted) onDataExtracted(extracted);
+        } else {
+          const apiData = result?.donnees_extraites;
+          if (apiData && typeof apiData === "object") {
+            if (onDataExtracted) {
+              console.log("[TesseractTest] Calling onDataExtracted callback with API data");
+              onDataExtracted(apiData);
+            }
+            if (!apiData.total || apiData.total === "" || apiData.total === "0") {
+              const total = extractTotalAmount(cleanedText) || extractTotalAmount(texteOCR);
+              if (total) apiData.total = total;
+            }
+            if (!apiData.devise) {
+              const deviseMatch = cleanedText.match(/(EUR|€|CHF|\$)/i) || texteOCR.match(/(EUR|€|CHF|\$)/i);
+              apiData.devise = deviseMatch?.[1]?.toUpperCase() === "EUR" ? "€" : (deviseMatch?.[1] || "€");
+            }
+            console.log("🔍 Données extraites (API):", apiData);
+            setExtractedData(apiData);
+          } else {
+            setExtractedData(null);
+          }
+        }
+
         setMessage("✅ Texte extrait avec succès !");
         toast({
           title: "Succès",
@@ -1046,7 +1008,6 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
       const matchIndex = linesUpper.findIndex((l) => l.includes(kw));
       if (matchIndex !== -1) {
         const match = lines[matchIndex];
-        // Vérifier qu'elle n'est pas dans une exclusion bancaire
         if (!exclusionBancaire.some((ex) => linesUpper[matchIndex].includes(ex))) {
           console.log(`✅ Enseigne trouvée (mot-clé connu, ligne ${matchIndex + 1}):`, match);
           return match;
@@ -1278,8 +1239,8 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
         {message && (
           <div
             className={`p-3 rounded-lg ${
-              message.includes("❌") 
-                ? "bg-destructive/10 text-destructive border border-destructive/20" 
+              message.includes("❌")
+                ? "bg-destructive/10 text-destructive border border-destructive/20"
                 : "bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20"
             }`}
           >
@@ -1439,7 +1400,7 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
                           throw new Error('Montant invalide');
                         }
 
-                        // 1. Créer la transaction
+                        // 1. Créer la transaction (RÈGLE BONKONT : validatedBy = validation collective)
                         const transactionData = {
                           store: extractedData.enseigne || 'Magasin inconnu',
                           date: extractedData.date ? (() => {
@@ -1457,9 +1418,11 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
                           amount: scannedAmount,
                           currency: extractedData.devise === '$' || extractedData.devise === 'USD' ? 'USD' :
                                     extractedData.devise === '£' || extractedData.devise === 'GBP' ? 'GBP' : 'EUR',
-                          participants: [selectedParticipantId],
+                          participants: selectedEvent.participants.map((p) => p.id),
+                          payerId: selectedParticipantId,
                           source: 'scanned_ticket',
-                          scannedData: extractedData
+                          scannedData: extractedData,
+                          validatedBy: [selectedParticipantId],
                         };
 
                         console.log('[TesseractTest] Creating transaction:', transactionData);

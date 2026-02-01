@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
+import { useState, useEffect, useRef } from 'react';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -17,21 +18,28 @@ import { useEventStore } from '@/store/eventStore';
 import { Mail, Share2, Copy, MessageSquare, Users, QrCode } from 'lucide-react';
 
 export function InviteFriends({ eventCode: propEventCode }) {
-  console.log('[InviteFriends] Component rendered with propEventCode:', propEventCode);
   const { toast } = useToast();
   const events = useEventStore((state) => state.events);
   const [emails, setEmails] = useState('');
   const [message, setMessage] = useState(
     `Rejoignez-moi sur BONKONT, l'application qui simplifie le partage des dépenses entre amis !`
   );
-  // ✅ Utiliser directement propEventCode - pas de logique complexe
   const currentEventCode = propEventCode || null;
-  console.log('[InviteFriends] currentEventCode:', currentEventCode, 'propEventCode:', propEventCode);
+  const lastActionRef = useRef(0);
+  const DEBOUNCE_MS = 400;
+  const handlersRef = useRef({});
+  const buttonsContainerRef = useRef(null);
+
+  const runOnce = (fn) => {
+    const now = Date.now();
+    if (now - lastActionRef.current < DEBOUNCE_MS) return;
+    lastActionRef.current = now;
+    fn();
+  };
 
   // URL de production pour le QR code - toujours accessible depuis mobile
   const productionUrl = 'https://bonkont-48a2c.web.app';
   const joinUrl = currentEventCode ? `${productionUrl}/#/join/${currentEventCode}` : `${productionUrl}/#/join`;
-  console.log('[InviteFriends] joinUrl:', joinUrl, 'willShowQR:', !!currentEventCode);
   
   // Mettre à jour le message avec le lien quand le code change
   useEffect(() => {
@@ -68,6 +76,7 @@ export function InviteFriends({ eventCode: propEventCode }) {
       return;
     }
 
+    try {
     // Créer le message d'invitation avec guide
     const guideText = currentEventCode ? `📋 GUIDE POUR REJOINDRE L'ÉVÉNEMENT :
 
@@ -107,6 +116,14 @@ export function InviteFriends({ eventCode: propEventCode }) {
       title: "Email préparé !",
       description: `Le client email s'ouvre avec ${emailList.length} destinataire(s).`
     });
+    } catch (err) {
+      console.error('Send invitations failed:', err);
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: "Impossible d'ouvrir le client email. Vérifiez votre configuration."
+      });
+    }
   };
 
   const handleShare = async () => {
@@ -138,18 +155,89 @@ export function InviteFriends({ eventCode: propEventCode }) {
       }
     } else {
       // Fallback : copier le lien
-      handleCopyLink();
+      await handleCopyLink();
     }
   };
 
-  const handleCopyLink = () => {
-    const linkToCopy = currentEventCode ? joinUrl : `${productionUrl}/#/join`;
-    navigator.clipboard.writeText(linkToCopy);
-    toast({
-      title: "Lien copié !",
-      description: "Le lien d'invitation a été copié dans le presse-papier."
-    });
+  const handleSms = async () => {
+    const linkToShare = currentEventCode ? joinUrl : `${productionUrl}/#/join`;
+    const shareText = `Rejoins-moi sur BONKONT : ${linkToShare}${currentEventCode ? `\n\nCode événement (8 lettres majuscules): ${currentEventCode}` : ''}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: 'Invitation BONKONT',
+          text: shareText,
+          url: linkToShare
+        });
+        toast({ title: "Partage réussi !", description: "L'invitation a été partagée." });
+      } else {
+        const message = encodeURIComponent(shareText);
+        window.location.href = `sms:?body=${message}`;
+        toast({ title: "SMS préparé", description: "L'application SMS s'ouvre avec le message." });
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        toast({ variant: "destructive", title: "Erreur", description: "Impossible de partager." });
+      }
+    }
   };
+
+  const handleCopyLink = async () => {
+    const linkToCopy = currentEventCode ? joinUrl : `${productionUrl}/#/join`;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(linkToCopy);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = linkToCopy;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      toast({
+        title: "Lien copié !",
+        description: "Le lien d'invitation a été copié dans le presse-papier."
+      });
+    } catch (err) {
+      console.error('Copy failed:', err);
+      toast({
+        variant: "destructive",
+        title: "Copie impossible",
+        description: "Veuillez copier le lien manuellement : " + linkToCopy
+      });
+    }
+  };
+
+  // Refs à jour pour l'écouteur natif
+  handlersRef.current.sendInvitations = handleSendInvitations;
+  handlersRef.current.share = handleShare;
+
+  // Écouteur DOM natif en phase capture pour contourner Radix/React
+  useEffect(() => {
+    const onCapture = (e) => {
+      const container = e.target?.closest?.('[data-invite-buttons]');
+      if (!container) return;
+      const btn = e.target?.closest?.('button[data-invite-action]');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const action = btn.getAttribute('data-invite-action');
+      const h = handlersRef.current;
+      if (action === 'email' && h.sendInvitations) runOnce(h.sendInvitations);
+      else if (action === 'share' && h.share) runOnce(h.share);
+    };
+    document.addEventListener('click', onCapture, true);
+    document.addEventListener('pointerdown', onCapture, true);
+    return () => {
+      document.removeEventListener('click', onCapture, true);
+      document.removeEventListener('pointerdown', onCapture, true);
+    };
+  }, []);
 
   return (
     <Dialog>
@@ -159,7 +247,7 @@ export function InviteFriends({ eventCode: propEventCode }) {
           Inviter des amis
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm-w-md glass-morphism">
+      <DialogContent className="sm-w-md glass-morphism pointer-events-auto">
         <DialogHeader>
           <DialogTitle className="gradient-text">Inviter des amis</DialogTitle>
           <DialogDescription>
@@ -167,7 +255,7 @@ export function InviteFriends({ eventCode: propEventCode }) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-6 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
           {/* QR Code Section */}
           {currentEventCode && (
             <div className="flex flex-col items-center space-y-4 p-4 bg-primary/5 rounded-lg border border-primary/20">
@@ -186,9 +274,10 @@ export function InviteFriends({ eventCode: propEventCode }) {
               <div className="text-center">
                 <p className="text-xs font-mono text-muted-foreground mb-2">Code: {currentEventCode}</p>
                 <Button
+                  type="button"
                   variant="outline"
                   size="sm"
-                  onClick={handleCopyLink}
+                  onClick={(e) => { e.preventDefault(); handleCopyLink(); }}
                   className="gap-2 text-xs"
                 >
                   <Copy className="w-3 h-3" />
@@ -226,55 +315,25 @@ export function InviteFriends({ eventCode: propEventCode }) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <Button
-              className="gap-2 button-glow"
-              onClick={handleSendInvitations}
-            >
-              <Mail className="w-4 h-4" />
-              Envoyer par email
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2 neon-border"
-              onClick={handleShare}
-            >
-              <Share2 className="w-4 h-4" />
-              Partager
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Button
-              variant="outline"
-              className="gap-2 neon-border"
-              onClick={handleCopyLink}
-            >
-              <Copy className="w-4 h-4" />
-              Copier le lien
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-2 neon-border"
-              onClick={() => {
-                const linkToShare = currentEventCode ? joinUrl : `${productionUrl}/#/join`;
-                const message = encodeURIComponent(
-                  `Rejoins-moi sur BONKONT : ${linkToShare}${currentEventCode ? `\n\nCode événement (8 lettres majuscules): ${currentEventCode}` : ''}`
-                );
-                if (navigator.share) {
-                  navigator.share({
-                    title: 'Invitation BONKONT',
-                    text: `Rejoins-moi sur BONKONT : ${linkToShare}${currentEventCode ? `\n\nCode événement (8 lettres majuscules): ${currentEventCode}` : ''}`,
-                    url: linkToShare
-                  });
-                } else {
-                  window.location.href = `sms:?body=${message}`;
-                }
-              }}
-            >
-              <MessageSquare className="w-4 h-4" />
-              Envoyer par SMS
-            </Button>
+          <div ref={buttonsContainerRef} data-invite-buttons className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 relative z-10">
+              <button
+                type="button"
+                data-invite-action="email"
+                className={cn(buttonVariants({ variant: 'default', size: 'default' }), 'gap-2 button-glow')}
+              >
+                <Mail className="w-4 h-4" />
+                Envoyer par email
+              </button>
+              <button
+                type="button"
+                data-invite-action="share"
+                className={cn(buttonVariants({ variant: 'outline', size: 'default' }), 'gap-2 neon-border')}
+              >
+                <Share2 className="w-4 h-4" />
+                Partager
+              </button>
+            </div>
           </div>
         </div>
       </DialogContent>

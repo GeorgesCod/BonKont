@@ -48,6 +48,21 @@ export function EventJoin({ onAuthRequired }) {
   const hasSentJoinRequestRef = useRef(false);
   const [pendingRequestId, setPendingRequestId] = useState(null);
 
+  // Synchroniser le code avec l'URL quand on arrive depuis la page événement (Rejoindre avec code)
+  useEffect(() => {
+    const syncCodeFromUrl = () => {
+      const h = window.location.hash;
+      const m = h.match(/\/join\/([A-Z0-9]+)/i);
+      if (m) {
+        const code = (m[1] || '').toUpperCase().replace(/[^A-Z]/g, '');
+        if (code.length >= 8) setEventCode(code);
+      }
+    };
+    syncCodeFromUrl();
+    window.addEventListener('hashchange', syncCodeFromUrl);
+    return () => window.removeEventListener('hashchange', syncCodeFromUrl);
+  }, []);
+
   // Log initial des événements
   useEffect(() => {
     console.log('[EventJoin] ===== INITIAL STATE =====');
@@ -1166,7 +1181,7 @@ export function EventJoin({ onAuthRequired }) {
         <div className="flex-1">
           <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text">Rejoindre un événement</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Entre le code et rejoins le groupe. Transparence obligatoire 😊
+            Un code = un seul événement. Le code assure ton <strong>routage clair</strong> dans cet événement de bout en bout : tu es dans l'événement et tu le gères complètement jusqu'à la clôture, sans confusion avec d'autres. Transparence obligatoire 😊
           </p>
         </div>
         <Button
@@ -1183,14 +1198,85 @@ export function EventJoin({ onAuthRequired }) {
       <Card className="p-4 sm:p-6 neon-border space-y-4 sm:space-y-6">
         {/* ✅ FORMULAIRE INVITÉ TOUJOURS VISIBLE en premier (lien, QR ou saisie manuelle) */}
         <div className="rounded-xl border-2 border-primary bg-primary/10 p-4 sm:p-5 space-y-4">
-          <h3 className="text-lg font-bold text-primary">Formulaire pour rejoindre l'événement</h3>
+          <h3 className="text-lg font-bold text-primary">
+            Formulaire pour rejoindre l'événement
+            {eventCode && eventCode.trim() ? (
+              <span className="font-mono tracking-wider text-primary ml-1"> {eventCode.toUpperCase()}</span>
+            ) : null}
+          </h3>
           <p className="text-sm text-muted-foreground">
             {eventCode && eventCode.trim().length >= 8 ? (
-              <>Code : <strong className="font-mono">{eventCode}</strong> — Saisissez votre nom et votre email puis cliquez sur « Rejoindre l'événement ».</>
+              <>Code <strong className="font-mono">{eventCode}</strong> — Remplissez nom et email puis « Rejoindre l'événement ». Ce code te garde dans cet événement de bout en bout jusqu'à la clôture.</>
             ) : (
-              <>Saisissez le code événement (8 lettres) ci-dessous, puis votre <strong>nom</strong> et votre <strong>email</strong>, et cliquez sur « Rejoindre l'événement ».</>
+              <>Si vous venez d'un lien d'invitation, le code se remplit automatiquement. Sinon saisissez le code (8 lettres) ci-dessous. Ce code assure ton routage dans l'événement de bout en bout jusqu'à la clôture.</>
             )}
           </p>
+          {/* Champ code intégré au formulaire — récupéré automatiquement depuis l'URL si lien d'invitation */}
+          <div className="space-y-2">
+            <Label htmlFor="eventCode">Code événement (8 lettres majuscules)</Label>
+            <div className="flex gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="eventCode"
+                  value={eventCode}
+                  onChange={(e) => {
+                    const value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
+                    setEventCode(value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && eventCode.trim() !== '') {
+                      handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+                    }
+                  }}
+                  placeholder="Ex: VKCKVSOB ou laissez vide si vous venez d'un lien"
+                  className="pl-10 neon-border font-mono uppercase w-full text-lg tracking-wider"
+                  maxLength={8}
+                  style={{ minWidth: '200px', letterSpacing: '0.1em' }}
+                />
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => setIsQRScannerOpen(true)}
+                className="neon-border gap-2"
+                title="Scanner un QR code"
+              >
+                <QrCode className="w-4 h-4" />
+              </Button>
+              <Button
+                onClick={() => {
+                  if (eventCode && eventCode.trim() !== '') {
+                    handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
+                  } else {
+                    toast({
+                      variant: "destructive",
+                      title: "Code requis",
+                      description: "Saisissez le code (8 lettres) ou utilisez le lien reçu — le code se remplit alors automatiquement."
+                    });
+                  }
+                }}
+                disabled={!eventCode || eventCode.trim() === ''}
+                className="neon-border"
+              >
+                Rechercher
+              </Button>
+            </div>
+            {eventCode && eventCode.trim().length > 0 && eventCode.trim().length < 8 && (
+              <p className="text-xs text-muted-foreground">💡 8 lettres majuscules. Un code = un seul événement.</p>
+            )}
+            {eventCode && !event && !isLoading && eventCode.trim().length >= 8 && (
+              <Alert variant="destructive">
+                <AlertCircle className="w-4 h-4" />
+                <AlertDescription>Aucun événement trouvé avec ce code. Vérifiez ou utilisez le lien reçu.</AlertDescription>
+              </Alert>
+            )}
+            {eventCode && !event && isLoading && (
+              <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Recherche en cours...</span>
+              </div>
+            )}
+          </div>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="pseudo-join">Nom <span className="text-destructive">*</span></Label>
@@ -1216,7 +1302,7 @@ export function EventJoin({ onAuthRequired }) {
             </div>
             <Button
               onClick={handleJoin}
-              disabled={isLoading || !pseudo.trim() || !email?.trim()}
+              disabled={isLoading || !pseudo.trim() || !email?.trim() || ((!eventCode || eventCode.trim().length < 8) && !event)}
               className="w-full gap-2 button-glow"
             >
               {isLoading ? (
@@ -1239,13 +1325,14 @@ export function EventJoin({ onAuthRequired }) {
           <AlertCircle className="w-4 h-4 text-primary" />
           <AlertDescription className="space-y-3">
             <p className="font-semibold text-primary text-base">📋 Parcours complet : Comment rejoindre un événement</p>
+            <p className="text-xs text-muted-foreground mt-1">Le code assure ton routage clair dans l'événement de bout en bout : tu es dans l'événement et tu le gères complètement jusqu'à la clôture, sans confusion avec d'autres.</p>
             <div className="text-sm space-y-2 mt-3">
               <div className="bg-background/50 p-3 rounded-lg space-y-2">
-                <p className="font-semibold text-foreground">Étape 1 : Trouver l'événement</p>
+                <p className="font-semibold text-foreground">Étape 1 : Identifier l'événement à rejoindre</p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground ml-2">
-                  <li><strong>Par QR code :</strong> Scannez le QR code reçu (le code est automatiquement détecté)</li>
-                  <li><strong>Par code :</strong> Saisissez le code à 8 lettres majuscules (ex: AMDZQINI) et cliquez sur "Rechercher"</li>
-                  <li><strong>Par lien :</strong> Si vous avez cliqué sur un lien, le code est déjà pré-rempli</li>
+                  <li><strong>Par QR code :</strong> Scannez le QR code reçu (le code est automatiquement détecté pour cet événement uniquement)</li>
+                  <li><strong>Par code :</strong> Saisissez le code à 8 lettres majuscules (ex: AMDZQINI) — un code = un événement — puis cliquez sur "Rechercher"</li>
+                  <li><strong>Par lien :</strong> Si vous avez cliqué sur un lien, le code de l'événement concerné est déjà pré-rempli</li>
                 </ul>
               </div>
               <div className="bg-background/50 p-3 rounded-lg space-y-2">
@@ -1283,91 +1370,14 @@ export function EventJoin({ onAuthRequired }) {
               <div className="bg-background/50 p-3 rounded-lg space-y-2">
                 <p className="font-semibold text-foreground">Étape 4 : Attendre la validation</p>
                 <p className="text-muted-foreground ml-2">
-                  Votre demande sera envoyée à l'organisateur. Vous recevrez une notification une fois votre participation validée.
+                  Votre demande sera envoyée à l'organisateur. En rejoignant, vous acceptez le statut de l'organisateur (initiateur du projet, leader et modérateur — il clôturera l'événement à la fin de l'expérience). Une fois validée, vous serez dans cet événement de bout en bout jusqu'à la clôture.
                 </p>
               </div>
             </div>
           </AlertDescription>
         </Alert>
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="eventCode">Code événement (8 caractères requis)</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1 min-w-0">
-                <Key className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="eventCode"
-                  value={eventCode}
-                  onChange={(e) => {
-                    // Permettre uniquement les lettres majuscules
-                    const value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
-                    console.log('[EventJoin] Input onChange:', value, 'Length:', value.length);
-                    setEventCode(value);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && eventCode.trim() !== '') {
-                      console.log('[EventJoin] Enter pressed, checking code');
-                      handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
-                    }
-                  }}
-                  placeholder="Ex: VKCKVSOB (8 lettres majuscules)"
-                  className="pl-10 neon-border font-mono uppercase w-full text-lg tracking-wider"
-                  maxLength={8}
-                  minLength={8}
-                  style={{ minWidth: '240px', letterSpacing: '0.1em' }}
-                />
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => setIsQRScannerOpen(true)}
-                className="neon-border gap-2"
-                title="Scanner un QR code"
-              >
-                <QrCode className="w-4 h-4" />
-              </Button>
-              <Button
-                onClick={() => {
-                  console.log('[EventJoin] Search button clicked, eventCode:', eventCode);
-                  console.log('[EventJoin] handleCodeCheck function:', typeof handleCodeCheck);
-                  if (eventCode && eventCode.trim() !== '') {
-                    console.log('[EventJoin] Calling handleCodeCheck with:', eventCode);
-                    handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
-                  } else {
-                    console.log('[EventJoin] Empty code, showing toast');
-                    toast({
-                      variant: "destructive",
-                      title: "Code requis",
-                      description: "Veuillez saisir un code événement"
-                    });
-                  }
-                }}
-                disabled={!eventCode || eventCode.trim() === ''}
-                className="neon-border"
-              >
-                Rechercher
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              💡 Le code événement contient exactement 8 lettres majuscules (A-Z uniquement). Exemple : VKCKVSOB. Saisissez le code complet ou scannez le QR code reçu.
-            </p>
-            {eventCode && !event && !isLoading && (
-              <Alert variant="destructive">
-                <AlertCircle className="w-4 h-4" />
-                <AlertDescription>
-                  Aucun événement trouvé avec ce code. Vérifiez le code ou réessayez.
-                </AlertDescription>
-              </Alert>
-            )}
-            {eventCode && !event && isLoading && (
-              <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Recherche de l'événement en cours...</span>
-              </div>
-            )}
-          </div>
-
-          {(event || (eventCode && eventCode.trim().length >= 8)) && (
+        {(event || (eventCode && eventCode.trim().length >= 8)) && (
             <>
               {isJoined && (
                 <Alert className="bg-yellow-500/10 border-yellow-500/20">
@@ -1516,9 +1526,19 @@ export function EventJoin({ onAuthRequired }) {
                     <AlertCircle className="w-4 h-4" />
                     <AlertDescription>
                       {isOrganizer ? (
-                        <strong>Vous êtes l'organisateur de cet événement.</strong>
+                        <>
+                          <strong>Vous êtes l'organisateur de cet événement.</strong>
+                          <span className="block mt-1 text-sm text-muted-foreground">
+                            Initiateur du projet, leader et modérateur — vous clôturerez l'événement à la fin de l'expérience.
+                          </span>
+                        </>
                       ) : (
-                        <strong>Vous êtes inscrit(e) à cet événement.</strong>
+                        <>
+                          <strong>Vous êtes inscrit(e) à cet événement.</strong>
+                          <span className="block mt-1 text-sm text-muted-foreground">
+                            En rejoignant, vous avez accepté le statut de l'organisateur (initiateur, leader et modérateur).
+                          </span>
+                        </>
                       )}
                       {' '}Accédez à la page de l'événement.
                     </AlertDescription>
@@ -1567,7 +1587,6 @@ export function EventJoin({ onAuthRequired }) {
               )}
             </>
           )}
-        </div>
       </Card>
 
       {/* Scanner QR Code */}

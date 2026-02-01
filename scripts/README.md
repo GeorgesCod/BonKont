@@ -2,6 +2,8 @@
 
 Ce dossier contient des scripts pour automatiser le processus `git commit` + `git push`.
 
+**Guide déploiement** : le workflow `npm run git:cp` est intégré au [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md). Voir aussi [GIT_PROCESS.md](../GIT_PROCESS.md).
+
 ## 📋 Scripts disponibles
 
 ### 1. Script PowerShell (Windows)
@@ -36,9 +38,9 @@ chmod +x scripts/git-commit-push.sh
 
 **Usage via npm:**
 ```bash
-npm run git:commit-push "Message de commit"
-# ou version courte:
+npm run git "Message de commit"
 npm run git:cp "Message de commit"
+npm run git:commit-push "Message de commit"
 ```
 
 **Exemple:**

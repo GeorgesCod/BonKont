@@ -19,18 +19,22 @@ import {
   Store,
   Calendar,
   Clock,
+  PenLine,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 export function EventDashboardScanner({
   eventId,
   isOpen,
   onClose,
-  onPaymentProcessed, // ✅ optionnel (si tu veux déclencher un refresh dans EventDashboard)
+  onPaymentProcessed,
+  mode = 'scan', // 'scan' | 'manual'
 }) {
   const { toast } = useToast();
 
-  // ✅ EventId robuste (si jamais prop eventId arrive null)
   const effectiveEventId = useMemo(() => {
     return eventId || localStorage.getItem('bonkont_scanner_eventId') || '';
   }, [eventId]);
@@ -40,8 +44,16 @@ export function EventDashboardScanner({
   );
 
   const [extractedData, setExtractedData] = useState(null);
-  const [selectedPayer, setSelectedPayer] = useState(''); // ✅ string
+  const [selectedPayer, setSelectedPayer] = useState('');
   const payerSectionRef = useRef(null);
+
+  const [manualEnseigne, setManualEnseigne] = useState('');
+  const [manualDate, setManualDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [manualHeure, setManualHeure] = useState(() => format(new Date(), 'HH:mm'));
+  const [manualTotal, setManualTotal] = useState('');
+  const [manualDevise, setManualDevise] = useState('€');
+  // Type de saisie manuelle : dépense/achat vs contribution à la cagnotte espèces
+  const [manualTransactionKind, setManualTransactionKind] = useState('expense'); // 'expense' | 'contribution'
 
   const participants = useMemo(() => {
     return Array.isArray(event?.participants) ? event.participants : [];
@@ -54,11 +66,16 @@ export function EventDashboardScanner({
     }
   }, [extractedData]);
 
-  // ✅ reset auto quand on ferme la modale
   useEffect(() => {
     if (!isOpen) {
       setExtractedData(null);
       setSelectedPayer('');
+      setManualEnseigne('');
+      setManualDate(format(new Date(), 'yyyy-MM-dd'));
+      setManualHeure(format(new Date(), 'HH:mm'));
+      setManualTotal('');
+      setManualDevise('€');
+      setManualTransactionKind('expense');
     }
   }, [isOpen]);
 
@@ -104,6 +121,7 @@ export function EventDashboardScanner({
       amount: Number.isFinite(safeAmount) ? String(safeAmount) : '',
       currency,
       scannedData: data,
+      transactionKind: data?.transactionKind || 'expense',
     };
 
     // ✅ stocker (si tu en as besoin ailleurs)
@@ -112,9 +130,12 @@ export function EventDashboardScanner({
     setExtractedData(data);
 
     if (Number.isFinite(safeAmount) && safeAmount > 0) {
+      const isContribution = data?.transactionKind === 'contribution';
       toast({
         title: '✅ Données extraites !',
-        description: `Montant scanné: ${safeAmount.toFixed(2)}€. Sélectionnez un payeur ci-dessous pour valider.`,
+        description: isContribution
+          ? `Montant: ${safeAmount.toFixed(2)}€. Sélectionnez qui verse dans la cagnotte ci-dessous.`
+          : `Montant scanné: ${safeAmount.toFixed(2)}€. Sélectionnez un payeur ci-dessous pour valider.`,
       });
     } else {
       toast({
@@ -176,21 +197,149 @@ export function EventDashboardScanner({
     window.location.hash = `#event/${effectiveEventId}/transactions`;
   };
 
+  const handleManualSubmit = () => {
+    const amount = Number.parseFloat(String(manualTotal).replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Montant invalide',
+        description: 'Saisissez un montant valide.',
+      });
+      return;
+    }
+    const dateStr = manualDate ? (() => {
+      try {
+        const d = new Date(manualDate);
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}/${month}/${year}`;
+      } catch {
+        return format(new Date(), 'dd/MM/yyyy');
+      }
+    })() : format(new Date(), 'dd/MM/yyyy');
+    handleDataExtracted({
+      enseigne: manualEnseigne.trim() || (manualTransactionKind === 'contribution' ? 'Contribution espèces' : 'Magasin inconnu'),
+      date: dateStr,
+      heure: manualHeure || format(new Date(), 'HH:mm'),
+      total: String(amount),
+      devise: manualDevise || '€',
+      transactionKind: manualTransactionKind,
+    });
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="w-[95vw] sm:w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Scan className="w-5 h-5 text-primary" />
-            Scanner un ticket pour l'événement "{event.title}"
+            {mode === 'manual' ? (
+              <PenLine className="w-5 h-5 text-primary" />
+            ) : (
+              <Scan className="w-5 h-5 text-primary" />
+            )}
+            {mode === 'manual' ? 'Saisie manuelle' : `Scanner un ticket pour l'événement "${event.title}"`}
           </DialogTitle>
           <DialogDescription>
-            Scannez un ticket ou une facture pour extraire automatiquement les informations de paiement
+            {mode === 'manual'
+              ? "Saisissez les informations du ticket si le scan ne fonctionne pas."
+              : "Scannez un ticket ou une facture pour extraire automatiquement les informations de paiement"}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
-          <TesseractTest onDataExtracted={handleDataExtracted} />
+          {mode === 'manual' && !extractedData ? (
+            <Card className="p-4 space-y-4">
+              <div className="space-y-3 p-3 rounded-lg border border-border bg-muted/30">
+                <Label>Type de saisie</Label>
+                <RadioGroup
+                  value={manualTransactionKind}
+                  onValueChange={setManualTransactionKind}
+                  className="flex flex-col sm:flex-row gap-3"
+                >
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <RadioGroupItem value="expense" />
+                    <span className="text-sm">Dépense / achat (répartir entre participants)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <RadioGroupItem value="contribution" />
+                    <span className="text-sm">Contribution à la cagnotte (espèces)</span>
+                  </label>
+                </RadioGroup>
+                {manualTransactionKind === 'contribution' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Quote-part théorique (plafond contributif à ne pas dépasser, pas obligatoire). Elle devient réelle si le participant verse effectivement (en partie ou en total). La règle BONKONT s’applique pour rester équitable. Chaque participant devra valider.
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="manual-enseigne">
+                    {manualTransactionKind === 'contribution' ? 'Libellé (optionnel)' : 'Enseigne / Magasin'}
+                  </Label>
+                  <Input
+                    id="manual-enseigne"
+                    placeholder="Ex: Carrefour"
+                    value={manualEnseigne}
+                    onChange={(e) => setManualEnseigne(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manual-date">Date</Label>
+                  <Input
+                    id="manual-date"
+                    type="date"
+                    value={manualDate}
+                    onChange={(e) => setManualDate(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manual-heure">Heure</Label>
+                  <Input
+                    id="manual-heure"
+                    type="time"
+                    value={manualHeure}
+                    onChange={(e) => setManualHeure(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manual-total">Montant</Label>
+                  <Input
+                    id="manual-total"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ex: 26,70"
+                    value={manualTotal}
+                    onChange={(e) => setManualTotal(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manual-devise">Devise</Label>
+                  <select
+                    id="manual-devise"
+                    value={manualDevise}
+                    onChange={(e) => setManualDevise(e.target.value)}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-foreground"
+                  >
+                    <option value="€">€ (EUR)</option>
+                    <option value="$">$ (USD)</option>
+                    <option value="£">£ (GBP)</option>
+                    <option value="CHF">CHF</option>
+                  </select>
+                </div>
+              </div>
+              <Button onClick={handleManualSubmit} className="w-full sm:w-auto gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                Utiliser ces données
+              </Button>
+            </Card>
+          ) : mode === 'scan' ? (
+            <TesseractTest onDataExtracted={handleDataExtracted} />
+          ) : null}
 
           {extractedData && (
             <Card className="p-4 border-green-500/50 bg-green-500/5 animate-fade-in">
@@ -246,7 +395,11 @@ export function EventDashboardScanner({
 
               {/* SECTION APPARAISSANT APRÈS SCAN */}
               <div ref={payerSectionRef} className="mt-6 space-y-4 animate-fade-in">
-                <h3 className="text-lg font-semibold">Choisir le payeur</h3>
+                <h3 className="text-lg font-semibold">
+                  {extractedData?.transactionKind === 'contribution'
+                    ? 'Qui verse dans la cagnotte ?'
+                    : 'Choisir le payeur'}
+                </h3>
 
                 <select
                   value={selectedPayer}
@@ -254,7 +407,9 @@ export function EventDashboardScanner({
                   className="w-full p-2 rounded border border-border bg-background text-foreground"
                 >
                   <option value="" style={{ color: '#000', background: '#fff' }}>
-                    -- Sélectionner un participant --
+                    {extractedData?.transactionKind === 'contribution'
+                      ? '-- Qui verse ? --'
+                      : '-- Sélectionner un participant --'}
                   </option>
 
                   {participants.map((p, idx) => {

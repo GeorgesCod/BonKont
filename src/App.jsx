@@ -185,7 +185,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-  console.log('[App] Component mounted, setting up hash routing');
   // Toujours ouvrir sur la homepage (Se connecter), jamais sur tableau de bord ni créer un événement
   const h = window.location.hash;
   if (!h || h === '' || h === '#') {
@@ -198,50 +197,17 @@ export default function App() {
   }
   const logScreenInfo = () => {
     const width = window.innerWidth;
-    const height = window.innerHeight;
-    const isMobile = width < 640;
-    const isTablet = width >= 640 && width < 1024;
-    const isDesktop = width >= 1024;
-      const devicePixelRatio = window.devicePixelRatio || 1;
-      const orientation = width > height ? 'landscape' : 'portrait';
-      
-      // Vérifier les décalages au chargement
-      const body = document.body;
-      const root = document.getElementById('root');
-      const bodyRect = body?.getBoundingClientRect();
-      const rootRect = root?.getBoundingClientRect();
-      
-      const layoutInfo = {
-        bodyWidth: bodyRect?.width,
-        bodyLeft: bodyRect?.left,
-        rootWidth: rootRect?.width,
-        rootLeft: rootRect?.left,
-        hasHorizontalScroll: document.documentElement.scrollWidth > width
-      };
-      
-      console.log('[App] Screen size:', {
-        width,
-        height,
-        isMobile,
-        isTablet,
-        isDesktop,
-        devicePixelRatio,
-        orientation,
-        breakpoint: isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop',
-        userAgent: navigator.userAgent.includes('Mobile') ? 'mobile' : 'desktop'
+    const layoutInfo = {
+      hasHorizontalScroll: document.documentElement.scrollWidth > width
+    };
+    if (layoutInfo.hasHorizontalScroll) {
+      console.warn('[App] ⚠️ DÉCALAGE DÉTECTÉ: Scroll horizontal présent!', {
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        difference: document.documentElement.scrollWidth - document.documentElement.clientWidth
       });
-      
-      console.log('[App] Layout info:', layoutInfo);
-      
-      if (layoutInfo.hasHorizontalScroll) {
-        console.warn('[App] ⚠️ DÉCALAGE DÉTECTÉ: Scroll horizontal présent!', {
-          scrollWidth: document.documentElement.scrollWidth,
-          clientWidth: document.documentElement.clientWidth,
-          difference: document.documentElement.scrollWidth - document.documentElement.clientWidth
-        });
-      }
+    }
   };
-  
   logScreenInfo();
 
   const handleResize = () => {
@@ -274,17 +240,6 @@ export default function App() {
       hasHorizontalScroll: document.documentElement.scrollWidth > width,
       scrollbarWidth: window.innerWidth - document.documentElement.clientWidth
     };
-    
-    console.log('[App] Window resized:', {
-      width,
-      height,
-      isMobile,
-      isTablet,
-      isDesktop,
-      breakpoint: isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop'
-    });
-    
-    console.log('[App] Layout info:', layoutInfo);
     
     if (layoutInfo.hasHorizontalScroll) {
       console.warn('[App] ⚠️ DÉCALAGE DÉTECTÉ: Scroll horizontal présent!', {
@@ -748,8 +703,11 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-4 flex-shrink-0">
-              {/* Bouton "Rejoindre" - masqué sur la homepage */}
-              {currentView !== 'home' && (
+              {/* Bouton "Rejoindre" - masqué sur homepage et sur toute page événement (event ou dashboard avec 1er événement) */}
+              {(() => {
+                const isEventPage = currentView === 'event' || (currentView === 'dashboard-view' && !showDashboardList && events.length > 0);
+                return currentView !== 'home' && !isEventPage;
+              })() && (
                 <Button
                   variant="outline"
                   className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 border-primary/50 bg-background hover:bg-primary/10 hover:border-primary text-foreground text-sm"
@@ -771,8 +729,11 @@ export default function App() {
               
               {!isLoggedIn ? (
                 <>
-                  {/* Bouton "Inviter des amis" - masqué sur la homepage */}
-                  {currentView !== 'home' && (
+                  {/* Bouton "Inviter des amis" - masqué sur homepage et sur toute page événement */}
+                  {(() => {
+                    const isEventPage = currentView === 'event' || (currentView === 'dashboard-view' && !showDashboardList && events.length > 0);
+                    return currentView !== 'home' && !isEventPage;
+                  })() && (
                     <InviteFriends eventCode={selectedEventId ? (() => {
                       const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
                       return event?.code;
@@ -798,12 +759,18 @@ export default function App() {
                       variant="outline"
                       className="neon-border gap-2 h-9 sm:h-9 px-2 sm:px-3 text-sm"
                       onClick={() => setShowEventCreation(true)}
+                      title="Créer un évènement"
+                      aria-label="Créer un évènement"
                     >
                       <Plus className="w-4 h-4" />
                       <span className="hidden sm:inline">Créer un événement</span>
                     </Button>
                   )}
-                  {currentView !== 'home' && (
+                  {/* Inviter des amis - masqué sur toute page événement (déjà dans le contenu) */}
+                  {(() => {
+                    const isEventPage = currentView === 'event' || (currentView === 'dashboard-view' && !showDashboardList && events.length > 0);
+                    return currentView !== 'home' && !isEventPage;
+                  })() && (
                     <InviteFriends eventCode={selectedEventId ? (() => {
                       const event = useEventStore.getState().events.find(e => e.id === selectedEventId);
                       return event?.code;
@@ -828,14 +795,6 @@ export default function App() {
 
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full pt-16 sm:pt-20 scroll-main pb-[10.5rem]" style={{ marginTop: '70px', overflow: 'visible', position: 'relative' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
-          {(() => {
-            console.log('[App] ===== RENDERING MAIN CONTENT =====');
-            console.log('[App] currentView:', currentView);
-            console.log('[App] window.location.hash:', window.location.hash);
-            console.log('[App] Checking if currentView === "join":', currentView === 'join');
-            return null;
-          }
-          )()}
           {/* Pages publiques */}
           {currentView === 'privacy' ? (
             <PrivacyPolicy onBack={() => {
@@ -1091,7 +1050,12 @@ export default function App() {
                   </div>
                 );
               }
-              return <EventDashboard onShowHistory={() => setShowHistory(true)} />;
+              return (
+                <EventDashboard
+                  onShowHistory={() => setShowHistory(true)}
+                  onBack={() => setShowDashboardList(false)}
+                />
+              );
             })()
           ) : currentView === 'home' ? (
             /* Page d'accueil : uniquement le bouton "Tableau de bord". */
@@ -1104,6 +1068,14 @@ export default function App() {
                     : 'Connectez-vous pour accéder à votre tableau de bord et créer des événements'}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                  <Button
+                    variant="default"
+                    className="gap-2 button-glow"
+                    onClick={() => setIsAuthOpen(true)}
+                  >
+                    <LogIn className="w-4 h-4" />
+                    Se connecter
+                  </Button>
                   <Button
                     variant="outline"
                     className="gap-2 neon-border"
@@ -1121,16 +1093,6 @@ export default function App() {
                     <Plus className="w-4 h-4" />
                     Créer un événement
                   </Button>
-                  {!isLoggedIn && (
-                    <Button
-                      variant="default"
-                      className="gap-2 button-glow"
-                      onClick={() => setIsAuthOpen(true)}
-                    >
-                      <LogIn className="w-4 h-4" />
-                      Se connecter
-                    </Button>
-                  )}
                 </div>
               </div>
             </div>

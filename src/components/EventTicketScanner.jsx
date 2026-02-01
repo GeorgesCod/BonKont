@@ -6,14 +6,15 @@ import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Scan, CheckCircle2, X, Euro, User } from 'lucide-react';
+import { Scan, CheckCircle2, X, Euro, User, PenLine } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
-export function EventTicketScanner({ eventId, participantId, isOpen, onClose, onPaymentProcessed }) {
-  // Ne logger que lors du montage initial ou quand isOpen change vraiment
+export function EventTicketScanner({ eventId, participantId, isOpen, onClose, onPaymentProcessed, mode = 'scan' }) {
   const [hasLogged, setHasLogged] = useState(false);
-  
+
   useEffect(() => {
     if (isOpen && !hasLogged) {
       console.log('[EventTicketScanner] Component mounted/opened:', { eventId, participantId, isOpen });
@@ -22,21 +23,31 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
       setHasLogged(false);
     }
   }, [isOpen, eventId, participantId, hasLogged]);
-  
+
   const { toast } = useToast();
   const event = useEventStore((state) => state.events.find(e => e.id === eventId));
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   const updateEvent = useEventStore((state) => state.updateEvent);
   const addTransaction = useTransactionsStore((state) => state.addTransaction);
-  
+
   const [extractedData, setExtractedData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  
-  // Réinitialiser les données quand le dialog se ferme
+
+  const [manualEnseigne, setManualEnseigne] = useState('');
+  const [manualDate, setManualDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [manualHeure, setManualHeure] = useState(() => format(new Date(), 'HH:mm'));
+  const [manualTotal, setManualTotal] = useState('');
+  const [manualDevise, setManualDevise] = useState('€');
+
   useEffect(() => {
     if (!isOpen) {
       setExtractedData(null);
       setIsProcessing(false);
+      setManualEnseigne('');
+      setManualDate(format(new Date(), 'yyyy-MM-dd'));
+      setManualHeure(format(new Date(), 'HH:mm'));
+      setManualTotal('');
+      setManualDevise('€');
     }
   }, [isOpen]);
   
@@ -141,10 +152,11 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
         amount: scannedAmount,
         currency: extractedData.devise === '$' || extractedData.devise === 'USD' ? 'USD' :
                   extractedData.devise === '£' || extractedData.devise === 'GBP' ? 'GBP' : 'EUR',
-        participants: [participantId], // IMPORTANT: Seul le participant qui a scanné est concerné (dépense personnelle)
-        payerId: participantId, // Le participant qui a scanné est le payeur
+        participants: event.participants.map((p) => p.id),
+        payerId: participantId,
         source: 'scanned_ticket',
-        scannedData: extractedData
+        scannedData: extractedData,
+        validatedBy: [participantId],
       };
       
       console.log('[EventTicketScanner] ⚠️ CRÉATION TRANSACTION SCANNÉE:', {
@@ -217,6 +229,36 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
     setExtractedData(null);
   };
 
+  const handleManualSubmit = () => {
+    const amount = Number.parseFloat(String(manualTotal).replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Montant invalide',
+        description: 'Saisissez un montant valide.',
+      });
+      return;
+    }
+    const dateStr = manualDate ? (() => {
+      try {
+        const d = new Date(manualDate);
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}/${month}/${year}`;
+      } catch {
+        return format(new Date(), 'dd/MM/yyyy');
+      }
+    })() : format(new Date(), 'dd/MM/yyyy');
+    handleDataExtracted({
+      enseigne: manualEnseigne.trim() || 'Magasin inconnu',
+      date: dateStr,
+      heure: manualHeure || format(new Date(), 'HH:mm'),
+      total: String(amount),
+      devise: manualDevise || '€',
+    });
+  };
+
   const totalDue = event.amount / event.participants.length;
   const alreadyPaid = participant.paidAmount || 0;
   const remainingDue = Math.max(0, totalDue - alreadyPaid);
@@ -226,16 +268,17 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
       <DialogContent className="w-[95vw] sm:w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Scan className="w-5 h-5 text-primary" />
-            Scanner un ticket pour {participant.name}
+            {mode === 'manual' ? <PenLine className="w-5 h-5 text-primary" /> : <Scan className="w-5 h-5 text-primary" />}
+            {mode === 'manual' ? 'Saisie manuelle' : `Scanner un ticket pour ${participant.name}`}
           </DialogTitle>
           <DialogDescription>
-            Scannez le ticket de caisse pour enregistrer automatiquement le paiement de {participant.name}.
+            {mode === 'manual'
+              ? "Saisissez les informations du ticket si le scan ne fonctionne pas."
+              : `Scannez le ticket de caisse pour enregistrer automatiquement le paiement de ${participant.name}.`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Informations du participant */}
           <Card className="p-4 bg-primary/5 border-primary/20">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
@@ -259,16 +302,82 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
             </div>
           </Card>
 
-          {/* Scanner */}
-          <div className="space-y-4">
-            {isOpen && (
-              <TesseractTest 
-                key={`scanner-${participantId}-${eventId}`}
-                onDataExtracted={handleDataExtracted} 
-                autoOpenCamera={true} 
-              />
-            )}
-          </div>
+          {mode === 'manual' && !extractedData ? (
+            <Card className="p-4 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="et-manual-enseigne">Enseigne / Magasin</Label>
+                  <Input
+                    id="et-manual-enseigne"
+                    placeholder="Ex: Carrefour"
+                    value={manualEnseigne}
+                    onChange={(e) => setManualEnseigne(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="et-manual-date">Date</Label>
+                  <Input
+                    id="et-manual-date"
+                    type="date"
+                    value={manualDate}
+                    onChange={(e) => setManualDate(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="et-manual-heure">Heure</Label>
+                  <Input
+                    id="et-manual-heure"
+                    type="time"
+                    value={manualHeure}
+                    onChange={(e) => setManualHeure(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="et-manual-total">Montant</Label>
+                  <Input
+                    id="et-manual-total"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ex: 26,70"
+                    value={manualTotal}
+                    onChange={(e) => setManualTotal(e.target.value)}
+                    className="bg-background"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="et-manual-devise">Devise</Label>
+                  <select
+                    id="et-manual-devise"
+                    value={manualDevise}
+                    onChange={(e) => setManualDevise(e.target.value)}
+                    className="w-full h-10 px-3 rounded-md border border-input bg-background text-foreground"
+                  >
+                    <option value="€">€ (EUR)</option>
+                    <option value="$">$ (USD)</option>
+                    <option value="£">£ (GBP)</option>
+                    <option value="CHF">CHF</option>
+                  </select>
+                </div>
+              </div>
+              <Button onClick={handleManualSubmit} className="w-full sm:w-auto gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                Utiliser ces données
+              </Button>
+            </Card>
+          ) : mode === 'scan' ? (
+            <div className="space-y-4">
+              {isOpen && (
+                <TesseractTest
+                  key={`scanner-${participantId}-${eventId}`}
+                  onDataExtracted={handleDataExtracted}
+                  autoOpenCamera={true}
+                />
+              )}
+            </div>
+          ) : null}
 
           {/* Données extraites */}
           {extractedData && (

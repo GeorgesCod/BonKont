@@ -303,13 +303,20 @@ Lien : ${shareUrl}
         <div className="mt-6 space-y-2">
           <h4 className="font-medium">Participants</h4>
           <div className="grid grid-cols-2 gap-2">
-            {event.participants.map((participant) => (
+            {event.participants.map((participant) => {
+              const isOrganizerParticipant = event.organizerId && ((participant.email || '').toLowerCase().trim() === (event.organizerId || '').toLowerCase().trim() || String(participant.id) === String(event.organizerId));
+              return (
               <div
                 key={participant.id}
                 className="flex items-center justify-between p-2 rounded-lg neon-border"
               >
                 <div>
-                  <p className="font-medium">{participant.name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium">{participant.name}</p>
+                    {isOrganizerParticipant && (
+                      <Badge variant="secondary" className="text-xs font-medium text-primary border-primary/50">Organisateur</Badge>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">{participant.email}</p>
                 </div>
                 {participant.hasConfirmed ? (
@@ -324,7 +331,8 @@ Lien : ${shareUrl}
                   </Badge>
                 )}
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       </Card>

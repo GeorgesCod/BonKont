@@ -42,6 +42,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { POT_ID } from '@/utils/bonkontBalances';
 
 export function TransactionManagement({ eventId, onBack }) {
   console.log('[TransactionManagement] Component mounted:', { eventId });
@@ -78,6 +81,8 @@ export function TransactionManagement({ eventId, onBack }) {
 
   const [scanMode, setScanMode] = useState('manual'); // 'manual' | 'scan'
   const [scanResult, setScanResult] = useState(null);
+  // Saisie manuelle : dépense/achat vs contribution à la cagnotte espèces
+  const [manualEntryKind, setManualEntryKind] = useState('expense'); // 'expense' | 'contribution'
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState(null);
@@ -93,6 +98,7 @@ export function TransactionManagement({ eventId, onBack }) {
         console.log('[TransactionManagement] Found scanned data from EventDashboard:', parsed);
 
         setScannedData(parsed);
+        setManualEntryKind(parsed.transactionKind === 'contribution' ? 'contribution' : 'expense');
 
         setFormData({
           store: parsed.store || '',
@@ -139,10 +145,39 @@ export function TransactionManagement({ eventId, onBack }) {
     transactionsCount: transactions.length,
   });
 
-   const participants = (Array.isArray(event.participants) ? event.participants : []).map((p) => ({
-  ...p,
-  id: String(p.id),
-}));
+  const participants = (Array.isArray(event.participants) ? event.participants : []).map((p) => ({
+    ...p,
+    id: String(p.id),
+  }));
+
+  const currentParticipantId = (() => {
+    try {
+      const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+      if (!userData) return null;
+      const user = JSON.parse(userData);
+      const email = (user?.email || '').toLowerCase();
+      const id = user?.id;
+      const match = participants.find(
+        (p) => (p.email || '').toLowerCase() === email || String(p.id) === String(id)
+      );
+      return match ? String(match.id) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const isOrganizer = (() => {
+    try {
+      const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+      if (!userData || !event?.organizerId) return false;
+      const user = JSON.parse(userData);
+      const email = (user?.email || '').toLowerCase().trim();
+      const orgId = String(event.organizerId || '').toLowerCase().trim();
+      return orgId && (email === orgId || String(user?.id) === orgId);
+    } catch {
+      return false;
+    }
+  })();
 
   const handleAddTransaction = () => {
     console.log('[TransactionManagement] Opening add transaction form');
@@ -160,6 +195,32 @@ export function TransactionManagement({ eventId, onBack }) {
       currency: 'EUR',
       participants: [],
     });
+  };
+
+  const handleToggleValidation = (e, transaction, participantId, participantName, validatedForSomeoneElse = false) => {
+    e.stopPropagation();
+    const validatedBy = transaction.validatedBy || [];
+    const idStr = String(participantId);
+    const hasValidated = validatedBy.map(String).includes(idStr);
+    const newValidatedBy = hasValidated
+      ? validatedBy.filter((id) => String(id) !== idStr)
+      : [...validatedBy.map(String), idStr];
+    updateTransaction(transaction.id, { validatedBy: newValidatedBy });
+    if (validatedForSomeoneElse) {
+      toast({
+        title: hasValidated ? 'Validation retirée' : '✅ Je valide (organisateur)',
+        description: hasValidated
+          ? `Validation retirée pour ${participantName}.`
+          : `Validation enregistrée pour ${participantName}. Rappel : « Tu n'as pas validé cette transaction. Je valide. »`,
+      });
+    } else {
+      toast({
+        title: hasValidated ? 'Validation retirée' : '✅ Je valide',
+        description: hasValidated
+          ? 'Vous avez retiré votre validation.'
+          : 'Votre validation a été enregistrée (règle BONKONT).',
+      });
+    }
   };
 
   const handleEditTransaction = (transaction) => {
@@ -221,23 +282,24 @@ export function TransactionManagement({ eventId, onBack }) {
 
   const asString = (v) => String(v ?? '');
 
-  const canSaveScanned =
-    !scannedData ||
-    (scannedData &&
-      selectedPayerId &&
-      validations.size >= Math.max(0, participants.length - 1)); // tous les autres ont validé
+  // Enregistrement possible : flux scanné/contribution → payeur/contributeur + validation collective ; sinon → dépense manuelle (store, montant, participants)
+  const isContributionFlow =
+    manualEntryKind === 'contribution' || (scannedData && scannedData.transactionKind === 'contribution');
+  const needsCollectiveValidationToSave = scannedData || isContributionFlow;
+  const canSaveScanned = needsCollectiveValidationToSave
+    ? selectedPayerId &&
+      formData.amount &&
+      parseFloat(formData.amount) > 0 &&
+      validations.size >= Math.max(0, participants.length - 1)
+    : formData.store?.trim() &&
+      formData.amount &&
+      parseFloat(formData.amount) > 0 &&
+      formData.participants.length > 0;
 
   const handleSaveTransaction = () => {
     console.log('[TransactionManagement] Saving transaction:', formData);
 
-    if (!formData.store || !formData.store.trim()) {
-      toast({
-        variant: 'destructive',
-        title: '⚠️ Champ requis',
-        description: "Veuillez remplir le nom de l'enseigne ou du magasin pour continuer.",
-      });
-      return;
-    }
+    const isContribution = manualEntryKind === 'contribution' || (scannedData && scannedData.transactionKind === 'contribution');
 
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
       toast({
@@ -248,48 +310,73 @@ export function TransactionManagement({ eventId, onBack }) {
       return;
     }
 
-    if (formData.participants.length === 0) {
+    if (isContribution) {
+      if (!selectedPayerId) {
+        toast({
+          variant: 'destructive',
+          title: '⚠️ Champ requis',
+          description: 'Veuillez sélectionner qui verse dans la cagnotte.',
+        });
+        return;
+      }
+    } else {
+      if (!formData.store || !formData.store.trim()) {
+        toast({
+          variant: 'destructive',
+          title: '⚠️ Champ requis',
+          description: "Veuillez remplir le nom de l'enseigne ou du magasin pour continuer.",
+        });
+        return;
+      }
+      if (formData.participants.length === 0) {
+        toast({
+          variant: 'destructive',
+          title: '⚠️ Participants requis',
+          description: 'Veuillez sélectionner au moins un participant concerné par cette transaction.',
+        });
+        return;
+      }
+    }
+
+    // Règle BONKONT : validation collective (dépense scannée ou contribution au pot)
+    const needsCollectiveValidation = (scannedData && selectedPayerId) || (isContribution && selectedPayerId);
+    if (needsCollectiveValidation && participants.length > 1 && validations.size < participants.length - 1) {
       toast({
         variant: 'destructive',
-        title: '⚠️ Participants requis',
-        description: 'Veuillez sélectionner au moins un participant concerné par cette transaction.',
+        title: '⚠️ Validation collective incomplète',
+        description: isContribution
+          ? `Chacun doit valider la contribution au pot (${validations.size}/${participants.length - 1}).`
+          : `Tous les autres participants doivent valider (${validations.size}/${participants.length - 1}).`,
       });
       return;
     }
 
-    if (scannedData) {
-      if (!selectedPayerId) {
-        toast({
-          variant: 'destructive',
-          title: '⚠️ Payeur requis',
-          description: 'Veuillez sélectionner le participant qui a payé.',
-        });
-        return;
-      }
-
-      if (validations.size < participants.length - 1) {
-        toast({
-          variant: 'destructive',
-          title: '⚠️ Validation incomplète',
-          description: `Tous les autres participants doivent valider (${validations.size}/${participants.length - 1}).`,
-        });
-        return;
-      }
-    }
-
     const transactionData = {
-      store: formData.store.trim(),
+      store: isContribution ? (formData.store.trim() || 'Contribution espèces') : formData.store.trim(),
       date: new Date(formData.date),
       time: formData.time,
       amount: parseFloat(formData.amount),
       currency: formData.currency,
-      participants: formData.participants,
+      participants: isContribution ? [] : formData.participants,
     };
-    
-    // Pour les transactions scannées avec selectedPayerId, ajouter le payeur
-    if (scannedData && selectedPayerId) {
+
+    // RÈGLE BONKONT : validatedBy détermine qui est concerné (validation collective)
+    if (editingTransaction) {
+      transactionData.validatedBy = editingTransaction.validatedBy ?? formData.participants;
+      if (editingTransaction.payerId != null) transactionData.payerId = editingTransaction.payerId;
+      if (editingTransaction.source != null) transactionData.source = editingTransaction.source;
+    } else if (isContribution) {
+      transactionData.type = 'CONTRIBUTION';
+      transactionData.source = 'manual';
+      transactionData.fromId = selectedPayerId;
+      transactionData.toId = POT_ID;
+      transactionData.validatedBy = [selectedPayerId, ...Array.from(validations)];
+    } else if (scannedData && selectedPayerId) {
       transactionData.payerId = selectedPayerId;
       transactionData.source = 'scanned_ticket';
+      transactionData.validatedBy = [selectedPayerId, ...Array.from(validations)];
+    } else if (formData.participants.length > 0) {
+      transactionData.validatedBy = formData.participants;
     }
 
     const participantNames = formData.participants
@@ -309,8 +396,9 @@ export function TransactionManagement({ eventId, onBack }) {
     } else {
       addTransaction(eventId, transactionData);
 
-      // si scanné : créditer payeur + update event
-      if (scannedData && selectedPayerId) {
+      // si scanné ou contribution cagnotte : créditer payeur/contributeur + update event
+      const shouldCreditPayer = (scannedData && selectedPayerId) || (isContribution && selectedPayerId);
+      if (shouldCreditPayer) {
         const payer = participants.find((p) => p.id === selectedPayerId);
         if (payer) {
           const totalDue = event.amount / Math.max(1, participants.length);
@@ -322,7 +410,7 @@ export function TransactionManagement({ eventId, onBack }) {
             hasPaid: isFullyPaid,
             paidAmount: newPaidAmount,
             paidDate: new Date(),
-            paymentMethod: 'scanned_ticket',
+            paymentMethod: isContribution ? 'manual' : 'scanned_ticket',
           });
 
           const currentTotalPaid = event.totalPaid || 0;
@@ -337,19 +425,23 @@ export function TransactionManagement({ eventId, onBack }) {
         }
       }
 
-      const participantCount = formData.participants.length;
+      const participantCount = isContribution ? 0 : formData.participants.length;
       const participantText =
         participantCount === 1 ? participantNames : `${participantCount} participants (${participantNames})`;
 
       toast({
         title: '✅ Transaction enregistrée avec succès',
-        description: scannedData
-          ? `Transaction "${transactionData.store}" de ${transactionData.amount.toFixed(
+        description: isContribution
+          ? `Contribution "${transactionData.store}" de ${transactionData.amount.toFixed(
               2
             )}${getCurrencySymbol(transactionData.currency)} enregistrée.`
-          : `Transaction "${transactionData.store}" de ${transactionData.amount.toFixed(
-              2
-            )}${getCurrencySymbol(transactionData.currency)} enregistrée pour ${participantText}.`,
+          : scannedData
+            ? `Transaction "${transactionData.store}" de ${transactionData.amount.toFixed(
+                2
+              )}${getCurrencySymbol(transactionData.currency)} enregistrée.`
+            : `Transaction "${transactionData.store}" de ${transactionData.amount.toFixed(
+                2
+              )}${getCurrencySymbol(transactionData.currency)} enregistrée pour ${participantText}.`,
       });
     }
 
@@ -360,6 +452,7 @@ export function TransactionManagement({ eventId, onBack }) {
     setScanResult(null);
     setScannedData(null);
     setSelectedPayerId('');
+    setManualEntryKind('expense');
     setValidations(new Set());
     setFormData({
       store: '',
@@ -399,6 +492,7 @@ export function TransactionManagement({ eventId, onBack }) {
     setScanResult(null);
     setScannedData(null);
     setSelectedPayerId('');
+    setManualEntryKind('expense');
     setValidations(new Set());
     setFormData({
       store: '',
@@ -510,6 +604,74 @@ export function TransactionManagement({ eventId, onBack }) {
                             {participant.name}
                           </Badge>
                         ) : null;
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {(transaction.payerId || transaction.type === 'CONTRIBUTION' || transaction.fromId) && participants.length > 0 && (
+                  <div
+                    className="mt-4 pt-4 border-t border-border rounded-lg border border-amber-500/30 bg-amber-500/5 p-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-2">
+                      ✍️ Règle BONKONT : chaque participant valide
+                    </p>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Chaque transaction (contribution ou dépense) doit être validée par chaque participant pour éviter tout malentendu. L’organisateur peut valider à la place d’un participant retardataire après rappel.
+                    </p>
+                    <p className="text-xs text-muted-foreground mb-3 p-2 rounded bg-muted/50 border border-border/50">
+                      {transaction.type === 'CONTRIBUTION' || transaction.fromId ? (
+                        <><strong>Contribution au pot</strong> = quote-part théorique (plafond contributif à ne pas dépasser, pas obligatoire). Elle devient réelle si le participant verse effectivement (en partie ou en total). La règle BONKONT s’applique pour rester équitable. Je valide = je valide cette contribution.</>
+                      ) : (
+                        <><strong>Dépense :</strong> Je valide = je suis concerné, je consomme ma part. Je ne valide pas = je ne suis pas concerné, je ne consomme pas.</>
+                      )}
+                    </p>
+                    <div className="space-y-2">
+                      {participants.map((p) => {
+                        const validatedBy = transaction.validatedBy || [];
+                        const hasValidated = validatedBy.map(String).includes(String(p.id));
+                        const isCurrentUser = currentParticipantId && String(p.id) === String(currentParticipantId);
+                        const canToggle = isCurrentUser || isOrganizer;
+                        const validatedForSomeoneElse = isOrganizer && !isCurrentUser;
+                        const participantName = p.name || p.email || `Participant`;
+                        const isOrganizerParticipant = event?.organizerId && ((p.email || '').toLowerCase().trim() === (event.organizerId || '').toLowerCase().trim() || String(p.id) === String(event.organizerId));
+                        return (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between p-2 rounded border border-border bg-background/50 gap-3"
+                          >
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium">{participantName}</span>
+                              {isOrganizerParticipant && (
+                                <Badge variant="secondary" className="text-xs font-medium text-primary border-primary/50">Organisateur</Badge>
+                              )}
+                            </div>
+                            <label
+                              className={`flex items-center gap-2 select-none text-sm ${
+                                canToggle ? 'cursor-pointer' : 'cursor-default'
+                              } ${hasValidated ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}
+                              onClick={(e) => e.stopPropagation()}
+                              title={validatedForSomeoneElse && !hasValidated ? 'Tu n\'as pas validé cette transaction. Je valide (organisateur)' : undefined}
+                            >
+                              <Checkbox
+                                checked={!!hasValidated}
+                                disabled={!canToggle}
+                                onCheckedChange={() => {
+                                  if (canToggle) handleToggleValidation({ stopPropagation: () => {} }, transaction, p.id, participantName, validatedForSomeoneElse);
+                                }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
+                                className="border-amber-500/50 data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600"
+                              />
+                              <span>
+                                {hasValidated
+                                  ? (validatedForSomeoneElse ? 'Validé (organisateur)' : 'Validé')
+                                  : (validatedForSomeoneElse ? 'Tu n\'as pas validé. Je valide' : 'Je valide')}
+                              </span>
+                            </label>
+                          </div>
+                        );
                       })}
                     </div>
                   </div>
@@ -695,13 +857,48 @@ export function TransactionManagement({ eventId, onBack }) {
 
             {/* MANUAL */}
             <TabsContent value="manual" className="space-y-4">
+              {!scannedData && (
+                <div className="space-y-3 p-4 rounded-lg border border-border bg-muted/30">
+                  <Label>Type de saisie</Label>
+                  <RadioGroup
+                    value={manualEntryKind}
+                    onValueChange={setManualEntryKind}
+                    className="flex flex-col sm:flex-row gap-3"
+                  >
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <RadioGroupItem value="expense" />
+                      <span className="text-sm">Dépense / achat (répartir entre participants)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <RadioGroupItem value="contribution" />
+                      <span className="text-sm">Contribution à la cagnotte (espèces)</span>
+                    </label>
+                  </RadioGroup>
+                  {manualEntryKind === 'contribution' && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Quote-part théorique (plafond contributif à ne pas dépasser, pas obligatoire). Elle devient réelle si le participant verse effectivement (en partie ou en total). La règle BONKONT s’applique pour rester équitable. Chaque participant devra valider.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {scannedData && scannedData.transactionKind === 'contribution' && (
+                <p className="text-sm text-muted-foreground p-2 rounded bg-primary/10 border border-primary/30">
+                  Contribution au pot (quote-part théorique, plafond contributif). Choisissez qui verse ci-dessous. Chaque participant devra valider (règle BONKONT). L’organisateur peut valider à la place d’un retardataire après rappel.
+                </p>
+              )}
+
               <div>
-                <Label htmlFor="store">Enseigne / Magasin</Label>
+                <Label htmlFor="store">
+                  {manualEntryKind === 'contribution' || (scannedData && scannedData.transactionKind === 'contribution')
+                    ? 'Libellé (optionnel)'
+                    : 'Enseigne / Magasin'}
+                </Label>
                 <Input
                   id="store"
                   value={formData.store}
                   onChange={(e) => setFormData({ ...formData, store: e.target.value })}
-                  placeholder="Nom de l'enseigne"
+                  placeholder={manualEntryKind === 'contribution' ? 'Ex: Espèces' : "Nom de l'enseigne"}
                   className="neon-border"
                 />
               </div>
@@ -764,11 +961,59 @@ export function TransactionManagement({ eventId, onBack }) {
                 </div>
               </div>
 
-              {/* ✅ Participants (CORRIGÉ : visible + scroll + prêt à valider) */}
+              {/* ✅ Participants ou contributeur */}
               <div className="space-y-2">
-                <Label>{scannedData ? 'Participant payeur (un seul)' : 'Participants concernés'}</Label>
+                <Label>
+                  {manualEntryKind === 'contribution' || (scannedData && scannedData.transactionKind === 'contribution')
+                    ? 'Qui verse dans la cagnotte ?'
+                    : scannedData
+                      ? 'Participant payeur (un seul)'
+                      : 'Participants concernés'}
+                </Label>
 
-                {scannedData ? (
+                {manualEntryKind === 'contribution' || (scannedData && scannedData.transactionKind === 'contribution') ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Sélectionnez le participant qui met de l'argent dans la cagnotte (espèces).
+                    </p>
+                    <Select
+                      value={asString(selectedPayerId)}
+                      onValueChange={(value) => {
+                        setSelectedPayerId(value);
+                        setFormData((prev) => ({ ...prev, participants: [] }));
+                      }}
+                    >
+                      <SelectTrigger className="neon-border">
+                        <SelectValue placeholder="-- Qui verse ? --" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-popover text-popover-foreground border border-border z-[9999]">
+                        <ScrollArea className="h-56">
+                          {participants.length === 0 ? (
+                            <div className="p-3 text-sm text-muted-foreground">Aucun participant</div>
+                          ) : (
+                            participants.map((p, idx) => {
+                              const label =
+                                p.name?.trim() ||
+                                `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim() ||
+                                p.email?.trim() ||
+                                `Participant ${idx + 1}`;
+                              return (
+                                <SelectItem key={asString(p.id)} value={asString(p.id)} className="cursor-pointer">
+                                  {label} {p.email ? `(${p.email})` : ''}
+                                </SelectItem>
+                              );
+                            })
+                          )}
+                        </ScrollArea>
+                      </SelectContent>
+                    </Select>
+                    {selectedPayerId ? (
+                      <div className="text-xs text-green-500 font-semibold">✅ Contributeur sélectionné</div>
+                    ) : (
+                      <div className="text-xs text-yellow-500">⚠️ Choisissez qui verse pour enregistrer</div>
+                    )}
+                  </>
+                ) : scannedData ? (
                   <>
                     <p className="text-xs text-muted-foreground">
                       Sélectionnez le participant qui a payé (liste scrollable).
@@ -853,20 +1098,31 @@ export function TransactionManagement({ eventId, onBack }) {
                 )}
               </div>
 
-              {/* Validation tiers pour ticket scanné */}
-              {scannedData && selectedPayerId && formData.amount && participants.length > 1 && (
+              {/* Validation collective (règle BONKONT) : ticket scanné ou contribution au pot */}
+              {(scannedData || manualEntryKind === 'contribution' || scannedData?.transactionKind === 'contribution') &&
+                selectedPayerId &&
+                formData.amount &&
+                participants.length > 1 && (
                 <div className="p-4 rounded-lg border border-yellow-500/50 bg-yellow-500/5">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <Users className="w-4 h-4 text-yellow-500" />
                       <Label className="text-sm font-medium">
-                        Validation par les autres participants ({validations.size}/{participants.length - 1})
+                        Chaque participant valide ({validations.size}/{participants.length - 1} autres + le payeur/contributeur)
                       </Label>
                     </div>
                     <span className="text-xs text-muted-foreground">
                       {Math.round((validations.size / (participants.length - 1)) * 100)}%
                     </span>
                   </div>
+                  <p className="text-xs text-muted-foreground mb-3 p-2 rounded bg-muted/50">
+                    <strong>Règle BONKONT :</strong> Chaque transaction (contribution ou dépense) doit être validée par <strong>chaque participant</strong> pour éviter tout malentendu. L’organisateur peut valider à la place d’un participant retardataire après rappel (« Tu n’as pas validé cette transaction. Je valide »).
+                    {(manualEntryKind === 'contribution' || scannedData?.transactionKind === 'contribution') ? (
+                      <> La contribution = quote-part théorique (plafond contributif à ne pas dépasser, pas obligatoire). Elle devient réelle si le participant verse effectivement (en partie ou en total). Je valide = je valide cette contribution au pot.</>
+                    ) : (
+                      <> Je valide = je suis concerné, je consomme ma part. Je ne valide pas = je ne suis pas concerné, je ne consomme pas.</>
+                    )}
+                  </p>
 
                   <div className="space-y-2">
                     {participants
@@ -921,7 +1177,9 @@ export function TransactionManagement({ eventId, onBack }) {
                   {validations.size === participants.length - 1 && (
                     <div className="mt-3 p-2 rounded bg-green-500/10 border border-green-500/50">
                       <p className="text-sm text-green-500 font-medium">
-                        ✅ Tous les participants ont validé. Vous pouvez enregistrer la transaction.
+                        {(manualEntryKind === 'contribution' || scannedData?.transactionKind === 'contribution')
+                          ? '✅ Tous ont validé la contribution au pot. Vous pouvez enregistrer.'
+                          : '✅ Tous les participants ont validé. Vous pouvez enregistrer la transaction.'}
                       </p>
                     </div>
                   )}
@@ -938,7 +1196,13 @@ export function TransactionManagement({ eventId, onBack }) {
                   onClick={handleSaveTransaction}
                   className="gap-2 flex-1 button-glow"
                   disabled={!canSaveScanned}
-                  title={!canSaveScanned ? 'Payeur + validations requis avant enregistrement' : 'Enregistrer'}
+                  title={
+                    !canSaveScanned
+                      ? needsCollectiveValidationToSave
+                        ? 'Qui verse + validation collective (règle BONKONT) requis'
+                        : 'Enseigne, montant et participants requis'
+                      : 'Enregistrer'
+                  }
                 >
                   <Save className="w-4 h-4" />
                   Enregistrer
@@ -1027,25 +1291,39 @@ export function TransactionManagement({ eventId, onBack }) {
                     <div className={`font-bold ${balance < 0 ? 'text-red-500' : 'text-green-500'}`}>
                       {balance >= 0 ? `+${balance.toFixed(2)}€` : `-${Math.abs(balance).toFixed(2)}€`}
                     </div>
+                    {/* Bouton "Envoyer un rappel" du RÉCAPITULATIF DES PAIEMENTS (pas celui du tableau de bord) */}
                     {!hasPaid && (
-                       <Button
-  variant="outline"
-  size="sm"
-  className="mt-1 text-xs"
-  onClick={async () => {
-    const message = `Rappel BONKONT – ${event.title}\n${participant.name}, merci de vérifier ton solde.`;
-
-    await navigator.clipboard.writeText(message);
-
-    toast({
-      title: '📋 Message copié',
-      description: `Rappel copié pour ${participant.name}.`,
-    });
-  }}
->
-  Envoyer un rappel
-</Button>
-
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-1 text-xs min-h-[44px] sm:min-h-[32px]"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const message = `Rappel BONKONT – ${event.title}\n${participant.name}, merci de vérifier ton solde.`;
+                          try {
+                            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                              await navigator.clipboard.writeText(message);
+                              toast({
+                                title: '📋 Message copié',
+                                description: `Rappel copié pour ${participant.name}. Collez-le dans WhatsApp ou un message.`,
+                              });
+                            } else {
+                              throw new Error('Clipboard non disponible');
+                            }
+                          } catch (_err) {
+                            toast({
+                              title: 'Rappel (copiez le texte ci-dessous)',
+                              description: message,
+                              variant: 'default',
+                              duration: 10000,
+                            });
+                          }
+                        }}
+                      >
+                        Envoyer un rappel
+                      </Button>
                     )}
                   </div>
                 </div>

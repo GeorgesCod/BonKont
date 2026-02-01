@@ -4,12 +4,16 @@
 
 Ce projet contient plusieurs scripts pour automatiser le processus `git commit` + `git push` en une seule commande.
 
+**Intégration déploiement** : ce workflow est intégré au [Guide de Déploiement (DEPLOYMENT_GUIDE.md)](./DEPLOYMENT_GUIDE.md). Avant chaque déploiement, utilisez `npm run git:cp "message"` pour committer et pousser vos modifications.
+
 ## 🎯 Méthode recommandée (la plus simple)
 
 ### Via npm (fonctionne partout)
 
 ```bash
 npm run git:cp "Votre message de commit"
+# ou
+npm run git "Votre message de commit"
 ```
 
 **Exemple:**
@@ -31,9 +35,13 @@ npm run git:cp "Ajout de l'animation sur le bouton scanner CB"
 ./scripts/git-commit-push.sh "Votre message de commit"
 ```
 
-### 3. Node.js direct
+### 3. Node.js direct (ou via npm)
 
 ```bash
+npm run git "Votre message de commit"
+npm run git:cp "Votre message de commit"
+npm run git:commit-push "Votre message de commit"
+# ou
 node scripts/git-commit-push.js "Votre message de commit"
 ```
 
