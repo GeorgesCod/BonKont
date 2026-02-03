@@ -331,6 +331,12 @@ export function EventJoin({ onAuthRequired }) {
     const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
     console.log('[EventJoin] Checking code:', { original: code, cleaned: cleanCode, length: cleanCode.length });
     
+    // Ne jamais appeler l'API avec un code incomplet (8 lettres requises) : évite "code sectionné" / code trop court
+    if (cleanCode.length < 8) {
+      console.log('[EventJoin] Code incomplet (< 8 lettres), pas d’appel API');
+      return;
+    }
+    
     // Vérifier d'abord dans les événements locaux (pour les organisateurs)
     if (events.length > 0) {
       console.log('[EventJoin] Checking local events first...');

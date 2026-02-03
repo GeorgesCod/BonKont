@@ -76,7 +76,7 @@ export function EventDashboard({ onShowHistory, onBack }) {
   const deleteEvent = useEventStore((state) => state.deleteEvent);
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   
-  // Synchroniser le tableau de bord : uniquement les événements de l'utilisateur connecté (organisateur)
+  // Synchroniser le tableau de bord : événements où l'utilisateur est organisateur + conserver ceux où il est participant accepté
   useEffect(() => {
     const syncEventsFromFirestore = async () => {
       const userData = localStorage.getItem('bonkont-user');
@@ -87,23 +87,92 @@ export function EventDashboard({ onShowHistory, onBack }) {
       
       try {
         const user = JSON.parse(userData);
-        const organizerId = user.email || null;
-        if (!organizerId) {
+        const organizerId = (user.email || '').trim() || null;
+        const currentUserId = (user.email || user.id || '').trim().toLowerCase();
+        if (!currentUserId) {
           console.log('[EventDashboard] ⚠️ No organizerId found, skipping sync');
           return;
         }
         
+        // Lire le store EN PREMIER (après un délai pour la réhydratation persist), avant tout appel à la base :
+        // sinon au retour / rechargement la base renvoie seulement les événements organisateur et on "aspire" l'événement invité
+        await new Promise((r) => setTimeout(r, 350));
+        const currentEvents = useEventStore.getState().events;
+        
         const { getEventsByOrganizer } = await import('@/services/api');
         const firestoreEvents = await getEventsByOrganizer(organizerId);
-        // Remplacer le store par les événements de cet utilisateur uniquement (pas de mélange avec d'autres comptes)
-        setEvents(firestoreEvents);
-        console.log('[EventDashboard] ✅ Sync: store contains', firestoreEvents.length, 'events for current user');
+        
+        const normalizeCode = (code) =>
+          (code || '').toString().toUpperCase().replace(/[^A-Z]/g, '');
+        
+        // Participant accepté : dans la liste ET (status confirmed ou approved true)
+        const isConfirmedParticipantOnly = (event) => {
+          const isOrg =
+            event.organizerId &&
+            (event.organizerId || '').toLowerCase().trim() === currentUserId;
+          if (isOrg) return false;
+          const participant = event.participants?.find(
+            (p) =>
+              (p.email?.toLowerCase() === currentUserId ||
+                p.userId?.toLowerCase() === currentUserId)
+          );
+          if (!participant) return false;
+          const confirmed =
+            participant.status === 'confirmed' ||
+            participant.status === 'approved' ||
+            participant.approved === true;
+          return !!confirmed;
+        };
+        
+        const participantOnlyEvents = currentEvents.filter(
+          isConfirmedParticipantOnly
+        );
+        const sameEvent = (a, b) =>
+          String(a?.id) === String(b?.id) ||
+          String(a?.firestoreId) === String(b?.firestoreId) ||
+          (normalizeCode(a?.code) === normalizeCode(b?.code) &&
+            (a?.organizerId || '').toLowerCase().trim() ===
+              (b?.organizerId || '').toLowerCase().trim());
+        
+        // Événements en base = uniquement organisateur. Tout ce qui est en local et pas dans cette liste
+        // (ex. événement invité) doit rester : ne jamais les faire disparaître au sync / changement de page.
+        const notInFirestore = (ev) => !firestoreEvents.some((fe) => sameEvent(fe, ev));
+        const toKeepFromCurrent = currentEvents.filter(notInFirestore);
+        
+        // Participant sans événement organisateur : ne voir QUE ses événements (où il est participant accepté)
+        // Organisateur ou mixte : base (organisateur) + tout le local qui n’est pas en base (dont invité)
+        const merged =
+          firestoreEvents.length === 0 && currentEvents.length > 0
+            ? (participantOnlyEvents.length > 0 ? participantOnlyEvents : currentEvents)
+            : [...firestoreEvents, ...toKeepFromCurrent];
+
+        // Ne jamais écraser le store par une liste vide quand l'utilisateur n'a pas d'événements organisateur
+        // (participant invité : éviter que la sync "chasse" l'événement à cause d'un timing / réhydratation)
+        if (firestoreEvents.length === 0 && merged.length === 0) {
+          console.log('[EventDashboard] ⏭️ Skip sync: participant sans événement organisateur et store vide – on ne touche pas au store');
+          return;
+        }
+        // Store lu vide (réhydratation pas faite) : ne pas remplacer par seulement organisateur → l'invité disparaîtrait
+        if (currentEvents.length === 0 && firestoreEvents.length > 0) {
+          console.log('[EventDashboard] ⏭️ Skip sync: store lu vide (réhydratation?) – on ne remplace pas');
+          return;
+        }
+        // Éviter de faire perdre des événements locaux (ex. invité) : si on a plus d'events en local qu'en base, ne pas écraser
+        if (toKeepFromCurrent.length === 0 && currentEvents.length > firestoreEvents.length) {
+          console.log('[EventDashboard] ⏭️ Skip sync: risque de perdre l’invité – on ne touche pas au store');
+          return;
+        }
+        setEvents(merged);
+        console.log('[EventDashboard] ✅ Sync: store contains', merged.length, 'events (organizer:', firestoreEvents.length, ', conservés du local:', toKeepFromCurrent.length, ')');
       } catch (error) {
         console.error('[EventDashboard] ❌ Error syncing events from Firestore:', error);
       }
     };
     
     syncEventsFromFirestore();
+    // Repasser après un délai pour rattraper les événements si le store n'était pas encore réhydraté (persist) au premier passage
+    const t = setTimeout(() => syncEventsFromFirestore(), 800);
+    return () => clearTimeout(t);
   }, [setEvents]);
 
   // Fonction pour vérifier si l'utilisateur est l'organisateur d'un événement
@@ -139,7 +208,7 @@ export function EventDashboard({ onShowHistory, onBack }) {
       const participant = event.participants?.find(
         p => (p.email?.toLowerCase() === currentUserId || p.userId?.toLowerCase() === currentUserId)
       );
-      return !!(participant && (participant.status === 'confirmed' || participant.approved === true));
+      return !!(participant && (participant.status === 'confirmed' || participant.status === 'approved' || participant.approved === true));
     } catch {
       return false;
     }
