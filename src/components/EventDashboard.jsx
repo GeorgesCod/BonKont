@@ -42,6 +42,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Plus, Lock, Mail, MessageSquare, Send, Scan, X } from 'lucide-react';
 import { EventDashboardScanner } from '@/components/EventDashboardScanner';
+import { updateParticipantInFirestore, updateEventInFirestore } from '@/services/api';
 
 export function EventDashboard({ onShowHistory, onBack }) {
   const { toast } = useToast();
@@ -78,8 +79,8 @@ export function EventDashboard({ onShowHistory, onBack }) {
   
   // Synchroniser le tableau de bord : événements où l'utilisateur est organisateur + conserver ceux où il est participant accepté
   useEffect(() => {
-    const syncEventsFromFirestore = async () => {
-      const userData = localStorage.getItem('bonkont-user');
+    const syncEventsFromFirestore = async (isRetry = false) => {
+      const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
       if (!userData) {
         console.log('[EventDashboard] ⚠️ No user data found, skipping sync');
         return;
@@ -87,7 +88,8 @@ export function EventDashboard({ onShowHistory, onBack }) {
       
       try {
         const user = JSON.parse(userData);
-        const organizerId = (user.email || '').trim() || null;
+        // Normaliser pour requêtes Firestore (where == sensible à la casse)
+        const organizerId = ((user.email || '').trim().toLowerCase()) || null;
         const currentUserId = (user.email || user.id || '').trim().toLowerCase();
         if (!currentUserId) {
           console.log('[EventDashboard] ⚠️ No organizerId found, skipping sync');
@@ -96,11 +98,41 @@ export function EventDashboard({ onShowHistory, onBack }) {
         
         // Lire le store EN PREMIER (après un délai pour la réhydratation persist), avant tout appel à la base :
         // sinon au retour / rechargement la base renvoie seulement les événements organisateur et on "aspire" l'événement invité
-        await new Promise((r) => setTimeout(r, 350));
-        const currentEvents = useEventStore.getState().events;
+        if (!isRetry) {
+          await new Promise((r) => setTimeout(r, 350));
+        }
+        let currentEvents = useEventStore.getState().events;
         
-        const { getEventsByOrganizer } = await import('@/services/api');
-        const firestoreEvents = await getEventsByOrganizer(organizerId);
+        // Toujours rafraîchir les événements rejoints par code depuis le serveur (règle BonKont : données partagées)
+        try {
+          const raw = typeof window !== 'undefined' ? localStorage.getItem('bonkont-joined-codes') : null;
+          const joinedCodes = raw ? JSON.parse(raw) : [];
+          if (Array.isArray(joinedCodes) && joinedCodes.length > 0) {
+            const { findEventByCode } = await import('@/services/api');
+            const addEvent = useEventStore.getState().addEvent;
+            for (const code of joinedCodes) {
+              const norm = (code || '').toString().toUpperCase().replace(/[^A-Z]/g, '');
+              if (norm.length < 8) continue;
+              try {
+                const ev = await findEventByCode(norm);
+                if (!ev || !ev.participants?.length) continue;
+                const isConfirmed = ev.participants.some(
+                  (p) =>
+                    (p.email?.toLowerCase() === currentUserId || p.userId?.toLowerCase() === currentUserId) &&
+                    (p.status === 'confirmed' || p.status === 'approved' || p.approved === true)
+                );
+                if (isConfirmed) addEvent({ ...ev, firestoreId: ev.id });
+              } catch (_) {}
+            }
+            currentEvents = useEventStore.getState().events;
+          }
+        } catch (_) {}
+        
+        const { getEventsByOrganizer, getEventsByParticipant } = await import('@/services/api');
+        const [firestoreEvents, participantServerEvents] = await Promise.all([
+          getEventsByOrganizer(organizerId),
+          getEventsByParticipant(currentUserId),
+        ]);
         
         const normalizeCode = (code) =>
           (code || '').toString().toUpperCase().replace(/[^A-Z]/g, '');
@@ -124,9 +156,10 @@ export function EventDashboard({ onShowHistory, onBack }) {
           return !!confirmed;
         };
         
-        const participantOnlyEvents = currentEvents.filter(
-          isConfirmedParticipantOnly
-        );
+        const participantOnlyEvents = currentEvents.filter(isConfirmedParticipantOnly);
+
+        // Événements participant récupérés serveur (restitution après perte du cache local)
+        const participantServerConfirmed = (participantServerEvents || []).filter(isConfirmedParticipantOnly);
         const sameEvent = (a, b) =>
           String(a?.id) === String(b?.id) ||
           String(a?.firestoreId) === String(b?.firestoreId) ||
@@ -144,7 +177,7 @@ export function EventDashboard({ onShowHistory, onBack }) {
         const merged =
           firestoreEvents.length === 0 && currentEvents.length > 0
             ? (participantOnlyEvents.length > 0 ? participantOnlyEvents : currentEvents)
-            : [...firestoreEvents, ...toKeepFromCurrent];
+            : [...firestoreEvents, ...toKeepFromCurrent, ...participantServerConfirmed];
 
         // Ne jamais écraser le store par une liste vide quand l'utilisateur n'a pas d'événements organisateur
         // (participant invité : éviter que la sync "chasse" l'événement à cause d'un timing / réhydratation)
@@ -152,9 +185,10 @@ export function EventDashboard({ onShowHistory, onBack }) {
           console.log('[EventDashboard] ⏭️ Skip sync: participant sans événement organisateur et store vide – on ne touche pas au store');
           return;
         }
-        // Store lu vide (réhydratation pas faite) : ne pas remplacer par seulement organisateur → l'invité disparaîtrait
-        if (currentEvents.length === 0 && firestoreEvents.length > 0) {
-          console.log('[EventDashboard] ⏭️ Skip sync: store lu vide (réhydratation?) – on ne remplace pas');
+        // Store lu vide (réhydratation pas faite) : au premier passage on ne remplace pas pour ne pas écraser un invité pas encore réhydraté.
+        // Au second passage (isRetry), sur mobile le store peut rester vide longtemps → on accepte de remplir depuis Firestore.
+        if (currentEvents.length === 0 && firestoreEvents.length > 0 && !isRetry) {
+          console.log('[EventDashboard] ⏭️ Skip sync: store lu vide (réhydratation?) – on ne remplace pas (attente retry)');
           return;
         }
         // Éviter de faire perdre des événements locaux (ex. invité) : si on a plus d'events en local qu'en base, ne pas écraser
@@ -163,16 +197,29 @@ export function EventDashboard({ onShowHistory, onBack }) {
           return;
         }
         setEvents(merged);
-        console.log('[EventDashboard] ✅ Sync: store contains', merged.length, 'events (organizer:', firestoreEvents.length, ', conservés du local:', toKeepFromCurrent.length, ')');
+        if (import.meta.env.DEV) {
+          console.log('[EventDashboard] ✅ Sync: store contains', merged.length, 'events (organizer:', firestoreEvents.length, ', conservés du local:', toKeepFromCurrent.length, ')');
+        }
       } catch (error) {
         console.error('[EventDashboard] ❌ Error syncing events from Firestore:', error);
       }
     };
     
-    syncEventsFromFirestore();
-    // Repasser après un délai pour rattraper les événements si le store n'était pas encore réhydraté (persist) au premier passage
-    const t = setTimeout(() => syncEventsFromFirestore(), 800);
-    return () => clearTimeout(t);
+    syncEventsFromFirestore(false);
+    // Repasser après un délai pour rattraper les événements si le store n'était pas encore réhydraté (persist) au premier passage (mobile)
+    const t1 = setTimeout(() => syncEventsFromFirestore(true), 800);
+    const t2 = setTimeout(() => syncEventsFromFirestore(true), 1500);
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        syncEventsFromFirestore(true);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [setEvents]);
 
   // Fonction pour vérifier si l'utilisateur est l'organisateur d'un événement
@@ -256,47 +303,8 @@ export function EventDashboard({ onShowHistory, onBack }) {
       default:
         matches = true;
     }
-    
-    // Log pour déboguer le filtre
-    if (event.code === 'NZWFFHUM') {
-      console.log('[EventDashboard] 🔍 Filter check for NZWFFHUM:', {
-        code: event.code,
-        status: event.status,
-        activeTab,
-        matches,
-        id: event.id,
-        firestoreId: event.firestoreId
-      });
-    }
-    
     return matches;
   });
-  
-  // Log des événements filtrés
-  useEffect(() => {
-    console.log('[EventDashboard] 📊 Filtered events:', {
-      activeTab,
-      totalEvents: events.length,
-      filteredCount: filteredEvents.length,
-      filteredEvents: filteredEvents.map(e => ({ id: e.id, code: e.code, title: e.title, status: e.status }))
-    });
-    
-    // Vérifier spécifiquement l'événement NZWFFHUM
-    const nzwffhumEvent = events.find(e => e.code === 'NZWFFHUM' || e.code?.toUpperCase().replace(/[^A-Z]/g, '') === 'NZWFFHUM');
-    if (nzwffhumEvent) {
-      console.log('[EventDashboard] 🔍 NZWFFHUM event found in store:', {
-        id: nzwffhumEvent.id,
-        code: nzwffhumEvent.code,
-        title: nzwffhumEvent.title,
-        status: nzwffhumEvent.status,
-        isInFiltered: filteredEvents.some(e => e.id === nzwffhumEvent.id)
-      });
-    } else {
-      console.log('[EventDashboard] ⚠️ NZWFFHUM event NOT found in store');
-      console.log('[EventDashboard] 📊 All event codes in store:', events.map(e => e.code));
-    }
-  }, [events, filteredEvents, activeTab]);
-
 
   const handleSendReminder = (eventId) => {
     console.log('[EventDashboard] Opening reminder dialog for event:', eventId);
@@ -569,20 +577,24 @@ setPaymentMethod('card');
       return;
     }
 
-    // Mise à jour du participant
-    updateParticipant(selectedEvent, selectedParticipant, {
+    // Mise à jour du participant (store + Firestore)
+    const participantUpdates = {
       hasPaid: amount >= remainingDue - 0.01,
       paidAmount: alreadyPaid + amount,
       paidDate: new Date(),
       paymentMethod: paymentMethod
-    });
+    };
+    updateParticipant(selectedEvent, selectedParticipant, participantUpdates);
+    updateParticipantInFirestore(selectedEvent, selectedParticipant, participantUpdates);
 
-    // Mise à jour de l'événement
+    // Mise à jour de l'événement (store + Firestore pour restitution fidèle)
     const newTotalPaid = event.totalPaid + amount;
-    updateEvent(selectedEvent, {
+    const eventUpdates = {
       totalPaid: newTotalPaid,
       status: newTotalPaid >= event.amount - 0.01 ? 'completed' : 'active'
-    });
+    };
+    updateEvent(selectedEvent, eventUpdates);
+    updateEventInFirestore(selectedEvent, eventUpdates);
 
     console.log('[Payment] Payment successful:', {
       participant: participant.name,
@@ -641,17 +653,6 @@ setPaymentMethod('card');
     const days = Math.ceil(remaining / (1000 * 60 * 60 * 24));
     return days;
   };
-
-  console.log('[EventDashboard] ===== COMPONENT RENDERING =====');
-  console.log('[EventDashboard] State:', {
-    eventsCount: events.length,
-    filteredEventsCount: filteredEvents.length,
-    showScannerDialog,
-    scannerEventId,
-    activeTab,
-    selectedEvent,
-    selectedParticipant
-  });
 
   return (
     <div className="space-y-6" style={{ WebkitOverflowScrolling: 'touch' }}>

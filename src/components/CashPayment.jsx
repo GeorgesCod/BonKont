@@ -5,16 +5,16 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { useEventStore } from '@/store/eventStore';
-import { useTransactionsStore } from '@/store/transactionsStore';
+import { updateParticipantInFirestore, updateEventInFirestore, addTransactionToFirestore } from '@/services/api';
 import { AlertCircle, Check, Euro, Receipt, UserCheck, Users, Calculator, AlertTriangle } from 'lucide-react';
 
 
 export function CashPayment({ eventId, participantId, amount, onValidated }) {
   const { toast } = useToast();
-  const event = useEventStore((state) => state.events.find(e => e.id === eventId));
+  const event = useEventStore((state) => state.events.find(e => e.id === eventId || (e.firestoreId && String(e.firestoreId) === String(eventId))));
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   const updateEvent = useEventStore((state) => state.updateEvent);
-  const addTransaction = useTransactionsStore((state) => state.addTransaction);
+  const effectiveEventId = event?.firestoreId || event?.id;
   
   const [declaredAmount, setDeclaredAmount] = useState(amount.toString());
   const [validations, setValidations] = useState(new Set());
@@ -104,41 +104,44 @@ export function CashPayment({ eventId, participantId, amount, onValidated }) {
       totalValidators: otherParticipants.length
     };
     
-    console.log('[CashPayment] Creating payment transaction:', paymentTransaction);
-    addTransaction(eventId, paymentTransaction);
+    if (effectiveEventId) {
+      addTransactionToFirestore(effectiveEventId, paymentTransaction).catch((err) =>
+        console.error('[CashPayment] addTransactionToFirestore:', err)
+      );
+    }
 
-    // Mise à jour du participant qui paie
-    updateParticipant(eventId, participantId, {
+    // Mise à jour du participant qui paie (store + Firestore)
+    const payerUpdates = {
       hasPaid: isFullyPaid,
       paidAmount: alreadyPaid + paidAmount,
       paidDate: new Date(),
-      paymentPercentage
-    });
+    };
+    updateParticipant(eventId, participantId, { ...payerUpdates, paymentPercentage });
+    updateParticipantInFirestore(effectiveEventId || eventId, participantId, payerUpdates);
 
-    // Mise à jour des montants pour les autres participants
+    // Mise à jour des montants pour les autres participants (store + Firestore)
     event.participants
       .filter(p => !p.hasPaid && p.id !== participantId)
       .forEach(p => {
         const pTotalDue = event.amount / event.participants.length;
         const pAlreadyPaid = p.paidAmount || 0;
         const pAmountDue = Math.max(0, pTotalDue - pAlreadyPaid);
-        
-        updateParticipant(eventId, p.id, {
-          amountDue: pAmountDue
-        });
+        const otherUpdates = { amountDue: pAmountDue };
+        updateParticipant(eventId, p.id, otherUpdates);
+        updateParticipantInFirestore(effectiveEventId || eventId, p.id, otherUpdates);
       });
 
-    // Mise à jour du montant total restant de l'événement
+    // Mise à jour du montant total restant de l'événement (store + Firestore pour restitution fidèle)
     const currentTotalPaid = event.totalPaid || 0;
     const newTotalPaid = currentTotalPaid + paidAmount;
     const eventRemainingAmount = Math.max(0, event.amount - newTotalPaid);
-    
-    updateEvent(eventId, {
+    const eventUpdates = {
       totalPaid: newTotalPaid,
       remainingAmount: eventRemainingAmount,
-      lastPaymentPercentage: paymentPercentage,
       status: newTotalPaid >= event.amount - 0.01 ? 'completed' : 'active'
-    });
+    };
+    updateEvent(eventId, { ...eventUpdates, lastPaymentPercentage: paymentPercentage });
+    updateEventInFirestore(effectiveEventId || eventId, eventUpdates);
 
     console.log('[CashPayment] Payment processed successfully');
 

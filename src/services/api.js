@@ -10,6 +10,7 @@
 // Réexporter les fonctions depuis firestoreService pour compatibilité
 export {
   findEventByCode,
+  getEventById,
   createEvent,
   createJoinRequest,
   getJoinRequests,
@@ -19,5 +20,12 @@ export {
   getEventsByOrganizer,
   checkParticipantAccess,
   listenMyJoinRequest,
-  removeDuplicateParticipants
+  removeDuplicateParticipants,
+  updateParticipantInFirestore,
+  updateEventInFirestore,
+  addTransactionToFirestore,
+  getTransactionsFromFirestore,
+  listenEventTransactions,
+  updateTransactionInFirestore,
+  deleteTransactionInFirestore
 } from './firestoreService';

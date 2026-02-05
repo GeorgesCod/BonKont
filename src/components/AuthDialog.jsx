@@ -46,28 +46,37 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       if (activeTab === 'login') {
-        // Récupérer les données existantes ou créer de nouvelles données
-        const existingUserData = localStorage.getItem('bonkont-user');
+        let existingUserData = null;
+        try {
+          existingUserData = localStorage.getItem('bonkont-user');
+        } catch (_) {}
         let userData;
-        
         if (existingUserData) {
-          // Si des données existent, les récupérer
-          userData = JSON.parse(existingUserData);
-          // Mettre à jour l'email si nécessaire
-          userData.email = email;
+          try {
+            userData = JSON.parse(existingUserData);
+            userData.email = email;
+          } catch (_) {
+            userData = { name: email.split('@')[0], email, avatar: null, createdAt: new Date() };
+          }
         } else {
-          // Sinon, créer de nouvelles données utilisateur
           userData = {
-            name: email.split('@')[0], // Utiliser la partie avant @ comme nom par défaut
+            name: email.split('@')[0],
             email,
             avatar: null,
             createdAt: new Date()
           };
         }
-        
-        // Sauvegarder les données utilisateur
-        localStorage.setItem('bonkont-user', JSON.stringify(userData));
-        
+        try {
+          localStorage.setItem('bonkont-user', JSON.stringify(userData));
+        } catch (storageError) {
+          toast({
+            variant: "destructive",
+            title: "Connexion impossible",
+            description: "Le stockage local est indisponible (mode privé ou quota). Essayez un autre navigateur.",
+          });
+          setIsLoading(false);
+          return;
+        }
         toast({
           title: "Connexion réussie",
           description: "Bienvenue sur BONKONT !",
@@ -93,8 +102,17 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           acceptedTerms: true,
           termsAcceptedAt: new Date()
         };
-        localStorage.setItem('bonkont-user', JSON.stringify(userData));
-        
+        try {
+          localStorage.setItem('bonkont-user', JSON.stringify(userData));
+        } catch (storageError) {
+          toast({
+            variant: "destructive",
+            title: "Inscription impossible",
+            description: "Le stockage local est indisponible (mode privé ou quota). Essayez un autre navigateur.",
+          });
+          setIsLoading(false);
+          return;
+        }
         toast({
           title: "Inscription réussie",
           description: "Votre compte a été créé avec succès.",

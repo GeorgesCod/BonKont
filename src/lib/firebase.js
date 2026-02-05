@@ -4,6 +4,7 @@
  */
 
 import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, getDocs, query, where, addDoc, updateDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 // Configuration Firebase (à remplacer par vos vraies clés depuis la console Firebase)
@@ -21,6 +22,8 @@ const app = initializeApp(firebaseConfig);
 
 // Initialiser Firestore
 export const db = getFirestore(app);
+
+export const getAuthApp = getAuth;
 
 // Helper pour convertir les dates Firestore
 export const convertFirestoreDate = (timestamp) => {

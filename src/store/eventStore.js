@@ -85,11 +85,10 @@ export const useEventStore = create()(
       clearEvents: () => set({ events: [] }),
 
       updateEvent: (id, updates) => set((state) => ({
-        events: state.events.map((event) =>
-          event.id === id
-            ? { ...event, ...updates, updatedAt: new Date() }
-            : event
-        ),
+        events: state.events.map((event) => {
+          const match = String(event.id) === String(id) || (event.firestoreId && String(event.firestoreId) === String(id));
+          return match ? { ...event, ...updates, updatedAt: new Date() } : event;
+        }),
       })),
 
       deleteEvent: (id) =>

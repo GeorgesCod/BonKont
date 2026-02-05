@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button';
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import { useI18nStore } from '@/lib/i18n';
+import { migrateLocalTransactionsToFirestore } from '@/utils/migrateLocalTransactions';
+import { addTransactionToFirestore } from '@/services/api';
 
 export default function App() {
   const { toast } = useToast();
@@ -59,6 +61,17 @@ export default function App() {
   const [viewMode, setViewMode] = useState('management'); // 'management', 'transactions', or 'closure'
   const [showDashboardList, setShowDashboardList] = useState(false); // false = ouvrir sur EventManagement (1er événement)
   const events = useEventStore((state) => state.events);
+
+  // Migration unique : anciennes transactions localStorage → Firestore (les données ne disparaissent pas)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      migrateLocalTransactionsToFirestore({
+        getEvents: () => useEventStore.getState().events,
+        addTransactionToFirestore,
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, []);
 
   // Fonction utilitaire pour rechercher et ouvrir un événement par code
   // Accessible depuis la console : window.findEventByCode('JELHFMFA')
@@ -143,6 +156,34 @@ export default function App() {
     };
     console.log('[App] ✅ Utility function window.removeDuplicateParticipants() is now available');
     console.log('[App] 💡 Usage: window.removeDuplicateParticipants("AMDZQINI")');
+  }, []);
+
+  // Correctif molette en production : si le scroll CSS ne réagit pas, on fait défiler le document en JS
+  useEffect(() => {
+    const isScrollableElement = (el) => {
+      if (!el || el === document.documentElement || el === document.body) return false;
+      const style = window.getComputedStyle(el);
+      const overflowY = style.overflowY || style.overflow;
+      const canScroll = (overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+      return canScroll;
+    };
+    const getScrollableAncestor = (target) => {
+      let node = target;
+      while (node && node !== document.body) {
+        if (isScrollableElement(node)) return node;
+        node = node.parentElement;
+      }
+      return null;
+    };
+    const onWheel = (e) => {
+      if (getScrollableAncestor(e.target)) return;
+      const doc = document.documentElement;
+      if (doc.scrollHeight <= doc.clientHeight) return;
+      doc.scrollTop += e.deltaY;
+      e.preventDefault();
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
   }, []);
 
   // Synchroniser l'état d'auth avec localStorage (sans polling)
@@ -252,17 +293,13 @@ export default function App() {
 
   const handleHashChange = () => {
     const hash = window.location.hash;
-    console.log('[App] ===== handleHashChange CALLED =====');
-    console.log('[App] Hash changed:', hash);
-    console.log('[App] Current state:', { 
-      isLoggedIn, 
-      currentView, 
-      selectedEventId,
-      hash 
-    });
 
-    // Vérifier l'état d'authentification à partir du stockage local
-    const userData = localStorage.getItem('bonkont-user');
+    let userData = null;
+    try {
+      userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+    } catch {
+      userData = null;
+    }
     const isAuthenticated = !!userData;
 
     // Si pas de hash ou hash vide
@@ -311,14 +348,8 @@ export default function App() {
     }
     // Route pour le tableau de bord (nécessite une authentification)
     if (hash === '#/dashboard' || hash === '#dashboard') {
-      console.log('[App] Navigating to dashboard view from hash');
-      const userData = localStorage.getItem('bonkont-user');
       const isAuthenticatedForDashboard = !!userData;
-      console.log('[App] Auth check for dashboard route:', { isLoggedIn, isAuthenticatedForDashboard });
-
       if (!isAuthenticatedForDashboard) {
-        // Non connecté : ouvrir BONKONT sur la page login (home) UNIQUEMENT, pas sur le dashboard
-        console.log('[App] User not logged in, redirecting to login page (home)');
         window.location.hash = '';
         setCurrentView('home');
         setSelectedEventId(null);
@@ -327,12 +358,7 @@ export default function App() {
         if (isLoggedIn) setIsLoggedIn(false);
         return;
       }
-
-      if (!isLoggedIn) {
-        console.log('[App] Updating isLoggedIn state to true for dashboard route');
-        setIsLoggedIn(true);
-      }
-
+      if (!isLoggedIn) setIsLoggedIn(true);
       setCurrentView('dashboard-view');
       setSelectedEventId(null);
       setViewMode('management');
@@ -546,19 +572,37 @@ export default function App() {
 
 
   const handleAuthSuccess = () => {
-    console.log('[App] Auth success, setting logged in');
     setIsLoggedIn(true);
     setIsAuthOpen(false);
     
     // ✅ Si on est sur EventJoin, rester sur EventJoin pour la demande
     // Sinon : aller au tableau de bord et mettre à jour l’URL pour un routage correct
-    if (currentView === 'join') {
-      console.log('[App] Staying on EventJoin page after auth');
-    } else {
-      // Rediriger vers le tableau de bord (visible uniquement après login)
-      window.location.hash = '#/dashboard';
-      setCurrentView('dashboard-view');
-      setShowEventCreation(false);
+    setShowEventCreation(false);
+    if (currentView === 'join') return;
+    {
+      // Sur mobile : laisser le dialog se fermer avant de naviguer
+      const goToDashboard = () => {
+        setCurrentView('dashboard-view');
+        setSelectedEventId(null);
+        setViewMode('management');
+        setShowHistory(false);
+        setShowDashboardList(false);
+        window.location.hash = '#/dashboard';
+        requestAnimationFrame(() => {
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+          // Retirer tout overlay résiduel (évite le "barrage" sur mobile)
+          setTimeout(() => {
+            document.querySelectorAll('[data-radix-dialog-overlay], [data-radix-alert-dialog-overlay]').forEach((el) => {
+              try { el.remove(); } catch (_) {}
+            });
+          }, 50);
+        });
+      };
+      if (typeof requestAnimationFrame !== 'undefined') {
+        requestAnimationFrame(() => setTimeout(goToDashboard, 100));
+      } else {
+        setTimeout(goToDashboard, 150);
+      }
     }
   };
 
@@ -576,6 +620,7 @@ export default function App() {
       // 3) Nettoyer les données utilisateur et le store d'événements (chaque utilisateur voit uniquement les siens)
       try {
         localStorage.removeItem('bonkont-user');
+        localStorage.removeItem('bonkont-joined-codes');
         useEventStore.getState().clearEvents();
         console.log('[App] User data and event store cleared');
       } catch (e) {
@@ -637,8 +682,8 @@ export default function App() {
       
       // En cas d'erreur, forcer une réinitialisation complète
       try {
-        // Nettoyer localStorage même en cas d'erreur
         localStorage.removeItem('bonkont-user');
+        localStorage.removeItem('bonkont-joined-codes');
         
         // Forcer isLoggedIn à false (PATCH 2)
         setIsLoggedIn(false);
@@ -673,10 +718,10 @@ export default function App() {
   const handleDeleteAccount = () => {
     // Supprimer toutes les données utilisateur
     localStorage.removeItem('bonkont-user');
+    localStorage.removeItem('bonkont-joined-codes');
     localStorage.removeItem('bonkont-currency');
     localStorage.removeItem('bonkont-language');
     localStorage.removeItem('bonkont-subscription');
-    // Supprimer les événements du store (chaque utilisateur ne voit que les siens)
     useEventStore.getState().clearEvents();
     
     setIsLoggedIn(false);
@@ -793,7 +838,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full pt-16 sm:pt-20 scroll-main pb-[10.5rem]" style={{ marginTop: '70px', overflow: 'visible', position: 'relative' }}>
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 safe-bottom w-full max-w-full pt-16 sm:pt-20 scroll-main pb-[10.5rem] shrink-0" style={{ marginTop: '70px', overflow: 'visible', position: 'relative' }}>
         <div className="max-w-4xl mx-auto w-full px-0">
           {/* Pages publiques */}
           {currentView === 'privacy' ? (
@@ -931,18 +976,16 @@ export default function App() {
             </div>
           ) : currentView === 'dashboard-view' ? (
             (() => {
-              // Vérifier l'authentification directement dans localStorage
-              const userData = localStorage.getItem('bonkont-user');
-              const isAuthenticated = !!userData;
-              
-              // Mettre à jour l'état si nécessaire
-              if (isAuthenticated && !isLoggedIn) {
-                console.log('[App] Updating isLoggedIn state to true in dashboard-view');
-                setIsLoggedIn(true);
-              } else if (!isAuthenticated && isLoggedIn) {
-                console.log('[App] Updating isLoggedIn state to false in dashboard-view');
-                setIsLoggedIn(false);
+              let userData = null;
+              try {
+                userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+              } catch (_) {
+                userData = null;
               }
+              const isAuthenticated = !!userData;
+
+              if (isAuthenticated && !isLoggedIn) setIsLoggedIn(true);
+              else if (!isAuthenticated && isLoggedIn) setIsLoggedIn(false);
               
               if (!isAuthenticated) {
                 return (

@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useEventStore } from '@/store/eventStore';
-import { useTransactionsStore } from '@/store/transactionsStore';
+import { useEventTransactions } from '@/hooks/useEventTransactions';
 import { useJoinRequestsStore } from '@/store/joinRequestsStore';
-import { getJoinRequests, updateJoinRequest } from '@/services/api';
+import { getJoinRequests, updateJoinRequest, getTransactionsFromFirestore } from '@/services/api';
+import { useTransactionsStore } from '@/store/transactionsStore';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db, convertFirestoreDate } from '@/lib/firebase';
 import { Card } from '@/components/ui/card';
@@ -75,32 +76,23 @@ export function EventManagement({ eventId, onBack }) {
   const updateEvent = useEventStore((state) => state.updateEvent);
   console.log('[EventManagement] All events:', allEvents.map(e => ({ id: e.id, title: e.title })));
   
-  // ✅ Utiliser directement le store pour forcer les mises à jour
-  const event = allEvents.find(e => {
-    const match = String(e.id) === String(eventId);
-    if (match) console.log('[EventManagement] Event matched:', { eventId, foundId: e.id, title: e.title, participantsCount: e.participants?.length });
-    return match;
-  });
-  
+  // Trouver l'événement par id OU firestoreId (URL peut être l'un ou l'autre)
+  const event = allEvents.find(e =>
+    String(e.id) === String(eventId) || (e.firestoreId && String(e.firestoreId) === String(eventId))
+  );
+
+  // Transactions : source de vérité Firestore (sync partagée entre tous les participants)
+  const { transactions, effectiveEventId } = useEventTransactions(event);
+  const setTransactionsForEvent = useTransactionsStore((s) => s.setTransactionsForEvent);
+
+  // Event normalisé pour les calculs BonKont : id = Firestore (pour matcher transaction.eventId)
+  const eventForCalc = useMemo(
+    () => (event ? { ...event, id: effectiveEventId || event.id } : null),
+    [event, effectiveEventId]
+  );
+
   // ✅ Forcer le re-render après synchronisation en utilisant un état local
   const [syncTrigger, setSyncTrigger] = useState(0);
-  
-  const transactionsStore = useTransactionsStore();
-  const transactions = transactionsStore.getTransactionsByEvent(eventId);
-  const addTransaction = transactionsStore.addTransaction;
-  
-  console.log('[EventManagement] ⚠️ Transactions récupérées:', {
-    eventId,
-    count: transactions.length,
-    transactions: transactions.map(t => ({
-      id: t.id,
-      source: t.source,
-      participants: t.participants,
-      payerId: t.payerId,
-      amount: t.amount,
-      type: t.type
-    }))
-  });
   const [selectedParticipant, setSelectedParticipant] = useState(null);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerParticipantId, setScannerParticipantId] = useState(null);
@@ -1075,15 +1067,9 @@ export function EventManagement({ eventId, onBack }) {
       }).catch(err => console.error('[EventManagement] Share error:', err));
     }
   };
-  // ✅ Fonction de synchronisation complète depuis Firestore
+  // ✅ Synchronisation complète depuis Firestore (vérité partagée) : événement, participants, transactions
   const handleSyncFromFirestore = async () => {
-    // ✅ LOGS TRÈS VISIBLES AU DÉBUT
-    console.log('🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄');
-    console.log('🔄 SYNC BUTTON CLICKED - FUNCTION CALLED');
-    console.log('🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄');
-    
     if (!event || !event.code) {
-      console.error('❌❌❌ SYNC ERROR: No event or code');
       toast({
         variant: "destructive",
         title: "Erreur",
@@ -1093,43 +1079,38 @@ export function EventManagement({ eventId, onBack }) {
     }
 
     setIsSyncing(true);
-    console.log('[EventManagement] 🔄 ===== MANUAL SYNC FROM FIRESTORE =====');
-    console.log('[EventManagement] Event code:', event.code);
-    console.log('[EventManagement] Event ID:', event.id);
-    console.log('[EventManagement] Event ID:', event.id);
-    console.log('[EventManagement] Current participants BEFORE sync:', event.participants?.length || 0);
-    console.log('[EventManagement] Current participants details:', JSON.stringify(event.participants?.map(p => ({
-      id: p.id,
-      name: p.name,
-      email: p.email,
-      userId: p.userId,
-      role: p.role,
-      isOrganizer: p.isOrganizer
-    })), null, 2));
+    toast({
+      title: "Synchronisation en cours…",
+      description: "Mise à jour depuis Firestore (participants et transactions).",
+      duration: 2000
+    });
+
+    const storeEventId = event.id; // ID dans le store (à ne pas écraser)
 
     try {
-      // 1. Recharger l'événement depuis Firestore
-      const { findEventByCode } = await import('@/services/api');
-      console.log('[EventManagement] 🔍 Fetching event from Firestore with code:', event.code);
-      const updatedEvent = await findEventByCode(event.code);
-
+      // 1. Recharger l'événement depuis Firestore (par code, puis par ID Firestore si besoin)
+      const { findEventByCode, getEventById } = await import('@/services/api');
+      let updatedEvent = null;
+      const normalizedCode = String(event.code || '').trim().toUpperCase().replace(/[^A-Z]/g, '');
+      if (normalizedCode.length >= 8) {
+        updatedEvent = await findEventByCode(normalizedCode);
+      }
+      if (!updatedEvent && (event.firestoreId || event.id)) {
+        const idToTry = event.firestoreId || event.id;
+        console.log('[EventManagement] 🔍 findEventByCode null, trying getEventById:', idToTry);
+        updatedEvent = await getEventById(idToTry);
+      }
       if (!updatedEvent) {
-        throw new Error("Événement non trouvé dans Firestore");
+        throw new Error("Événement non trouvé dans Firestore (code ou ID). Vérifiez que l'événement est bien enregistré.");
       }
 
       console.log('[EventManagement] 📋 Event fetched from Firestore:', {
         eventId: updatedEvent.id,
         participantsCount: updatedEvent.participants?.length || 0,
+        totalPaid: updatedEvent.totalPaid,
+        status: updatedEvent.status,
         title: updatedEvent.title
       });
-      console.log('[EventManagement] 📋 Firestore participants BEFORE deduplication:', JSON.stringify(updatedEvent.participants?.map(p => ({
-        id: p.id,
-        name: p.name,
-        email: p.email,
-        userId: p.userId,
-        role: p.role,
-        isOrganizer: p.isOrganizer
-      })), null, 2));
 
       // 2. Synchroniser les participants avec déduplication améliorée
       let syncedParticipants = [];
@@ -1216,23 +1197,7 @@ export function EventManagement({ eventId, onBack }) {
           return true;
         });
 
-        console.log('📊📊📊 DEDUPLICATION RESULTS 📊📊📊');
-        console.log('Before:', updatedEvent.participants.length);
-        console.log('After:', syncedParticipants.length);
-        console.log('Duplicates removed:', duplicatesRemoved.length);
-        console.log('Duplicates details:', duplicatesRemoved);
-        console.log('📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊📊');
-        console.log('[EventManagement] 📊 Final synced participants:', JSON.stringify(syncedParticipants.map(p => ({
-          id: p.id,
-          name: p.name,
-          email: p.email,
-          userId: p.userId,
-          role: p.role,
-          isOrganizer: p.isOrganizer,
-          status: p.status
-        })), null, 2));
-
-        // ✅ Vérifier si l'organisateur est dans la liste (sans créer de doublon)
+        // Vérifier si l'organisateur est dans la liste (sans créer de doublon)
         const organizerExists = syncedParticipants.some(p => {
           const pEmail = p.email || '';
           const pUserId = p.userId || '';
@@ -1242,97 +1207,79 @@ export function EventManagement({ eventId, onBack }) {
 
         if (!organizerExists && event.organizerId && event.organizerName) {
           console.warn('[EventManagement] ⚠️ Organizer not found in synced participants (should exist in Firestore):', {
-            eventId: event.id,
+            eventId: storeEventId,
             organizerId: event.organizerId
           });
         }
 
-        // Mettre à jour l'événement local avec les participants synchronisés
-        console.log('[EventManagement] 🔄 Updating event in store with participants:', syncedParticipants.length);
-        updateEvent(event.id, { 
+        // Mettre à jour l'événement local avec TOUTES les données Firestore (sincérité des données saisies)
+        console.log('[EventManagement] 🔄 Updating event in store with Firestore data:', syncedParticipants.length, 'participants');
+        updateEvent(storeEventId, {
           participants: syncedParticipants,
-          firestoreId: updatedEvent.id
+          firestoreId: updatedEvent.id,
+          totalPaid: updatedEvent.totalPaid ?? event.totalPaid ?? 0,
+          remainingAmount: updatedEvent.remainingAmount ?? event.remainingAmount,
+          status: updatedEvent.status ?? event.status ?? 'active',
+          amount: updatedEvent.amount ?? event.amount,
+          title: updatedEvent.title ?? event.title,
+          description: updatedEvent.description ?? event.description,
         });
 
-        // ✅ Forcer le re-render du composant
-        const newTrigger = syncTrigger + 1;
-        setSyncTrigger(newTrigger);
-        console.log('[EventManagement] ✅ Sync trigger updated:', newTrigger);
-        
-        // Attendre un peu pour que le store se mette à jour
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Forcer la mise à jour en récupérant l'événement depuis le store
-        const updatedEventFromStore = useEventStore.getState().events.find(e => String(e.id) === String(event.id));
-        console.log('[EventManagement] ✅ Event updated in store. New participants count:', updatedEventFromStore?.participants?.length || 0);
-        console.log('[EventManagement] ✅ Updated participants in store:', JSON.stringify(updatedEventFromStore?.participants?.map(p => ({
-          id: p.id,
-          name: p.name,
-          email: p.email,
-          userId: p.userId
-        })), null, 2));
+        // Forcer le re-render
+        setSyncTrigger((t) => t + 1);
       } else {
         console.warn('[EventManagement] ⚠️ No participants in Firestore event');
-        // Mettre à jour quand même pour vider la liste si nécessaire
-        updateEvent(event.id, { 
+        updateEvent(storeEventId, {
           participants: [],
-          firestoreId: updatedEvent.id
+          firestoreId: updatedEvent.id,
+          totalPaid: updatedEvent.totalPaid ?? event.totalPaid ?? 0,
+          remainingAmount: updatedEvent.remainingAmount ?? event.remainingAmount,
+          status: updatedEvent.status ?? event.status ?? 'active',
+          amount: updatedEvent.amount ?? event.amount,
+          title: updatedEvent.title ?? event.title,
+          description: updatedEvent.description ?? event.description,
         });
+        setSyncTrigger((t) => t + 1);
       }
 
-      // 3. Recharger les demandes de participation
+      // Recharger les demandes de participation
       const firestoreEventId = updatedEvent.id;
       const requests = await getJoinRequests(firestoreEventId, 'pending');
       setFirestoreJoinRequests(requests);
-      console.log('[EventManagement] ✅ Join requests refreshed:', requests.length);
 
-      // 4. Mettre à jour les autres données de l'événement si nécessaire
-      if (updatedEvent.title !== event.title || updatedEvent.description !== event.description) {
-        updateEvent(event.id, {
-          title: updatedEvent.title,
-          description: updatedEvent.description,
-          totalPaid: updatedEvent.totalPaid || 0
-        });
-      }
+      // Recharger les transactions depuis Firestore (vérité partagée : toutes les saisies des participants)
+      const freshTransactions = await getTransactionsFromFirestore(firestoreEventId);
+      setTransactionsForEvent(firestoreEventId, freshTransactions);
 
-      // Attendre un peu plus pour que le store se mette à jour complètement
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      const finalEvent = useEventStore.getState().events.find(e => String(e.id) === String(event.id));
+      const transactionCount = freshTransactions.length;
+      const finalEvent = useEventStore.getState().events.find((e) => String(e.id) === String(storeEventId));
       const finalCount = finalEvent?.participants?.length || 0;
       const beforeCount = event.participants?.length || 0;
-      
-      console.log('[EventManagement] ✅✅✅ SYNC COMPLETE ✅✅✅');
-      console.log('[EventManagement] Final participants count:', finalCount);
-      console.log('[EventManagement] Participants before:', beforeCount);
-      console.log('[EventManagement] Participants after:', finalCount);
-      console.log('[EventManagement] Difference:', beforeCount - finalCount);
-      
-      const message = beforeCount !== finalCount 
-        ? `Synchronisation réussie ! ${beforeCount} → ${finalCount} participant(s) (${beforeCount - finalCount} doublon(s) supprimé(s))`
-        : `Synchronisation réussie. ${finalCount} participant(s) chargé(s).`;
-      
+
+      const participantChange = beforeCount !== finalCount
+        ? ` ${beforeCount} → ${finalCount} participant(s).`
+        : ` ${finalCount} participant(s).`;
+      const transactionStr = transactionCount > 0
+        ? ` ${transactionCount} transaction(s) rechargée(s).`
+        : "";
+      const totalPaidStr = finalEvent?.totalPaid != null
+        ? ` Montant collecté : ${Number(finalEvent.totalPaid).toFixed(2)}€.`
+        : "";
+
       toast({
-        title: "✅ Synchronisation réussie",
-        description: message,
-        duration: 5000
+        title: "✅ Mise à jour réussie",
+        description: `Données rechargées depuis Firestore (vérité partagée).${participantChange}${transactionStr}${totalPaidStr}`,
+        duration: 6000
       });
     } catch (error) {
-      console.error('[EventManagement] ❌❌❌ SYNC ERROR ❌❌❌');
-      console.error('[EventManagement] Error message:', error.message);
-      console.error('[EventManagement] Error name:', error.name);
-      console.error('[EventManagement] Error stack:', error.stack);
-      console.error('[EventManagement] Full error object:', error);
-      
       toast({
         variant: "destructive",
-        title: "❌ Erreur de synchronisation",
-        description: error.message || "Impossible de synchroniser l'événement depuis Firestore. Vérifiez la console pour plus de détails.",
+        title: "Erreur de synchronisation",
+        description: error.message || "Impossible de recharger l'événement depuis Firestore. Réessayez ou vérifiez la connexion.",
         duration: 6000
       });
     } finally {
       setIsSyncing(false);
-      console.log('[EventManagement] 🔄 Sync process finished, isSyncing set to false');
     }
   };
 
@@ -1478,10 +1425,11 @@ export function EventManagement({ eventId, onBack }) {
     const participantsCount = participants.length || 1;
     const montantParPersonne = totalBudget / participantsCount;
     
-    // Calculer le total payé (utiliser getContributionToPot() comme source unique de vérité)
+    // Calculer le total payé (transactions = vérité Firestore, même logique que les ajustements)
     let totalPaye = 0;
+    const ev = eventForCalc || event;
     participants.forEach(p => {
-      totalPaye += getContributionToPot(p.id, event, transactions);
+      totalPaye += getContributionToPot(p.id, ev, transactions);
     });
     
     const resteAPayer = Math.max(0, totalBudget - totalPaye);
@@ -1705,8 +1653,8 @@ export function EventManagement({ eventId, onBack }) {
     doc.text('Basée sur les transactions validées collectivement à ce jour', margin, yPosition);
     yPosition += 10;
     
-    // Calculer les soldes
-    const balancesResult = computeBalances(event, transactions);
+    // Calculer les soldes (eventForCalc pour cohérence avec transaction.eventId)
+    const balancesResult = computeBalances(eventForCalc || event, transactions);
     const { balances } = balancesResult;
     const transfersResult = computeTransfers(balancesResult);
     const transfers = transfersResult.transfers || [];
@@ -2509,7 +2457,7 @@ export function EventManagement({ eventId, onBack }) {
     doc.setTextColor(0, 0, 0);
     doc.setFont(undefined, 'normal');
     
-    const participantsPayes = participants.filter(p => getContributionToPot(p.id, event, transactions) >= montantParPersonne).length;
+    const participantsPayes = participants.filter(p => getContributionToPot(p.id, eventForCalc || event, transactions) >= montantParPersonne).length;
     const participantsEnRetard = participants.filter(p => {
       const stats = getParticipantStats(p);
       return stats.remaining > 0;
@@ -2576,8 +2524,8 @@ export function EventManagement({ eventId, onBack }) {
 
   const getParticipantStats = (participant) => {
     const totalDue = event.amount / participants.length;
-    // Utiliser getContributionToPot() comme source unique de vérité pour les contributions
-    const paid = getContributionToPot(participant.id, event, transactions);
+    // Contributions = transactions (vérité Firestore), même logique que récap et ajustements
+    const paid = getContributionToPot(participant.id, eventForCalc || event, transactions);
     const remaining = Math.max(0, totalDue - paid);
     const paymentProgress = totalDue > 0 ? (paid / totalDue) * 100 : 0;
     const hasPaid = paid >= totalDue - 0.01;
@@ -2753,9 +2701,6 @@ export function EventManagement({ eventId, onBack }) {
           variant="outline"
           className="gap-2"
           onClick={(e) => {
-            console.log('🔄🔄🔄 BOUTON SYNCHRONISER CLIQUE 🔄🔄🔄');
-            console.log('Event:', event);
-            console.log('Event code:', event?.code);
             e.preventDefault();
             e.stopPropagation();
             handleSyncFromFirestore();
@@ -2765,7 +2710,7 @@ export function EventManagement({ eventId, onBack }) {
           {isSyncing ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="hidden sm:inline">Synchronisation...</span>
+              <span className="hidden sm:inline">Mise à jour…</span>
             </>
           ) : (
             <>
@@ -2776,7 +2721,7 @@ export function EventManagement({ eventId, onBack }) {
         </Button>
       </TooltipTrigger>
       <TooltipContent>
-        <p>Recharger l'événement depuis Firestore</p>
+        <p>Recharger depuis Firestore : participants et transactions (vérité partagée)</p>
       </TooltipContent>
     </Tooltip>
   </TooltipProvider>
@@ -3818,7 +3763,7 @@ export function EventManagement({ eventId, onBack }) {
               <TrendingUp className="w-5 h-5 text-primary" />
               <h2 className="text-xl font-semibold">Les Ajustements</h2>
               {(() => {
-                const balancesResult = computeBalances(event, transactions);
+                const balancesResult = computeBalances(eventForCalc || event, transactions);
                 const transfersResult = computeTransfers(balancesResult);
                 const transfers = transfersResult.transfers || [];
                 return transfers.length > 0 ? (
@@ -3832,7 +3777,7 @@ export function EventManagement({ eventId, onBack }) {
           <AccordionContent className="pt-4 pb-6">
       {/* Transparence totale : Qui verse à qui / Qui reçoit de qui */}
       {(() => {
-        const balancesResult = computeBalances(event, transactions);
+        const balancesResult = computeBalances(eventForCalc || event, transactions);
         const { balances } = balancesResult;
         const transfersResult = computeTransfers(balancesResult);
         const transfers = transfersResult.transfers || [];
@@ -4297,7 +4242,7 @@ export function EventManagement({ eventId, onBack }) {
                   const stats = getParticipantStats(selectedParticipant);
                   
                   // Calculer les soldes Bonkont
-                  const balancesResult = computeBalances(event, transactions);
+                  const balancesResult = computeBalances(eventForCalc || event, transactions);
                   const { balances, potBalance } = balancesResult;
                   const transfersResult = computeTransfers(balancesResult);
                   const transfers = transfersResult.transfers || [];
@@ -4342,7 +4287,7 @@ export function EventManagement({ eventId, onBack }) {
                   
                   // Contributions vers POT (source unique de vérité)
                   // Utilise la même fonction que dans computeBalances pour garantir la cohérence
-                  const contributions = getContributionToPot(selectedParticipant.id, event, transactions);
+                  const contributions = getContributionToPot(selectedParticipant.id, eventForCalc || event, transactions);
                   
                   // Solde provisoire (répartition)
                   const soldeProvisoire = safeBalance.solde;
@@ -4448,7 +4393,7 @@ export function EventManagement({ eventId, onBack }) {
                             <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
                               <span className="text-muted-foreground">Contribution (→ POT):</span>
                               <span className="font-medium text-green-600 dark:text-green-400">
-                                +{getContributionToPot(selectedParticipant.id, event, transactions).toFixed(2)}€
+                                +{getContributionToPot(selectedParticipant.id, eventForCalc || event, transactions).toFixed(2)}€
                               </span>
                             </div>
                             <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">

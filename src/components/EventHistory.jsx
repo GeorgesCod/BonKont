@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card } from '@/components/ui/card';
 import { useEventStore } from '@/store/eventStore';
 import { useTransactionsStore } from '@/store/transactionsStore';
+import { getTransactionsFromFirestore } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -15,6 +16,7 @@ export function EventHistory() {
   const { toast } = useToast();
   const events = useEventStore((state) => state.events);
   const getTransactionsByEvent = useTransactionsStore((state) => state.getTransactionsByEvent);
+  const setTransactionsForEvent = useTransactionsStore((state) => state.setTransactionsForEvent);
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -23,6 +25,15 @@ export function EventHistory() {
   
   const normalizeText = (v) =>
     String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+  // Charger les transactions Firestore pour chaque événement (sync partagée)
+  useEffect(() => {
+    if (!events?.length) return;
+    events.forEach((ev) => {
+      const effectiveId = ev.firestoreId || ev.id;
+      getTransactionsFromFirestore(effectiveId).then((txs) => setTransactionsForEvent(effectiveId, txs));
+    });
+  }, [events?.length, setTransactionsForEvent]);
 
   useEffect(() => {
     console.log('[EventHistory] Component mounted');
@@ -199,7 +210,7 @@ export function EventHistory() {
         yPosition += 12;
 
         // Ajouter les transactions de l'événement
-        const eventTransactions = getTransactionsByEvent(event.id);
+        const eventTransactions = getTransactionsByEvent(event.firestoreId || event.id);
         if (eventTransactions && eventTransactions.length > 0) {
           console.log('[EventHistory] Adding transactions for event:', { eventId: event.id, count: eventTransactions.length });
           
@@ -281,7 +292,7 @@ export function EventHistory() {
       const activeCount = filteredEvents.filter(e => e.status === 'active').length;
       
       // Calculer le total des transactions
-      const allTransactions = filteredEvents.flatMap(e => getTransactionsByEvent(e.id));
+      const allTransactions = filteredEvents.flatMap(e => getTransactionsByEvent(e.firestoreId || e.id));
       const totalTransactionsAmount = allTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
       const totalTransactionsCount = allTransactions.length;
 

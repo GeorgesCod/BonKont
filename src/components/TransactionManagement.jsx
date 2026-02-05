@@ -1,5 +1,5 @@
  import { useEffect, useState } from 'react';
-import { useTransactionsStore } from '@/store/transactionsStore';
+import { useEventTransactions } from '@/hooks/useEventTransactions';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,17 +44,21 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { POT_ID } from '@/utils/bonkontBalances';
+import { POT_ID, getContributionToPot } from '@/utils/bonkontBalances';
+import {
+  updateParticipantInFirestore,
+  updateEventInFirestore,
+  addTransactionToFirestore,
+  updateTransactionInFirestore,
+  deleteTransactionInFirestore,
+} from '@/services/api';
 
 export function TransactionManagement({ eventId, onBack }) {
-  console.log('[TransactionManagement] Component mounted:', { eventId });
-
   const { toast } = useToast();
-  const event = useEventStore((state) => state.events.find((e) => e.id === eventId));
-  const transactions = useTransactionsStore((state) => state.getTransactionsByEvent(eventId));
-  const addTransaction = useTransactionsStore((state) => state.addTransaction);
-  const updateTransaction = useTransactionsStore((state) => state.updateTransaction);
-  const deleteTransaction = useTransactionsStore((state) => state.deleteTransaction);
+  const event = useEventStore((state) =>
+    state.events.find((e) => e.id === eventId || (e.firestoreId && String(e.firestoreId) === String(eventId)))
+  );
+  const { transactions, effectiveEventId } = useEventTransactions(event);
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   const updateEvent = useEventStore((state) => state.updateEvent);
 
@@ -385,7 +389,12 @@ export function TransactionManagement({ eventId, onBack }) {
       .join(', ');
 
     if (editingTransaction) {
-      updateTransaction(editingTransaction.id, transactionData);
+      if (effectiveEventId) {
+        updateTransactionInFirestore(effectiveEventId, editingTransaction.id, transactionData).catch((err) => {
+          console.error('[TransactionManagement] updateTransactionInFirestore:', err);
+          toast({ title: 'Erreur', description: 'Impossible de mettre à jour la transaction.', variant: 'destructive' });
+        });
+      }
 
       toast({
         title: '✅ Transaction modifiée avec succès',
@@ -394,7 +403,12 @@ export function TransactionManagement({ eventId, onBack }) {
         )}${getCurrencySymbol(transactionData.currency)} a été mise à jour.`,
       });
     } else {
-      addTransaction(eventId, transactionData);
+      if (effectiveEventId) {
+        addTransactionToFirestore(effectiveEventId, transactionData).catch((err) => {
+          console.error('[TransactionManagement] addTransactionToFirestore:', err);
+          toast({ title: 'Erreur', description: 'Impossible d\'enregistrer la transaction.', variant: 'destructive' });
+        });
+      }
 
       // si scanné ou contribution cagnotte : créditer payeur/contributeur + update event
       const shouldCreditPayer = (scannedData && selectedPayerId) || (isContribution && selectedPayerId);
@@ -406,22 +420,25 @@ export function TransactionManagement({ eventId, onBack }) {
           const newPaidAmount = alreadyPaid + transactionData.amount;
           const isFullyPaid = newPaidAmount >= totalDue - 0.01;
 
-          updateParticipant(eventId, selectedPayerId, {
+          const participantUpdates = {
             hasPaid: isFullyPaid,
             paidAmount: newPaidAmount,
             paidDate: new Date(),
             paymentMethod: isContribution ? 'manual' : 'scanned_ticket',
-          });
+          };
+          updateParticipant(eventId, selectedPayerId, participantUpdates);
+          updateParticipantInFirestore(effectiveEventId || eventId, selectedPayerId, participantUpdates);
 
           const currentTotalPaid = event.totalPaid || 0;
           const newTotalPaid = currentTotalPaid + transactionData.amount;
           const eventRemainingAmount = Math.max(0, event.amount - newTotalPaid);
-
-          updateEvent(eventId, {
+          const eventUpdates = {
             totalPaid: newTotalPaid,
             remainingAmount: eventRemainingAmount,
             status: newTotalPaid >= event.amount - 0.01 ? 'completed' : 'active',
-          });
+          };
+          updateEvent(eventId, eventUpdates);
+          updateEventInFirestore(effectiveEventId || eventId, eventUpdates);
         }
       }
 
@@ -473,7 +490,12 @@ export function TransactionManagement({ eventId, onBack }) {
   const confirmDeleteTransaction = () => {
     if (!transactionToDelete) return;
 
-    deleteTransaction(transactionToDelete.id);
+    if (effectiveEventId) {
+      deleteTransactionInFirestore(effectiveEventId, transactionToDelete.id).catch((err) => {
+        console.error('[TransactionManagement] deleteTransactionInFirestore:', err);
+        toast({ title: 'Erreur', description: 'Impossible de supprimer la transaction.', variant: 'destructive' });
+      });
+    }
 
     toast({
       title: '✅ Transaction supprimée',
@@ -1241,17 +1263,23 @@ export function TransactionManagement({ eventId, onBack }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Récapitulatif des paiements */}
+      {/* Récapitulatif des paiements — même logique que les Ajustements (transactions = vérité Firestore) */}
       <div className="mt-10 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">Récapitulatif des paiements</h2>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="text-xl font-bold">Récapitulatif des paiements</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Calcul basé sur les transactions validées (règle BonKont). Même source que les ajustements.
+            </p>
+          </div>
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
+              const eventForCalc = { ...event, id: effectiveEventId || event.id };
               const lines = participants.map((p) => {
                 const expected = event.amount / Math.max(1, participants.length);
-                const paid = p.paidAmount || 0;
+                const paid = getContributionToPot(p.id, eventForCalc, transactions);
                 const balance = paid - expected;
                 const status = balance >= 0 ? `✅ +${balance.toFixed(2)}€` : `❌ -${Math.abs(balance).toFixed(2)}€`;
                 return `👤 ${p.name} (${p.email}) : ${status}`;
@@ -1276,10 +1304,11 @@ export function TransactionManagement({ eventId, onBack }) {
         <Card className="p-6 neon-border">
           <div className="space-y-4">
             {participants.map((participant) => {
+              const eventForCalc = { ...event, id: effectiveEventId || event.id };
               const expected = event.amount / Math.max(1, participants.length);
-              const paid = participant.paidAmount || 0;
+              const paid = getContributionToPot(participant.id, eventForCalc, transactions);
               const balance = paid - expected;
-              const hasPaid = participant.hasPaid || false;
+              const hasPaid = paid >= expected - 0.01;
 
               return (
                 <div key={participant.id} className="flex items-center justify-between border-b border-border pb-3">

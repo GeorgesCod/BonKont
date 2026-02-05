@@ -10,22 +10,31 @@
  * - createEvent : exige organizerId, persiste organizerId + organizerName, ajoute l'organisateur en participant avec role='organizer'.
  * - findEventByCode / getEventsByOrganizer : retournent toujours organizerId et organizerName (organizerName || '' si absent).
  * - Aucune mise à jour du document événement après création ne doit écraser organizerId/organizerName.
+ *
+ * RÈGLE BONKONT – DONNÉES PARTAGÉES ET ÉQUITABLES
+ * Les lectures événement + participants utilisent getDocsFromServer pour restituer FIDÈLEMENT la base :
+ * organisateur et participant voient les mêmes données (paidAmount, hasPaid, etc.), pas de cache local incohérent.
  */
 
-import { 
-  db, 
-  convertFirestoreDate, 
-  toFirestoreDate 
+import {
+  db,
+  getAuthApp,
+  convertFirestoreDate,
+  toFirestoreDate
 } from '@/lib/firebase';
 import {
   collection,
+  collectionGroup,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
+  getDocsFromServer,
   addDoc,
   updateDoc,
   query,
   where,
+  orderBy,
   serverTimestamp,
   Timestamp,
   setDoc,
@@ -74,8 +83,9 @@ export async function findEventByCode(code) {
     const eventsRef = collection(db, 'events');
     const q = query(eventsRef, where('code', '==', cleanCode));
     
-    console.log('[Firestore] 📡 Executing Firestore query...');
-    const querySnapshot = await getDocs(q);
+    // Lecture serveur obligatoire : participant et organisateur voient les mêmes données (règle BonKont)
+    console.log('[Firestore] 📡 Executing Firestore query (from server)...');
+    const querySnapshot = await getDocsFromServer(q);
 
     console.log('[Firestore] 📊 Query result:', {
       empty: querySnapshot.empty,
@@ -116,10 +126,10 @@ export async function findEventByCode(code) {
       organizerId: eventData.organizerId
     });
 
-    // Récupérer les participants
-    console.log('[Firestore] 👥 Fetching participants for event:', eventDoc.id);
+    // Récupérer les participants depuis le serveur (même vérité pour organisateur et participant)
+    console.log('[Firestore] 👥 Fetching participants for event (from server):', eventDoc.id);
     const participantsRef = collection(db, 'events', eventDoc.id, 'participants');
-    const participantsSnapshot = await getDocs(participantsRef);
+    const participantsSnapshot = await getDocsFromServer(participantsRef);
     let participants = participantsSnapshot.docs.map(pDoc => ({
       id: pDoc.id,
       ...pDoc.data(),
@@ -232,12 +242,13 @@ export async function findEventByCode(code) {
       isOrganizer: p.isOrganizer
     })));
 
-    // Calculer totalPaid à partir des participants
-    const totalPaid = participants.reduce((sum, p) => {
-      return sum + (parseFloat(p.paidAmount) || 0);
-    }, 0);
+    // Restitution fidèle : utiliser totalPaid/remainingAmount/status du doc si présents, sinon déduire des participants
+    const totalPaidFromParticipants = participants.reduce((sum, p) => sum + (parseFloat(p.paidAmount) || 0), 0);
+    const totalPaid = eventData.totalPaid != null ? Number(eventData.totalPaid) : totalPaidFromParticipants;
+    const amount = (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1);
+    const remainingAmount = eventData.remainingAmount != null ? Number(eventData.remainingAmount) : Math.max(0, amount - totalPaid);
+    const status = eventData.status && eventData.status !== 'open' ? eventData.status : (totalPaid >= amount - 0.01 ? 'completed' : 'active');
 
-    // Formater la réponse selon le format attendu par le frontend
     const event = {
       id: eventDoc.id,
       code: eventData.code,
@@ -246,14 +257,15 @@ export async function findEventByCode(code) {
       location: eventData.location || null,
       startDate: eventData.startDate,
       endDate: eventData.endDate,
-      amount: (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1),
-      totalPaid: totalPaid,
+      amount,
+      totalPaid,
+      remainingAmount,
       deadline: eventData.deadline || 30,
       currency: eventData.currency || 'EUR',
       organizerId: eventData.organizerId,
       organizerName: eventData.organizerName || '',
-      participants: participants,
-      status: eventData.status || 'open',
+      participants,
+      status,
       createdAt: convertFirestoreDate(eventData.createdAt),
       closedAt: eventData.closedAt ? convertFirestoreDate(eventData.closedAt) : null
     };
@@ -272,6 +284,57 @@ export async function findEventByCode(code) {
       name: error.name,
       code: cleanCode
     });
+    return null;
+  }
+}
+
+/**
+ * Charge un événement par son ID Firestore (document ID).
+ * Utilise getDocFromServer / getDocsFromServer pour restitution fidèle (pas de cache).
+ * Utilisé en secours quand findEventByCode échoue (ex. code non synchronisé).
+ */
+export async function getEventById(firestoreEventId) {
+  if (!firestoreEventId || !String(firestoreEventId).trim()) return null;
+  const idStr = String(firestoreEventId).trim();
+  try {
+    const eventRef = doc(db, 'events', idStr);
+    const eventSnap = await getDocFromServer(eventRef);
+    if (!eventSnap.exists()) return null;
+    const eventData = eventSnap.data();
+    const participantsRef = collection(db, 'events', idStr, 'participants');
+    const participantsSnapshot = await getDocsFromServer(participantsRef);
+    let participants = participantsSnapshot.docs.map(pDoc => ({
+      id: pDoc.id,
+      ...pDoc.data(),
+      joinedAt: convertFirestoreDate(pDoc.data().joinedAt)
+    }));
+    const totalPaidFromParticipants = participants.reduce((sum, p) => sum + (parseFloat(p.paidAmount) || 0), 0);
+    const totalPaid = eventData.totalPaid != null ? Number(eventData.totalPaid) : totalPaidFromParticipants;
+    const amount = (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1);
+    const remainingAmount = eventData.remainingAmount != null ? Number(eventData.remainingAmount) : Math.max(0, amount - totalPaid);
+    const status = eventData.status && eventData.status !== 'open' ? eventData.status : (totalPaid >= amount - 0.01 ? 'completed' : 'active');
+    return {
+      id: eventSnap.id,
+      code: eventData.code,
+      title: eventData.title,
+      description: eventData.description || '',
+      location: eventData.location || null,
+      startDate: eventData.startDate,
+      endDate: eventData.endDate,
+      amount,
+      totalPaid,
+      remainingAmount,
+      deadline: eventData.deadline || 30,
+      currency: eventData.currency || 'EUR',
+      organizerId: eventData.organizerId,
+      organizerName: eventData.organizerName || '',
+      participants,
+      status,
+      createdAt: convertFirestoreDate(eventData.createdAt),
+      closedAt: eventData.closedAt ? convertFirestoreDate(eventData.closedAt) : null
+    };
+  } catch (err) {
+    console.warn('[Firestore] getEventById:', err);
     return null;
   }
 }
@@ -323,6 +386,11 @@ export async function createEvent(eventData) {
       throw new Error('L\'organisateur (organizerId) est requis pour créer un événement.');
     }
 
+    // Normaliser organizerId pour éviter les "disparitions" dues à la casse (Firestore where == est sensible à la casse)
+    // On conserve organizerId original + une version normalisée pour les requêtes.
+    const organizerIdRaw = String(eventData.organizerId).trim();
+    const organizerIdLower = organizerIdRaw.toLowerCase();
+
     // Vérifier que le code n'existe pas déjà
     console.log('[Firestore] 🔍 Checking if code already exists:', cleanCode);
     const existingEvent = await findEventByCode(cleanCode);
@@ -343,7 +411,8 @@ export async function createEvent(eventData) {
       endDate: eventData.endDate,
       participantsTarget: eventData.participants?.length || eventData.expectedParticipants || 1,
       targetAmountPerPerson: eventData.amount / (eventData.participants?.length || 1),
-      organizerId: eventData.organizerId,
+      organizerId: organizerIdRaw,
+      organizerIdLower,
       organizerName: eventData.organizerName || '',
       deadline: eventData.deadline || 30,
       currency: eventData.currency || 'EUR',
@@ -369,10 +438,10 @@ export async function createEvent(eventData) {
     // Ajouter l'organisateur comme participant
     // IMPORTANT: L'organisateur doit toujours être présent dans Firestore
     // Le code événement est lié à l'organisateur via organizerId dans le document événement
-    if (eventData.organizerId) {
+    if (organizerIdRaw) {
       const participantsRef = collection(db, 'events', eventDocRef.id, 'participants');
       // Utiliser l'email de l'organisateur si disponible (organizerId est généralement l'email)
-      const organizerEmail = eventData.organizerId.includes('@') ? eventData.organizerId : (eventData.organizerEmail || eventData.organizerId);
+      const organizerEmail = organizerIdRaw.includes('@') ? organizerIdRaw : (eventData.organizerEmail || organizerIdRaw);
       
       console.log('[Firestore] 👤 Adding organizer as participant:', {
         eventId: eventDocRef.id,
@@ -383,7 +452,7 @@ export async function createEvent(eventData) {
       });
       
       await addDoc(participantsRef, {
-        userId: eventData.organizerId,
+        userId: organizerIdRaw,
         name: eventData.organizerName || 'Organisateur',
         email: organizerEmail, // Utiliser l'email de l'organisateur
         role: 'organizer',
@@ -430,16 +499,19 @@ export async function createNotification(userId, notificationData) {
     }
 
     const notificationsRef = collection(db, 'notifications');
-    const notificationDocRef = await addDoc(notificationsRef, {
+    const payload = {
       userId,
       type: notificationData.type || 'info',
       title: notificationData.title || '',
       message: notificationData.message || '',
-      eventId: notificationData.eventId || null,
-      relatedId: notificationData.relatedId || null,
+      eventId: notificationData.eventId ?? null,
+      relatedId: notificationData.relatedId ?? null,
       read: false,
       createdAt: serverTimestamp()
-    });
+    };
+    if (notificationData.fromEmail != null) payload.fromEmail = notificationData.fromEmail;
+    if (notificationData.email != null) payload.email = notificationData.email;
+    const notificationDocRef = await addDoc(notificationsRef, payload);
 
     console.log('[Firestore] ✅ Notification created:', notificationDocRef.id, {
       userId,
@@ -561,16 +633,19 @@ export async function createJoinRequest(eventId, participantData) {
       console.error('[Firestore] ❌ Verification failed: Request does not exist in Firestore!');
     }
 
-    // Créer une notification pour l'organisateur
+    // Créer une notification pour l'organisateur (champs requis par les règles Firestore)
     const organizerId = eventData.organizerId;
     if (organizerId) {
+      const authEmail = getAuthApp().currentUser?.email?.toLowerCase?.();
+      const requesterEmail = (authEmail || normalizedEmail || normalizedUserId || '').trim().toLowerCase();
       console.log('[Firestore] 🔔 Creating notification for organizer:', organizerId);
-      
+
       const notificationId = await createNotification(organizerId, {
         type: 'join_request',
+        eventId,
+        fromEmail: requesterEmail,
         title: 'Nouvelle demande de participation',
         message: `${participantData.name || participantData.pseudo} souhaite rejoindre "${eventData.title}"`,
-        eventId: eventId,
         relatedId: requestDocRef.id
       });
 
@@ -857,6 +932,211 @@ export async function checkParticipantAccess(eventId, email) {
 }
 
 /**
+ * Met à jour un participant dans Firestore (paidAmount, hasPaid, etc.)
+ * Les données saisies par l'invité ou l'organisateur restent visibles pour tous.
+ * Fidélité : l'ID participant est normalisé (email en minuscules) pour cibler le même doc que createJoinRequest/approve.
+ * @param {string} eventId - ID Firestore de l'événement
+ * @param {string} participantId - ID du participant (doc Firestore ; si email, sera mis en minuscules)
+ * @param {Object} updates - Champs à mettre à jour (paidAmount, hasPaid, paidDate, paymentMethod, amountDue, ...)
+ */
+export async function updateParticipantInFirestore(eventId, participantId, updates) {
+  if (!eventId || !participantId) return;
+  try {
+    // Même clé que createJoinRequest / approve : email en minuscules pour éviter doublon et restitution fidèle
+    let idStr = String(participantId).trim();
+    if (idStr.includes('@')) idStr = idStr.toLowerCase();
+    const participantRef = doc(db, 'events', eventId, 'participants', idStr);
+    const snap = await getDoc(participantRef);
+    if (!snap.exists()) return;
+    const payload = {};
+    if (updates.hasPaid !== undefined) payload.hasPaid = !!updates.hasPaid;
+    if (updates.paidAmount !== undefined) payload.paidAmount = Number(updates.paidAmount);
+    if (updates.paidDate !== undefined) payload.paidDate = updates.paidDate instanceof Date ? Timestamp.fromDate(updates.paidDate) : updates.paidDate;
+    if (updates.paymentMethod !== undefined) payload.paymentMethod = String(updates.paymentMethod);
+    if (updates.amountDue !== undefined) payload.amountDue = Number(updates.amountDue);
+    await updateDoc(participantRef, payload);
+  } catch (err) {
+    console.warn('[Firestore] updateParticipantInFirestore:', err);
+  }
+}
+
+/**
+ * Met à jour le document événement dans Firestore (totalPaid, remainingAmount, status).
+ * Ne modifie jamais organizerId/organizerName (contrat Firestore).
+ * Pour restitution fidèle des données saisies.
+ */
+export async function updateEventInFirestore(eventId, updates) {
+  if (!eventId) return;
+  try {
+    const eventRef = doc(db, 'events', eventId);
+    const payload = {};
+    if (updates.totalPaid !== undefined) payload.totalPaid = Number(updates.totalPaid);
+    if (updates.remainingAmount !== undefined) payload.remainingAmount = Number(updates.remainingAmount);
+    if (updates.status !== undefined) payload.status = String(updates.status);
+    if (Object.keys(payload).length === 0) return;
+    await updateDoc(eventRef, payload);
+  } catch (err) {
+    console.warn('[Firestore] updateEventInFirestore:', err);
+  }
+}
+
+// ——— Transactions (règle BonKont : source de vérité partagée, pas de cache local seul) ———
+
+/** Convertit un objet transaction pour Firestore (dates → Timestamp). */
+function transactionToFirestore(data) {
+  const out = { ...data };
+  if (out.createdAt != null) out.createdAt = toFirestoreDate(out.createdAt instanceof Date ? out.createdAt : new Date(out.createdAt));
+  if (out.updatedAt != null) out.updatedAt = toFirestoreDate(out.updatedAt instanceof Date ? out.updatedAt : new Date(out.updatedAt));
+  if (out.date != null && typeof out.date !== 'object') out.date = out.date; // garder string date si besoin
+  if (out.date instanceof Date) out.date = toFirestoreDate(out.date);
+  if (out.paidDate != null) out.paidDate = toFirestoreDate(out.paidDate instanceof Date ? out.paidDate : new Date(out.paidDate));
+  return out;
+}
+
+/** Convertit un document Firestore en transaction pour l'app (Timestamp → Date). */
+function transactionFromFirestore(docSnap) {
+  const data = docSnap.data();
+  if (!data) return null;
+  const id = docSnap.id;
+  return {
+    id,
+    ...data,
+    eventId: data.eventId,
+    createdAt: convertFirestoreDate(data.createdAt),
+    updatedAt: convertFirestoreDate(data.updatedAt),
+    date: data.date && (data.date?.toDate ? data.date.toDate() : data.date),
+    paidDate: data.paidDate ? convertFirestoreDate(data.paidDate) : data.paidDate,
+  };
+}
+
+/**
+ * Ajoute une transaction pour un événement dans Firestore (source de vérité partagée).
+ * @param {string} eventId - ID Firestore de l'événement
+ * @param {Object} transactionData - Données de la transaction (amount, payerId, participants, type, source, etc.)
+ * @returns {Promise<string>} ID du document transaction créé
+ */
+export async function addTransactionToFirestore(eventId, transactionData) {
+  if (!eventId || !transactionData) {
+    console.warn('[Firestore] addTransactionToFirestore: eventId or transactionData missing');
+    return null;
+  }
+  try {
+    const ref = collection(db, 'events', String(eventId), 'transactions');
+    const payload = {
+      ...transactionData,
+      eventId: String(eventId),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    delete payload.id;
+    if (payload.date instanceof Date) payload.date = toFirestoreDate(payload.date);
+    if (payload.paidDate) payload.paidDate = toFirestoreDate(payload.paidDate instanceof Date ? payload.paidDate : new Date(payload.paidDate));
+    const docRef = await addDoc(ref, payload);
+    if (import.meta.env.DEV) {
+      console.log('[Firestore] ✅ Transaction added:', docRef.id, { eventId, amount: transactionData.amount });
+    }
+    return docRef.id;
+  } catch (err) {
+    console.error('[Firestore] addTransactionToFirestore:', err);
+    throw err;
+  }
+}
+
+/**
+ * Récupère toutes les transactions d'un événement depuis le serveur (restitution fidèle).
+ * @param {string} eventId - ID Firestore de l'événement
+ * @returns {Promise<Array>} Liste des transactions
+ */
+export async function getTransactionsFromFirestore(eventId) {
+  if (!eventId) return [];
+  try {
+    const ref = collection(db, 'events', String(eventId), 'transactions');
+    const q = query(ref, orderBy('createdAt', 'desc'));
+    const snapshot = await getDocsFromServer(q);
+    return snapshot.docs.map((d) => transactionFromFirestore(d)).filter(Boolean);
+  } catch (err) {
+    console.warn('[Firestore] getTransactionsFromFirestore:', err);
+    return [];
+  }
+}
+
+/**
+ * Écoute en temps réel les transactions d'un événement (tous les participants voient les mêmes données).
+ * @param {string} eventId - ID Firestore de l'événement
+ * @param {Function} onUpdate - Callback appelé avec la liste des transactions à chaque mise à jour
+ * @returns {Function} Désabonnement
+ */
+export function listenEventTransactions(eventId, onUpdate) {
+  if (!eventId) return () => {};
+  const ref = collection(db, 'events', String(eventId), 'transactions');
+  let q;
+  try {
+    q = query(ref, orderBy('createdAt', 'desc'));
+  } catch (e) {
+    onUpdate([]);
+    return () => {};
+  }
+  const unsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      const transactions = snapshot.docs.map((d) => transactionFromFirestore(d)).filter(Boolean);
+      if (import.meta.env.DEV) {
+        console.log('[Firestore] 👂 Transactions updated for event', eventId, 'count:', transactions.length);
+      }
+      onUpdate(transactions);
+    },
+    (err) => {
+      console.error('[Firestore] listenEventTransactions error:', err);
+      onUpdate([]);
+    }
+  );
+  return unsubscribe;
+}
+
+/**
+ * Met à jour une transaction dans Firestore.
+ * @param {string} eventId - ID Firestore de l'événement
+ * @param {string} transactionId - ID du document transaction
+ * @param {Object} updates - Champs à mettre à jour
+ */
+export async function updateTransactionInFirestore(eventId, transactionId, updates) {
+  if (!eventId || !transactionId) return;
+  try {
+    const ref = doc(db, 'events', String(eventId), 'transactions', String(transactionId));
+    const payload = {};
+    if (updates.amount !== undefined) payload.amount = Number(updates.amount);
+    if (updates.payerId !== undefined) payload.payerId = String(updates.payerId);
+    if (updates.participants !== undefined) payload.participants = Array.isArray(updates.participants) ? updates.participants : [];
+    if (updates.store !== undefined) payload.store = String(updates.store);
+    if (updates.description !== undefined) payload.description = String(updates.description);
+    if (updates.type !== undefined) payload.type = String(updates.type);
+    if (updates.source !== undefined) payload.source = String(updates.source);
+    if (updates.validatedBy !== undefined) payload.validatedBy = Array.isArray(updates.validatedBy) ? updates.validatedBy : [];
+    payload.updatedAt = serverTimestamp();
+    await updateDoc(ref, payload);
+  } catch (err) {
+    console.warn('[Firestore] updateTransactionInFirestore:', err);
+    throw err;
+  }
+}
+
+/**
+ * Supprime une transaction dans Firestore.
+ * @param {string} eventId - ID Firestore de l'événement
+ * @param {string} transactionId - ID du document transaction
+ */
+export async function deleteTransactionInFirestore(eventId, transactionId) {
+  if (!eventId || !transactionId) return;
+  try {
+    const ref = doc(db, 'events', String(eventId), 'transactions', String(transactionId));
+    await deleteDoc(ref);
+  } catch (err) {
+    console.warn('[Firestore] deleteTransactionInFirestore:', err);
+    throw err;
+  }
+}
+
+/**
  * Approuve ou refuse une demande de participation
  * @param {string} eventId - ID de l'événement
  * @param {string} requestId - ID de la demande
@@ -1047,20 +1327,64 @@ export async function getEventsByOrganizer(organizerId) {
       console.warn('[Firestore] ⚠️ No organizerId provided');
       return [];
     }
-    
+
+    // Firestore where == est sensible à la casse.
+    // On tente d'abord le champ normalisé organizerIdLower, puis fallback sur organizerId (raw/lower/upper).
+    const organizerIdRaw = String(organizerId).trim();
+    const organizerIdLower = organizerIdRaw.toLowerCase();
+    const organizerIdUpper = organizerIdRaw.toUpperCase();
+
     const eventsRef = collection(db, 'events');
-    const q = query(eventsRef, where('organizerId', '==', organizerId));
-    const querySnapshot = await getDocs(q);
+
+    const snapshots = [];
+    try {
+      const qLowerField = query(eventsRef, where('organizerIdLower', '==', organizerIdLower));
+      snapshots.push(await getDocsFromServer(qLowerField));
+    } catch (e) {
+      console.warn('[Firestore] organizerIdLower query failed (field may not exist yet):', e?.message || e);
+    }
+
+    // Fallback(s) pour anciens documents qui n'ont pas organizerIdLower
+    const variants = Array.from(new Set([organizerIdRaw, organizerIdLower, organizerIdUpper])).filter(Boolean);
+    for (const v of variants) {
+      try {
+        const q = query(eventsRef, where('organizerId', '==', v));
+        snapshots.push(await getDocsFromServer(q));
+      } catch (e) {
+        console.warn('[Firestore] organizerId query failed for variant:', v, e?.message || e);
+      }
+    }
+
+    // Fusionner les docs (éviter doublons si plusieurs requêtes matchent)
+    const byId = new Map();
+    for (const snap of snapshots) {
+      for (const d of snap?.docs || []) {
+        byId.set(d.id, d);
+      }
+    }
+
+    const docs = Array.from(byId.values());
     
-    console.log('[Firestore] 📊 Found', querySnapshot.size, 'events for organizer');
+    console.log('[Firestore] 📊 Found', docs.length, 'events for organizer');
     
     const events = [];
-    for (const docSnap of querySnapshot.docs) {
+    for (const docSnap of docs) {
       const eventData = docSnap.data();
+
+      // Backfill doux : si organizerIdLower absent sur un ancien doc, le créer (évite futures "disparitions")
+      try {
+        if (eventData?.organizerId && !eventData?.organizerIdLower) {
+          await updateDoc(doc(db, 'events', docSnap.id), {
+            organizerIdLower: String(eventData.organizerId).trim().toLowerCase(),
+          });
+        }
+      } catch (e) {
+        // non bloquant
+      }
       
-      // Récupérer les participants depuis Firestore
+      // Récupérer les participants depuis le serveur (données partagées, règle BonKont)
       const participantsRef = collection(db, 'events', docSnap.id, 'participants');
-      const participantsSnapshot = await getDocs(participantsRef);
+      const participantsSnapshot = await getDocsFromServer(participantsRef);
       let participants = participantsSnapshot.docs.map(pDoc => ({
         id: pDoc.id,
         ...pDoc.data(),
@@ -1104,10 +1428,12 @@ export async function getEventsByOrganizer(organizerId) {
         // L'organisateur doit être créé lors de createEvent
       }
       
-      // Calculer totalPaid à partir des participants
-      const totalPaid = participants.reduce((sum, p) => {
-        return sum + (parseFloat(p.paidAmount) || 0);
-      }, 0);
+      // Restitution fidèle : totalPaid/remainingAmount/status du doc si présents
+      const totalPaidFromParticipants = participants.reduce((sum, p) => sum + (parseFloat(p.paidAmount) || 0), 0);
+      const totalPaid = eventData.totalPaid != null ? Number(eventData.totalPaid) : totalPaidFromParticipants;
+      const amount = (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1);
+      const remainingAmount = eventData.remainingAmount != null ? Number(eventData.remainingAmount) : Math.max(0, amount - totalPaid);
+      const status = eventData.status && eventData.status !== 'open' ? eventData.status : (totalPaid >= amount - 0.01 ? 'completed' : 'active');
 
       events.push({
         id: docSnap.id,
@@ -1118,22 +1444,79 @@ export async function getEventsByOrganizer(organizerId) {
         location: eventData.location || null,
         startDate: eventData.startDate,
         endDate: eventData.endDate,
-        amount: (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1),
-        totalPaid: totalPaid,
+        amount,
+        totalPaid,
+        remainingAmount,
         deadline: eventData.deadline || 30,
         currency: eventData.currency || 'EUR',
         organizerId: eventData.organizerId,
         organizerName: eventData.organizerName || '',
-        status: eventData.status === 'open' ? 'active' : (eventData.status || 'active'),
+        status,
         createdAt: eventData.createdAt?.toDate() || new Date(),
-        participants: participants
+        participants
       });
     }
-    
-    console.log('[Firestore] ✅ Events loaded:', events.map(e => ({ id: e.id, code: e.code, title: e.title })));
+    if (import.meta.env.DEV) {
+      console.log('[Firestore] ✅ Events loaded:', events.length, 'events');
+    }
     return events;
   } catch (error) {
     console.error('[Firestore] ❌ Error getting events by organizer:', error);
+    return [];
+  }
+}
+
+/**
+ * Récupère les événements où un utilisateur est participant (confirmé ou non),
+ * en se basant sur la sous-collection events/{eventId}/participants/{participantId}.
+ *
+ * Utile pour "restituer" les événements après perte du cache local (localStorage) :
+ * on reconstruit la liste depuis Firestore.
+ *
+ * Pré-requis rules: autoriser collectionGroup("participants") en lecture.
+ */
+export async function getEventsByParticipant(userKey) {
+  try {
+    const key = String(userKey || '').trim().toLowerCase();
+    if (!key) return [];
+
+    console.log('[Firestore] 🔍 Getting events by participant:', key);
+
+    // On cherche par email (champ email) OU userId (champ userId) car l’app utilise les deux.
+    const participantsCg = collectionGroup(db, 'participants');
+    const qByEmail = query(participantsCg, where('email', '==', key));
+    const qByUserId = query(participantsCg, where('userId', '==', key));
+
+    const [snapEmail, snapUser] = await Promise.all([
+      getDocsFromServer(qByEmail),
+      getDocsFromServer(qByUserId),
+    ]);
+
+    const participantDocs = new Map();
+    for (const d of snapEmail.docs) participantDocs.set(d.ref.path, d);
+    for (const d of snapUser.docs) participantDocs.set(d.ref.path, d);
+
+    // Remonter aux parents events/{eventId}
+    const eventIds = new Set();
+    for (const d of participantDocs.values()) {
+      // path: events/{eventId}/participants/{participantId}
+      const segments = d.ref.path.split('/');
+      const evIdx = segments.indexOf('events');
+      if (evIdx !== -1 && segments.length > evIdx + 1) {
+        eventIds.add(segments[evIdx + 1]);
+      }
+    }
+
+    const events = [];
+    for (const eventId of eventIds) {
+      const ev = await getEventById(eventId);
+      if (ev) events.push({ ...ev, firestoreId: ev.id });
+    }
+
+    console.log('[Firestore] ✅ Events by participant loaded:', events.length);
+    return events;
+  } catch (error) {
+    console.error('[Firestore] ❌ Error getting events by participant:', error);
     return [];
   }
 }

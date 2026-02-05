@@ -1,68 +1,48 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
 
-export const useTransactionsStore = create()(
-  persist(
-    (set) => ({
-      transactions: [],
-      
-      addTransaction: (eventId, transactionData) => set((state) => {
-        console.log('[TransactionsStore] ⚠️ ADDING TRANSACTION:', { 
-          eventId, 
-          transactionData,
-          source: transactionData.source,
-          participants: transactionData.participants,
-          payerId: transactionData.payerId,
-          amount: transactionData.amount
-        });
-        const newTransaction = {
-          id: nanoid(),
-          eventId,
-          ...transactionData,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        console.log('[TransactionsStore] ✅ Transaction créée:', {
-          id: newTransaction.id,
-          eventId: newTransaction.eventId,
-          source: newTransaction.source,
-          participants: newTransaction.participants,
-          payerId: newTransaction.payerId,
-          amount: newTransaction.amount
-        });
-        return { transactions: [newTransaction, ...state.transactions] };
-      }),
+/**
+ * Store des transactions par événement.
+ * Règle BonKont : la source de vérité est Firestore (events/{eventId}/transactions).
+ * Ce store est alimenté par listenEventTransactions() ; ne pas persister en local
+ * pour que tous les participants voient les mêmes données (sync partagée).
+ */
+export const useTransactionsStore = create()((set, get) => ({
+  transactions: [],
 
-      updateTransaction: (transactionId, updates) => set((state) => {
-        console.log('[TransactionsStore] Updating transaction:', { transactionId, updates });
-        return {
-          transactions: state.transactions.map((transaction) =>
-            transaction.id === transactionId
-              ? { ...transaction, ...updates, updatedAt: new Date() }
-              : transaction
-          ),
-        };
-      }),
+  /** Remplace les transactions d’un événement (appelé par l’abonnement Firestore). */
+  setTransactionsForEvent: (eventId, transactionsList) => {
+    const eventIdStr = String(eventId);
+    set((state) => {
+      const others = state.transactions.filter((t) => String(t.eventId) !== eventIdStr);
+      const withEventId = (transactionsList || []).map((t) => ({ ...t, eventId: t.eventId || eventIdStr }));
+      return { transactions: [...others, ...withEventId] };
+    });
+  },
 
-      deleteTransaction: (transactionId) => set((state) => {
-        console.log('[TransactionsStore] Deleting transaction:', transactionId);
-        return {
-          transactions: state.transactions.filter((t) => t.id !== transactionId),
-        };
-      }),
+  addTransaction: (eventId, transactionData) => set((state) => {
+    const newTransaction = {
+      id: nanoid(),
+      eventId,
+      ...transactionData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    return { transactions: [newTransaction, ...state.transactions] };
+  }),
 
-      getTransactionsByEvent: (eventId) => {
-        const state = useTransactionsStore.getState();
-        const filtered = state.transactions.filter((t) => t.eventId === eventId);
-        console.log('[TransactionsStore] Getting transactions for event:', { eventId, count: filtered.length });
-        return filtered;
-      },
-    }),
-    {
-      name: 'bonkont-transactions',
-      partialize: (state) => ({ transactions: state.transactions }),
-    }
-  )
-);
+  updateTransaction: (transactionId, updates) => set((state) => ({
+    transactions: state.transactions.map((t) =>
+      t.id === transactionId ? { ...t, ...updates, updatedAt: new Date() } : t
+    ),
+  })),
 
+  deleteTransaction: (transactionId) => set((state) => ({
+    transactions: state.transactions.filter((t) => t.id !== transactionId),
+  })),
+
+  getTransactionsByEvent: (eventId) => {
+    const state = get();
+    return state.transactions.filter((t) => String(t.eventId) === String(eventId));
+  },
+}));

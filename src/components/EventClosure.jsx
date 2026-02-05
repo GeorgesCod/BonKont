@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useEventStore } from '@/store/eventStore';
-import { useTransactionsStore } from '@/store/transactionsStore';
+import { useEventTransactions } from '@/hooks/useEventTransactions';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,16 +60,17 @@ import {
 } from '@/components/ui/accordion';
 
 export function EventClosure({ eventId, onBack }) {
-  console.log('[EventClosure] Component mounted:', { eventId });
-  
   const { toast } = useToast();
   const allEvents = useEventStore((state) => state.events);
   const updateEvent = useEventStore((state) => state.updateEvent);
   const addRating = useEventStore((state) => state.addRating);
-  const event = allEvents.find(e => String(e.id) === String(eventId));
-  const transactions = useTransactionsStore((state) => state.getTransactionsByEvent(eventId));
-  const addTransaction = useTransactionsStore((state) => state.addTransaction);
-  
+  const event = allEvents.find(e => String(e.id) === String(eventId) || (e.firestoreId && String(e.firestoreId) === String(eventId)));
+  const { transactions, effectiveEventId } = useEventTransactions(event);
+  const eventForCalc = useMemo(
+    () => (event ? { ...event, id: effectiveEventId || event.id } : null),
+    [event, effectiveEventId]
+  );
+
   const [showValidationDialog, setShowValidationDialog] = useState(false);
   const [isValidated, setIsValidated] = useState(event?.closureValidated || false);
   const [timeRemaining, setTimeRemaining] = useState(null);
@@ -162,7 +163,7 @@ export function EventClosure({ eventId, onBack }) {
     );
   }
   
-  const balancesResult = computeBalances(event, transactions);
+  const balancesResult = computeBalances(eventForCalc || event, transactions);
   const { balances, potBalance } = balancesResult;
   const transfersResult = computeTransfers(balancesResult);
   const transfers = transfersResult.transfers || [];

@@ -6,6 +6,10 @@
 
 C'est Transparent, c'est Équitable, c'est Bonkont.
 
+### 🔴 Données partagées et équitables (carton rouge)
+
+La base doit **restituer fidèlement** les mêmes données pour l’organisateur et pour chaque participant : montants payés, statuts, participants, etc. Si un participant (ex. invité par code) ne peut pas consulter les données qu’il partage avec l’événement, ou voit des données différentes de l’organisateur, c’est une **incohérence inacceptable** — règle Bonkont carton rouge. L’application garantit une lecture systématique depuis le serveur (pas de cache local incohérent) pour que tout le monde voie la même vérité.
+
 ---
 
 ## 📋 La Double Règle Bonkont

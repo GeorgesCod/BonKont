@@ -172,7 +172,18 @@ export function EventJoin({ onAuthRequired }) {
   const handleConfirmedParticipant = (foundEvent, existingParticipant, userEmail) => {
     console.log('[EventJoin] ✅ Handling confirmed participant, adding event to store and redirecting');
     
-    // Ajouter l'événement au store local pour que le participant puisse y accéder
+    const codeNorm = (foundEvent.code || '').toString().toUpperCase().replace(/[^A-Z]/g, '');
+    if (codeNorm.length >= 8) {
+      try {
+        const raw = localStorage.getItem('bonkont-joined-codes');
+        const codes = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(codes) && !codes.includes(codeNorm)) {
+          codes.push(codeNorm);
+          localStorage.setItem('bonkont-joined-codes', JSON.stringify(codes));
+        }
+      } catch (_) {}
+    }
+    
     const addEvent = useEventStore.getState().addEvent;
     const existingEvent = useEventStore.getState().events.find(e => 
       String(e.id) === String(foundEvent.id) || 

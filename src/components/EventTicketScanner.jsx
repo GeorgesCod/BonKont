@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TesseractTest } from '@/components/TesseractTest';
 import { useEventStore } from '@/store/eventStore';
-import { useTransactionsStore } from '@/store/transactionsStore';
+import { updateParticipantInFirestore, updateEventInFirestore, addTransactionToFirestore } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -25,10 +25,10 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
   }, [isOpen, eventId, participantId, hasLogged]);
 
   const { toast } = useToast();
-  const event = useEventStore((state) => state.events.find(e => e.id === eventId));
+  const event = useEventStore((state) => state.events.find(e => e.id === eventId || (e.firestoreId && String(e.firestoreId) === String(eventId))));
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   const updateEvent = useEventStore((state) => state.updateEvent);
-  const addTransaction = useTransactionsStore((state) => state.addTransaction);
+  const effectiveEventId = event?.firestoreId || event?.id;
 
   const [extractedData, setExtractedData] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -169,28 +169,33 @@ export function EventTicketScanner({ eventId, participantId, isOpen, onClose, on
         payerId: transactionData.payerId
       });
       
-      addTransaction(eventId, transactionData);
-      
-      console.log('[EventTicketScanner] ✅ Transaction ajoutée au store');
+      if (effectiveEventId) {
+        addTransactionToFirestore(effectiveEventId, transactionData).catch((err) =>
+          console.error('[EventTicketScanner] addTransactionToFirestore:', err)
+        );
+      }
 
-      // 2. Mise à jour du participant
-      updateParticipant(eventId, participantId, {
+      // 2. Mise à jour du participant (store + Firestore)
+      const participantUpdates = {
         hasPaid: isFullyPaid,
         paidAmount: newPaidAmount,
         paidDate: new Date(),
         paymentMethod: 'scanned_ticket'
-      });
+      };
+      updateParticipant(eventId, participantId, participantUpdates);
+      updateParticipantInFirestore(effectiveEventId || eventId, participantId, participantUpdates);
 
-      // 3. Mise à jour de l'événement
+      // 3. Mise à jour de l'événement (store + Firestore pour restitution fidèle)
       const currentTotalPaid = event.totalPaid || 0;
       const newTotalPaid = currentTotalPaid + scannedAmount;
       const eventRemainingAmount = Math.max(0, event.amount - newTotalPaid);
-
-      updateEvent(eventId, {
+      const eventUpdates = {
         totalPaid: newTotalPaid,
         remainingAmount: eventRemainingAmount,
         status: newTotalPaid >= event.amount - 0.01 ? 'completed' : 'active'
-      });
+      };
+      updateEvent(eventId, eventUpdates);
+      updateEventInFirestore(effectiveEventId || eventId, eventUpdates);
 
       console.log('[EventTicketScanner] Payment processed successfully:', {
         participant: participant.name,

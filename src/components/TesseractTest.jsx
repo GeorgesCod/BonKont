@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { FileText, Loader2, Upload, Scan, Camera, X, CheckCircle2, Save, Calendar } from 'lucide-react';
 import { useEventStore } from '@/store/eventStore';
-import { useTransactionsStore } from '@/store/transactionsStore';
+import { addTransactionToFirestore, updateParticipantInFirestore, updateEventInFirestore } from '@/services/api';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
@@ -162,7 +162,6 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
   const [isSaving, setIsSaving] = useState(false);
   
   const events = useEventStore((state) => state.events);
-  const addTransaction = useTransactionsStore((state) => state.addTransaction);
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   const updateEvent = useEventStore((state) => state.updateEvent);
 
@@ -1425,8 +1424,13 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
                           validatedBy: [selectedParticipantId],
                         };
 
+                        const effectiveEventId = selectedEvent.firestoreId || selectedEvent.id;
                         console.log('[TesseractTest] Creating transaction:', transactionData);
-                        addTransaction(selectedEventId, transactionData);
+                        if (effectiveEventId) {
+                          addTransactionToFirestore(effectiveEventId, transactionData).catch((err) =>
+                            console.error('[TesseractTest] addTransactionToFirestore:', err)
+                          );
+                        }
                         console.log('[TesseractTest] Transaction created');
 
                         // 2. Créditer le compte du participant
@@ -1449,6 +1453,14 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
                           paidDate: new Date(),
                           paymentMethod: 'scanned_ticket'
                         });
+                        if (effectiveEventId) {
+                          updateParticipantInFirestore(effectiveEventId, selectedParticipantId, {
+                            hasPaid: isFullyPaid,
+                            paidAmount: newPaidAmount,
+                            paidDate: new Date(),
+                            paymentMethod: 'scanned_ticket'
+                          }).catch(() => {});
+                        }
                         console.log('[TesseractTest] Participant updated');
 
                         // 3. Mettre à jour l'événement
@@ -1461,6 +1473,13 @@ export function TesseractTest({ onDataExtracted, showEventSelection = false, aut
                           remainingAmount: eventRemainingAmount,
                           status: newTotalPaid >= selectedEvent.amount - 0.01 ? 'completed' : 'active'
                         });
+                        if (effectiveEventId) {
+                          updateEventInFirestore(effectiveEventId, {
+                            totalPaid: newTotalPaid,
+                            remainingAmount: eventRemainingAmount,
+                            status: newTotalPaid >= selectedEvent.amount - 0.01 ? 'completed' : 'active'
+                          }).catch(() => {});
+                        }
                         console.log('[TesseractTest] Event updated');
 
                         console.log('[TesseractTest] ===== SAVE COMPLETE =====');
