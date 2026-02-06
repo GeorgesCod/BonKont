@@ -20,10 +20,24 @@ const firebaseConfig = {
 // Initialiser Firebase
 const app = initializeApp(firebaseConfig);
 
+/** Projet Firebase utilisé (pour diagnostic : même projet sur création et sur "rejoindre") */
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
+
+// Alerter si la config ressemble aux valeurs par défaut (build sans .env / variables non injectées)
+const apiKey = (firebaseConfig.apiKey || '').trim();
+if (!apiKey || apiKey.includes('Dummy') || apiKey.includes('ReplaceWithReal')) {
+  console.warn(
+    '[Firebase] ⚠️ Configuration invalide ou placeholder détectée (apiKey). ' +
+    'Les écritures Firestore peuvent échouer. Vérifiez que VITE_FIREBASE_* sont définis au build (voir .env.example).'
+  );
+}
+
 // Initialiser Firestore
 export const db = getFirestore(app);
 
-export const getAuthApp = getAuth;
+// Instance Auth (pour signInWithEmailAndPassword, etc.) — requise pour les règles Firestore (request.auth)
+const auth = getAuth(app);
+export const getAuthApp = () => auth;
 
 // Helper pour convertir les dates Firestore
 export const convertFirestoreDate = (timestamp) => {

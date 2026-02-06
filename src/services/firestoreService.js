@@ -18,6 +18,7 @@
 
 import {
   db,
+  FIREBASE_PROJECT_ID,
   getAuthApp,
   convertFirestoreDate,
   toFirestoreDate
@@ -34,6 +35,7 @@ import {
   updateDoc,
   query,
   where,
+  limit,
   orderBy,
   serverTimestamp,
   Timestamp,
@@ -44,14 +46,72 @@ import {
 } from 'firebase/firestore';
 
 /**
+ * RÈGLE BONKONT – ACCÈS PAR NIVEAU
+ * Niveau 1 (PUBLIC) : events/{eventId} uniquement → findEventByCodePublic().
+ *   Utilisé par : EventJoin (invité), createJoinRequest (temp-), utilitaires console.
+ * Niveau 2 (PRIVÉ) : events + participants + transactions → findEventByCode(), getEventById(), etc.
+ *   Utilisé par : EventManagement, EventDashboard (après confirmation), listener joinRequest confirmé.
+ * Ne jamais appeler findEventByCode() dans un contexte invité non participant.
+ */
+
+/**
+ * Version PUBLIQUE : trouve un événement par code SANS lire les participants.
+ * À utiliser pour le flux invité (page Rejoindre) : conforme aux règles Firestore
+ * (events/{eventId} lisible par tous, events/{eventId}/participants réservé aux participants).
+ * @param {string} code - Code de l'événement (8 caractères)
+ * @returns {Promise<Object|null>} L'événement avec participants: null, ou null si non trouvé
+ */
+export async function findEventByCodePublic(code) {
+  if (!code || !code.trim()) return null;
+  const cleanCode = code.trim().toUpperCase().replace(/[^A-Z]/g, '');
+  if (cleanCode.length < 8) return null;
+
+  try {
+    const eventsRef = collection(db, 'events');
+    const q = query(eventsRef, where('code', '==', cleanCode), limit(1));
+    // Lecture serveur pour éviter le cache (événement récent ou autre onglet)
+    const snap = await getDocsFromServer(q);
+    if (snap.empty) {
+      console.log('[Firestore] findEventByCodePublic: aucun document pour code:', cleanCode, '(project:', FIREBASE_PROJECT_ID || '?', ')');
+      return null;
+    }
+
+    const docSnap = snap.docs[0];
+    const eventData = docSnap.data();
+    const amount = (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1);
+    return {
+      id: docSnap.id,
+      code: eventData.code,
+      title: eventData.title,
+      description: eventData.description || '',
+      location: eventData.location || null,
+      startDate: eventData.startDate,
+      endDate: eventData.endDate,
+      amount,
+      currency: eventData.currency || 'EUR',
+      organizerId: eventData.organizerId,
+      organizerName: eventData.organizerName || '',
+      organizerEmail: eventData.organizerEmail || null,
+      status: eventData.status || 'active',
+      createdAt: convertFirestoreDate(eventData.createdAt),
+      expectedParticipants: eventData.participantsTarget || null,
+      participants: null
+    };
+  } catch (err) {
+    console.warn('[Firestore] findEventByCodePublic error:', err);
+    return null;
+  }
+}
+
+/**
  * Cherche un événement par son code
  * @param {string} code - Code de l'événement (8 caractères)
  * @returns {Promise<Object|null>} L'événement trouvé ou null
  */
 /**
- * Trouve un événement par son code
- * Le code événement est lié à l'organisateur via organizerId dans le document événement
- * Retourne l'événement avec organizerId, organizerName et la liste des participants (incluant l'organisateur)
+ * Trouve un événement par son code (avec participants).
+ * Réservé aux contextes où l'appelant a le droit de lire participants (organisateur, participant confirmé).
+ * Pour le flux invité, utiliser findEventByCodePublic().
  */
 export async function findEventByCode(code) {
   console.log('[Firestore] 🔍 findEventByCode called with:', { code, type: typeof code });
@@ -355,14 +415,15 @@ export async function getEventById(firestoreEventId) {
  * @returns {Promise<Object>} { success: true, eventId: string, message: string }
  */
 export async function createEvent(eventData) {
+  const hasOrganizer = !!(eventData.organizerId && String(eventData.organizerId).trim());
+  console.log('[Firestore] 📝 createEvent called', {
+    project: FIREBASE_PROJECT_ID,
+    code: eventData.code,
+    title: eventData.title,
+    hasOrganizer,
+    organizerId: hasOrganizer ? '(présent)' : 'MANQUANT'
+  });
   try {
-    console.log('[Firestore] 📝 Creating event:', {
-      title: eventData.title,
-      code: eventData.code,
-      organizerId: eventData.organizerId,
-      organizerName: eventData.organizerName,
-      organizerEmail: eventData.organizerEmail
-    });
 
     // Nettoyer le code de la même manière que dans findEventByCode
     // Garder uniquement les lettres majuscules
@@ -391,9 +452,9 @@ export async function createEvent(eventData) {
     const organizerIdRaw = String(eventData.organizerId).trim();
     const organizerIdLower = organizerIdRaw.toLowerCase();
 
-    // Vérifier que le code n'existe pas déjà
+    // Vérifier que le code n'existe pas déjà (lecture publique uniquement, pas de participants)
     console.log('[Firestore] 🔍 Checking if code already exists:', cleanCode);
-    const existingEvent = await findEventByCode(cleanCode);
+    const existingEvent = await findEventByCodePublic(cleanCode);
     if (existingEvent) {
       console.warn('[Firestore] ⚠️ Code already exists:', cleanCode);
       throw new Error('Un événement avec ce code existe déjà');
@@ -421,10 +482,10 @@ export async function createEvent(eventData) {
       closedAt: null
     };
 
-    console.log('[Firestore] 💾 Saving event to Firestore:', {
+    console.log('[Firestore] 💾 addDoc(events) — envoi vers Firestore', {
+      project: FIREBASE_PROJECT_ID,
       code: eventDataToSave.code,
-      title: eventDataToSave.title,
-      organizerId: eventDataToSave.organizerId
+      title: eventDataToSave.title
     });
 
     const eventDocRef = await addDoc(eventsRef, eventDataToSave);
@@ -432,7 +493,8 @@ export async function createEvent(eventData) {
     console.log('[Firestore] ✅ Event created with ID:', eventDocRef.id, {
       eventId: eventDocRef.id,
       code: cleanCode,
-      title: eventData.title
+      title: eventData.title,
+      project: FIREBASE_PROJECT_ID || '?'
     });
 
     // Ajouter l'organisateur comme participant
@@ -478,7 +540,11 @@ export async function createEvent(eventData) {
       message: 'Événement créé avec succès'
     };
   } catch (error) {
-    console.error('[Firestore] Error creating event:', error);
+    console.error('[Firestore] ❌ createEvent failed', {
+      code: error?.code,
+      message: error?.message,
+      project: FIREBASE_PROJECT_ID
+    }, error);
     throw error;
   }
 }
@@ -549,11 +615,11 @@ export async function createJoinRequest(eventId, participantData) {
       console.error('[Firestore] 💡 2. The eventId is incorrect (e.g., temp-XXX instead of real Firestore ID)');
       console.error('[Firestore] 💡 3. The event was deleted');
       
-      // Si l'ID commence par "temp-", essayer de trouver l'événement par code
+      // Si l'ID commence par "temp-", essayer de trouver l'événement par code (lecture publique uniquement)
       if (eventId.startsWith('temp-')) {
         const code = eventId.replace('temp-', '');
         console.log('[Firestore] 🔍 Trying to find event by code:', code);
-        const foundEvent = await findEventByCode(code);
+        const foundEvent = await findEventByCodePublic(code);
         if (foundEvent) {
           console.log('[Firestore] ✅ Event found by code, using real eventId:', foundEvent.id);
           // Utiliser le vrai ID Firestore
@@ -665,7 +731,8 @@ export async function createJoinRequest(eventId, participantData) {
 
     // ✅ Inscrire immédiatement le participant sur la liste de l'événement (status pending)
     // pour qu'il apparaisse dans la liste dès l'inscription nom/email, avant acceptation organisateur
-    const participantId = normalizedEmail;
+    // IMPORTANT : même ID doc qu'à l'approbation (updateJoinRequest utilise email || userId) pour un seul document
+    const participantId = (normalizedEmail || normalizedUserId).trim().toLowerCase();
     const participantRef = doc(db, 'events', eventId, 'participants', participantId);
     const participantPayload = {
       userId: normalizedUserId,

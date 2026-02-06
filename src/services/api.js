@@ -10,6 +10,7 @@
 // Réexporter les fonctions depuis firestoreService pour compatibilité
 export {
   findEventByCode,
+  findEventByCodePublic,
   getEventById,
   createEvent,
   createJoinRequest,
@@ -18,6 +19,7 @@ export {
   getNotifications,
   markNotificationAsRead,
   getEventsByOrganizer,
+  getEventsByParticipant,
   checkParticipantAccess,
   listenMyJoinRequest,
   removeDuplicateParticipants,

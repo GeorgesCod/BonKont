@@ -1,16 +1,23 @@
 /**
  * Module Bonkont : Calcul des soldes et répartition avec POT (Cagnotte)
- * 
+ *
+ * Part théorique vs réel :
+ * - En début d'événement (ex. 1000€ pour 2 participants) : part théorique = 500€/personne = repère
+ *   budgétaire à ne pas dépasser, pas une obligation.
+ * - Seules les transactions initiées et validées suivent la logique Bonkont (contributions réelles,
+ *   dépenses prélevées sur la cagnotte ou en avance, consommation partagée).
+ *
+ * Cagnotte du contributeur :
+ * - Le contributeur (ex. Jacques 125€) peut puiser pour des dépenses : elles sont prélevées sur
+ *   sa cagnotte (ex. 50€ → il reste 75€). Si Alice fait une dépense (ex. 25€), c'est son avance.
+ * - On consomme (parts réelles), on se doit des remboursements si besoin. Les 75€ restant dans la
+ *   cagnotte de Jacques restent disponibles (futures dépenses ou remboursement de sa dette éventuelle).
+ *
  * Modèle POT : La cagnotte est un acteur comptable (compte de groupe)
- * - Reçoit les contributions (cash dans enveloppe, virement, etc.)
- * - Peut payer des dépenses directement
+ * - Reçoit les contributions (cash, virement, etc.)
+ * - Dépense avec payeur = contributeur → prélevée sur la cagnotte (reste = contribution - prélevé)
  * - Peut rembourser des participants qui ont avancé
- * 
- * Logique équitable basée sur :
- * - Consommation réelle (dépenses réparties sur concernés)
- * - Mise de fonds réelle (contributions + avances + paiements directs - reçus - remboursements)
- * - Solde = Mise - Consommation
- * 
+ *
  * Test de cohérence : Σ soldes participants + soldePOT = 0
  */
 
@@ -636,7 +643,7 @@ export function computeBalances(event, transactions) {
   // - Transferts directs : Validés pour traçabilité
   // - Remboursements POT : Validés pour traçabilité
   const contributions = transactions.filter(t => isContribution(t, eventId));
-  const expenses = transactions.filter(t => isExpense(t));
+  const expenses = transactions.filter(t => isExpense(t) && !isContribution(t, eventId));
   const directTransfers = transactions.filter(t => {
     const fromId = t.fromId || t.from;
     const toId = t.toId || t.to;
@@ -706,46 +713,13 @@ export function computeBalances(event, transactions) {
       return;
     }
     
-    // RÈGLE BONKONT : Déterminer qui est concerné par cette contribution validée
-    // Utiliser la même logique que pour les dépenses pour garantir la cohérence
-    const participantsConcerned = getParticipantsConcernedByExpense(transaction, event);
-    
-    if (participantsConcerned.length === 0) {
-      console.warn('[computeBalances] Contribution ignorée (aucun participant concerné):', {
-        transactionId: transaction.id,
-        fromId,
-        amount,
-        validatedBy: transaction.validatedBy || []
-      });
-      return;
-    }
-    
-    // Calculer la part équitable pour chaque participant concerné
-    const share = parseFloat((amount / participantsConcerned.length).toFixed(2));
-    
-    // Le participant qui paie verse le montant total au POT
-    balances[fromId].contribution = parseFloat((balances[fromId].contribution + amount).toFixed(2));
+    // Contribution = virement participant → POT. Pour que Σ soldes + solde POT = 0 :
+    // - POT reçoit : potBalance.contributions += amount
+    // - Le contributeur "sort" l'argent : on augmente sa consomme (il n'a plus cette somme).
+    // - On enregistre contribution pour l'affichage ; elle ne doit pas entrer dans "mise" (voir formule mise ci-dessous).
     potBalance.contributions = parseFloat((potBalance.contributions + amount).toFixed(2));
-    
-    // RÈGLE BONKONT : Tous les participants concernés consomment leur part équitablement
-    participantsConcerned.forEach(participantId => {
-      if (balances[participantId]) {
-        balances[participantId].consomme = parseFloat((balances[participantId].consomme + share).toFixed(2));
-      }
-    });
-    
-    // Log désactivé pour éviter la boucle infinie
-    // console.log('[computeBalances] ✅ Contribution comptabilisée avec partage équitable:', {
-    //   transactionId: transaction.id,
-    //   fromId,
-    //   participantName: balances[fromId].participantName,
-    //   amount: parseFloat(amount.toFixed(2)),
-    //   participantsConcerned: participantsConcerned.length,
-    //   share: parseFloat(share.toFixed(2)),
-    //   contributionAvant: parseFloat((balances[fromId].contribution - amount).toFixed(2)),
-    //   contributionApres: parseFloat(balances[fromId].contribution.toFixed(2)),
-    //   totalContributionsPot: parseFloat(potBalance.contributions.toFixed(2))
-    // });
+    balances[fromId].consomme = parseFloat((balances[fromId].consomme + amount).toFixed(2));
+    balances[fromId].contribution = parseFloat((balances[fromId].contribution + amount).toFixed(2));
   });
   
   // ===== B) DÉPENSES =====
@@ -969,8 +943,12 @@ export function computeBalances(event, transactions) {
       });
     }
     
-    // Vérifier si payé par POT
-    const paidByPot = isPaidByPot(transaction);
+    // Vérifier si payé par POT (explicite) ou si le payeur a contribué → dépense prélevée sur la cagnotte
+    let paidByPot = isPaidByPot(transaction);
+    const payerHasContribution = payerIdStr && balances[payerIdStr] && (balances[payerIdStr].contribution || 0) > 0.01;
+    if (!paidByPot && payerHasContribution) {
+      paidByPot = true; // RÈGLE BONKONT : contribution validée → en cas de dépense avec ce payeur, on prélève sur la cagnotte
+    }
     
     // RÈGLE BONKONT : Le payeur DOIT être dans la liste des participants valides
     // Chaque participant qui avance des frais consomme sa part au prorata, comme tous les autres participants concernés
@@ -1013,13 +991,19 @@ export function computeBalances(event, transactions) {
     // });
     
     if (paidByPot) {
-      // Dépense payée par POT
+      // Dépense payée par POT (ou prélevée sur la cagnotte car payeur = contributeur)
       potBalance.expensesPaid = parseFloat((potBalance.expensesPaid + amount).toFixed(2));
       
       // Chaque participant concerné consomme sa part
       validParticipants.forEach(participantId => {
         balances[participantId].consomme = parseFloat((balances[participantId].consomme + share).toFixed(2));
       });
+      
+      // Si c'était le contributeur qui payait : la somme prélevée vient de sa contribution (il reste 125-50=75 dans la cagnotte).
+      // Compenser sa consomme : on avait +contribution, on enlève "amount" (prélevé) + "amount" pour garder Σ soldes + POT = 0.
+      if (payerHasContribution && payerIdStr && balances[payerIdStr]) {
+        balances[payerIdStr].consomme = parseFloat((balances[payerIdStr].consomme - amount * 2).toFixed(2));
+      }
       
       // Log désactivé pour éviter la boucle infinie
       // console.log('[computeBalances] Dépense payée par POT:', {
@@ -1208,9 +1192,12 @@ export function computeBalances(event, transactions) {
   });
   
   // ===== CALCUL DES MISES DE FONDS RÉELLES =====
+  // Mise (pour le solde) = avance + paidOut - received - rembPot, sans "contribution", pour que Σ soldes + solde POT = 0.
+  // Mise affichée (contribution + avance + ...) pour cohérence UI "Mise totale = Contribution + Avancé".
   Object.keys(balances).forEach(participantId => {
     const balance = balances[participantId];
-    balance.mise = parseFloat((balance.contribution + balance.avance + balance.paidOut - balance.received - balance.rembPot).toFixed(2));
+    balance.mise = parseFloat((balance.avance + balance.paidOut - balance.received - balance.rembPot).toFixed(2));
+    balance.miseAvecContribution = parseFloat((balance.contribution + balance.avance + balance.paidOut - balance.received - balance.rembPot).toFixed(2));
   });
   
   // ===== CALCUL DES SOLDES PROVISOIRES =====
@@ -1244,7 +1231,8 @@ export function computeBalances(event, transactions) {
   // ===== TEST DE COHÉRENCE =====
   const totalSoldeParticipants = Object.values(balances).reduce((sum, b) => sum + b.solde, 0);
   const totalSolde = totalSoldeParticipants + potBalance.solde;
-  const isBalanced = Math.abs(totalSolde) <= 0.01;
+  // Tolérance 2 centimes : éviter "répartition incomplète" quand tout s'équilibre à 0 (arrondis, flottants)
+  const isBalanced = Math.abs(totalSolde) <= 0.02;
   
   // Logs détaillés pour diagnostic
   const totalMise = Object.values(balances).reduce((sum, b) => sum + b.mise, 0);
@@ -1520,10 +1508,10 @@ export function computeTransfers(balancesResult, mode = 'use_pot_priority') {
     const totalAvances = balancesArray.reduce((sum, b) => sum + (b.avance || 0), 0);
     const allBalancesZero = balancesArray.every(b => Math.abs(b.solde) < 0.01);
     
-    // Si POT a un solde négatif (déficitaire), afficher un avertissement
+    // Si POT a un solde négatif (déficitaire), afficher un avertissement (tolérance 2 ct pour arrondis)
     let warning = null;
     
-    if (potBalance.solde < -0.01) {
+    if (potBalance.solde < -0.02) {
       const manque = Math.abs(potBalance.solde).toFixed(2);
       warning = `Cagnotte déficitaire : il manque ${manque}€. ` +
                 `Des contributions supplémentaires sont nécessaires pour équilibrer les comptes. ` +

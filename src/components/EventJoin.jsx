@@ -11,9 +11,9 @@ import { useJoinRequestsStore } from '@/store/joinRequestsStore';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 import { QRCodeScanner } from '@/components/QRCodeScanner';
-import { findEventByCode, createJoinRequest, checkParticipantAccess, listenMyJoinRequest } from '@/services/api';
+import { findEventByCodePublic, findEventByCode, createJoinRequest, checkParticipantAccess, listenMyJoinRequest, getEventsByParticipant } from '@/services/api';
 
-export function EventJoin({ onAuthRequired }) {
+export function EventJoin({ onAuthRequired, onNavigateToDashboard, onOpenEvent }) {
   console.log('[EventJoin] ===== COMPONENT MOUNTED =====');
   console.log('[EventJoin] onAuthRequired prop received:', {
     exists: !!onAuthRequired,
@@ -47,6 +47,10 @@ export function EventJoin({ onAuthRequired }) {
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
   const hasSentJoinRequestRef = useRef(false);
   const [pendingRequestId, setPendingRequestId] = useState(null);
+  const [showJustLoggedInMessage, setShowJustLoggedInMessage] = useState(false);
+  // Anti-boucle: éviter de relancer la même recherche en parallèle
+  const checkingCodeRef = useRef(false);
+  const lastCheckedCodeRef = useRef('');
 
   // Synchroniser le code avec l'URL quand on arrive depuis la page événement (Rejoindre avec code)
   useEffect(() => {
@@ -109,6 +113,7 @@ export function EventJoin({ onAuthRequired }) {
         
         // Si les champs sont vides OU si l'utilisateur vient de s'authentifier (passage de false à true)
         const justAuthenticated = !wasAuthenticated && authenticated;
+        if (justAuthenticated) setShowJustLoggedInMessage(true);
         if (!pseudo.trim() || !email.trim() || !hasInitializedFields || justAuthenticated) {
           setPseudo(userPseudo);
           setEmail(userEmail);
@@ -168,6 +173,37 @@ export function EventJoin({ onAuthRequired }) {
     };
   }, [hasInitializedFields]);
 
+  // Masquer le message "Vous êtes connecté" après un délai pour laisser le temps de remplir
+  useEffect(() => {
+    if (!showJustLoggedInMessage) return;
+    const t = setTimeout(() => setShowJustLoggedInMessage(false), 15000);
+    return () => clearTimeout(t);
+  }, [showJustLoggedInMessage]);
+
+  // Après reconnexion : charger les événements où l'utilisateur est participant (Firestore) pour que l'événement s'affiche
+  useEffect(() => {
+    if (!isAuthenticated || !currentUserId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const participantEvents = await getEventsByParticipant(currentUserId);
+        if (cancelled || !participantEvents?.length) return;
+        const addEvent = useEventStore.getState().addEvent;
+        const existingIds = new Set(useEventStore.getState().events.map(e => String(e.id || e.firestoreId)));
+        for (const ev of participantEvents) {
+          const id = ev.firestoreId || ev.id;
+          if (id && !existingIds.has(String(id))) {
+            addEvent({ ...ev, firestoreId: ev.id });
+            existingIds.add(String(id));
+          }
+        }
+      } catch (e) {
+        if (!cancelled) console.warn('[EventJoin] getEventsByParticipant:', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, currentUserId]);
+
   // Fonction helper pour gérer un participant confirmé
   const handleConfirmedParticipant = (foundEvent, existingParticipant, userEmail) => {
     console.log('[EventJoin] ✅ Handling confirmed participant, adding event to store and redirecting');
@@ -199,12 +235,14 @@ export function EventJoin({ onAuthRequired }) {
       });
     }
     
-    // Rediriger directement vers l'événement
-    console.log('[EventJoin] 🔄 Redirecting to event:', foundEvent.id);
-    window.location.hash = `#event/${foundEvent.id}`;
-    setTimeout(() => {
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    }, 100);
+    // Ouvrir directement l'événement (callback App = fiable, sinon fallback hash)
+    console.log('[EventJoin] 🔄 Opening event:', foundEvent.id);
+    if (typeof onOpenEvent === 'function') {
+      onOpenEvent(foundEvent.id);
+    } else {
+      window.location.hash = `#event/${foundEvent.id}`;
+      setTimeout(() => window.dispatchEvent(new HashChangeEvent('hashchange')), 100);
+    }
   };
 
   // ✅ Réinitialiser le flag de demande envoyée quand l'événement change
@@ -271,7 +309,7 @@ export function EventJoin({ onAuthRequired }) {
       setEventCode(code);
       
       // ✅ NE PAS ouvrir automatiquement la modale Connexion : l'invité doit voir le formulaire (Nom, Email, Rejoindre) en premier.
-      // La connexion reste optionnelle et accessible via le bouton "Se connecter".
+      // L'invité doit s'inscrire ou se connecter pour rejoindre (traçabilité) ; le formulaire s'affiche quand même.
       
       // Toujours chercher l'événement tout de suite : local si events chargés, sinon API (invité sans événements).
       // Avant : on attendait 3 s si events.length === 0 → le formulaire n'apparaissait pas pour l'invité.
@@ -347,6 +385,14 @@ export function EventJoin({ onAuthRequired }) {
       console.log('[EventJoin] Code incomplet (< 8 lettres), pas d’appel API');
       return;
     }
+
+    // ✅ Garde anti-boucle : si le même code est déjà en cours de vérification, on ignore
+    if (checkingCodeRef.current && lastCheckedCodeRef.current === cleanCode) {
+      console.log('[EventJoin] ⏭️ Code check déjà en cours pour:', cleanCode);
+      return;
+    }
+    checkingCodeRef.current = true;
+    lastCheckedCodeRef.current = cleanCode;
     
     // Vérifier d'abord dans les événements locaux (pour les organisateurs)
     if (events.length > 0) {
@@ -398,7 +444,7 @@ export function EventJoin({ onAuthRequired }) {
               name: existingParticipant.name
             });
             
-            if (existingParticipant.status === 'confirmed') {
+            if (existingParticipant.status === 'confirmed' || existingParticipant.status === 'approved' || existingParticipant.approved === true) {
               // Participant déjà validé, rediriger directement vers l'événement
               handleConfirmedParticipant(foundEvent, existingParticipant, userEmail);
               return;
@@ -419,10 +465,10 @@ export function EventJoin({ onAuthRequired }) {
     setIsLoading(true);
     
     try {
-      console.log('[EventJoin] 🔍 Calling findEventByCode with cleaned code:', cleanCode);
-      const foundEvent = await findEventByCode(cleanCode);
+      console.log('[EventJoin] 🔍 Calling findEventByCodePublic with cleaned code:', cleanCode);
+      const foundEvent = await findEventByCodePublic(cleanCode);
       
-      console.log('[EventJoin] 📊 findEventByCode result:', {
+      console.log('[EventJoin] 📊 findEventByCodePublic result:', {
         found: !!foundEvent,
         eventId: foundEvent?.id,
         eventCode: foundEvent?.code,
@@ -437,53 +483,43 @@ export function EventJoin({ onAuthRequired }) {
           code: foundEvent.code,
           note: 'This id IS the Firestore ID'
         });
-        // S'assurer que firestoreId est défini (id vient de Firestore)
+        // findEventByCodePublic ne renvoie pas les participants : si connecté, charger l'événement complet (findEventByCode) pour accès direct si déjà participant confirmé
+        let userEmail = null;
+        try {
+          const userData = localStorage.getItem('bonkont-user');
+          if (userData) {
+            const user = JSON.parse(userData);
+            userEmail = (user.email || user.id || '').trim().toLowerCase() || null;
+          }
+        } catch (e) {}
+        if (userEmail && isAuthenticated) {
+          try {
+            const fullEvent = await findEventByCode(cleanCode);
+            if (fullEvent?.participants?.length) {
+              const existingParticipant = fullEvent.participants.find(
+                p => ((p.email || '').toLowerCase().trim() === userEmail || (p.userId || '').toLowerCase().trim() === userEmail) &&
+                     (p.status === 'confirmed' || p.status === 'approved' || p.approved === true)
+              );
+              if (existingParticipant) {
+                console.log('[EventJoin] ✅ Participant confirmé (Firestore), accès direct à l\'événement');
+                const evWithFirestoreId = { ...fullEvent, firestoreId: fullEvent.id };
+                handleConfirmedParticipant(evWithFirestoreId, existingParticipant, userEmail);
+                setIsLoading(false);
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('[EventJoin] findEventByCode for participant check:', e);
+          }
+        }
         setEvent({
           ...foundEvent,
           firestoreId: foundEvent.firestoreId || foundEvent.id
         });
-        
-        // ✅ IMPORTANT : Réinitialiser l'état pour afficher le formulaire
         setIsLoading(false);
         setIsJoined(false);
         setPendingParticipantId(null);
         setPendingRequestId(null);
-        
-        // Vérifier immédiatement si l'utilisateur est déjà participant validé (SEULEMENT si authentifié)
-        const userData = localStorage.getItem('bonkont-user');
-        let userEmail = null;
-        if (userData) {
-          try {
-            const user = JSON.parse(userData);
-            userEmail = user.email || null;
-          } catch (e) {
-            // Ignorer
-          }
-        }
-        
-        // ✅ Ne vérifier les participants que si l'utilisateur est authentifié
-        if (userEmail && isAuthenticated) {
-          const existingParticipant = foundEvent.participants?.find(
-            p => (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
-                 (p.userId && p.userId === userEmail)
-          );
-          
-          if (existingParticipant) {
-            console.log('[EventJoin] ✅ User is already a participant:', {
-              status: existingParticipant.status,
-              name: existingParticipant.name
-            });
-            
-            if (existingParticipant.status === 'confirmed') {
-              // Participant déjà validé, rediriger directement vers l'événement
-              handleConfirmedParticipant(foundEvent, existingParticipant, userEmail);
-              return;
-            }
-            // Note: Le statut "pending" sera géré par le listener joinRequests
-          }
-        }
-        
-        // Si l'utilisateur n'est pas encore participant, afficher le formulaire
         console.log('[EventJoin] ✅ Event found on backend, showing form. isAuthenticated:', isAuthenticated);
       } else {
         // Événement non trouvé - réessayer avec différentes variations du code
@@ -505,7 +541,7 @@ export function EventJoin({ onAuthRequired }) {
           if (variation && variation.length >= 8) {
             console.log('[EventJoin] 🔍 Trying code variation:', variation);
             try {
-              foundEvent = await findEventByCode(variation);
+              foundEvent = await findEventByCodePublic(variation);
               if (foundEvent) {
                 console.log('[EventJoin] ✅ Event found with variation:', variation);
                 break;
@@ -571,82 +607,21 @@ export function EventJoin({ onAuthRequired }) {
       });
     } finally {
       setIsLoading(false);
+      checkingCodeRef.current = false;
     }
   };
 
-  // Vérifier automatiquement le code quand il change (avec debounce)
+  // Déclencheur unique : vérifier automatiquement le code quand il change (debounce),
+  // sans boucler sur les changements du store events.
   useEffect(() => {
-    console.log('[EventJoin] eventCode changed:', eventCode, 'events.length:', events.length);
-    if (eventCode && eventCode.trim() !== '' && events.length > 0) {
-      console.log('[EventJoin] Setting up auto-check timer for code:', eventCode);
-      const timer = setTimeout(() => {
-        console.log('[EventJoin] ⏰ Auto-checking code after change (debounced):', eventCode);
-        handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
-      }, 500); // Debounce de 500ms
-      return () => {
-        console.log('[EventJoin] Clearing auto-check timer');
-        clearTimeout(timer);
-      };
-    } else if (eventCode && eventCode.trim() !== '' && events.length === 0) {
-      console.warn('[EventJoin] ⚠️ Code entered but no events loaded yet:', eventCode);
-    }
+    const clean = (eventCode || '').trim().toUpperCase().replace(/[^A-Z]/g, '');
+    if (clean.length < 8) return;
+    const timer = setTimeout(() => {
+      handleCodeCheck(clean).catch((err) => console.error('[EventJoin] Error in handleCodeCheck:', err));
+    }, 400);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventCode, events.length]);
-
-  // Réagir aux changements dans le store d'événements
-  useEffect(() => {
-    console.log('[EventJoin] Events in store:', events.length, 'events');
-    if (events.length > 0) {
-      console.log('[EventJoin] Event codes available:', events.map(e => e.code).filter(Boolean));
-      console.log('[EventJoin] Event details:', events.map(e => ({ 
-        id: e.id, 
-        code: e.code, 
-        codeUpper: e.code?.toUpperCase(), 
-        title: e.title 
-      })));
-    }
-    if (eventCode && eventCode.trim() !== '') {
-      console.log('[EventJoin] Events changed, rechecking code:', eventCode);
-      // Attendre un peu pour s'assurer que les événements sont bien chargés
-      setTimeout(() => {
-        handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
-      }, 100);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events.length, events]); // Réagir aussi aux événements eux-mêmes pour détecter les changements
-
-  // Vérifier le code au chargement si présent dans l'URL ou dans le state
-  useEffect(() => {
-    if (eventCode && eventCode.trim() !== '') {
-      if (events.length > 0) {
-        console.log('[EventJoin] Initial check for code:', eventCode, 'with', events.length, 'events available');
-        handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
-      } else {
-        console.log('[EventJoin] Waiting for events to load before checking code:', eventCode);
-        // Attendre que les événements soient chargés (max 2 secondes)
-        let attempts = 0;
-        const maxAttempts = 20;
-        const checkInterval = setInterval(() => {
-          attempts++;
-          const currentEvents = useEventStore.getState().events;
-          console.log('[EventJoin] Polling for events, attempt', attempts, 'events found:', currentEvents.length);
-          if (currentEvents.length > 0 || attempts >= maxAttempts) {
-            clearInterval(checkInterval);
-            if (currentEvents.length > 0) {
-              console.log('[EventJoin] Events loaded, checking code now:', eventCode);
-              console.log('[EventJoin] Available codes:', currentEvents.map(e => e.code).filter(Boolean));
-              handleCodeCheck(eventCode).catch(err => console.error('[EventJoin] Error in handleCodeCheck:', err));
-            } else {
-              console.warn('[EventJoin] Events still not loaded after', attempts * 100, 'ms');
-              console.warn('[EventJoin] This might be a new user with no events yet');
-            }
-          }
-        }, 100);
-        return () => clearInterval(checkInterval);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventCode, events.length]); // Vérifier quand le code ou les événements changent
+  }, [eventCode]);
 
   const handleJoin = async () => {
     // Utiliser le code du state ou, à défaut, celui de l'URL (#/join/CODE ou #event/CODE)
@@ -669,7 +644,7 @@ export function EventJoin({ onAuthRequired }) {
     if (!eventToUse && codeToUse.length >= 8) {
       setIsLoading(true);
       try {
-        const found = await findEventByCode(codeToUse);
+        const found = await findEventByCodePublic(codeToUse);
         if (found) {
           eventToUse = { ...found, firestoreId: found.id || found.firestoreId };
           setEvent(eventToUse);
@@ -694,6 +669,17 @@ export function EventJoin({ onAuthRequired }) {
 
     const evt = eventToUse;
 
+    // Traçabilité + accès complet : lire/écrire transactions, valider, partager (logique Bonkont jusqu'à la clôture)
+    if (!isAuthenticated) {
+      toast({
+        variant: "destructive",
+        title: "Inscription requise",
+        description: "Pour rejoindre l'événement (traçabilité) et pouvoir lire/écrire vos transactions, valider et partager selon la logique Bonkont jusqu'à la clôture, connectez-vous ou créez un compte."
+      });
+      if (onAuthRequired) onAuthRequired();
+      return;
+    }
+
     if (!pseudo.trim()) {
       toast({
         variant: "destructive",
@@ -715,8 +701,8 @@ export function EventJoin({ onAuthRequired }) {
       if (existingParticipant) {
         console.log('[EventJoin] ⚠️ User already participant:', existingParticipant);
         
-        // Si le participant est déjà confirmé, rediriger directement vers l'événement
-        if (existingParticipant.status === 'confirmed') {
+        // Si le participant est déjà confirmé/approuvé, rediriger directement vers l'événement
+        if (existingParticipant.status === 'confirmed' || existingParticipant.status === 'approved' || existingParticipant.approved === true) {
           console.log('[EventJoin] ✅ Participant already confirmed, redirecting to event');
           handleConfirmedParticipant(evt, existingParticipant, email);
           setIsLoading(false);
@@ -1170,10 +1156,15 @@ export function EventJoin({ onAuthRequired }) {
   // le formulaire (Nom, Email, Rejoindre) pour que le participant puisse remplir les champs.
   // Si une demande a déjà été envoyée (isJoined), on affiche une alerte au-dessus du formulaire.
 
-  const handleBackToDashboard = () => {
-    console.log('[EventJoin] Back from join page -> tableau de bord');
-    window.location.hash = '#/dashboard';
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  const handleBackToDashboard = (e) => {
+    try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
+    if (typeof onNavigateToDashboard === 'function') {
+      e?.preventDefault?.();
+      onNavigateToDashboard();
+    } else {
+      window.location.hash = '#/dashboard';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
   };
 
   // ✅ Log de diagnostic avant le rendu
@@ -1202,6 +1193,7 @@ export function EventJoin({ onAuthRequired }) {
           </p>
         </div>
         <Button
+          type="button"
           variant="ghost"
           size="icon"
           onClick={handleBackToDashboard}
@@ -1317,9 +1309,54 @@ export function EventJoin({ onAuthRequired }) {
                 className="neon-border"
               />
             </div>
+            {!isAuthenticated && (
+              <Alert className="bg-amber-500/10 border-amber-500/30">
+                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <AlertDescription>
+                  <p className="font-medium text-foreground">Inscription obligatoire pour rejoindre</p>
+                  <p className="text-sm text-muted-foreground mt-1">Pour la traçabilité et pour pouvoir lire/écrire vos transactions, valider et partager selon la logique Bonkont jusqu'à la clôture, vous devez vous connecter ou créer un compte avant d'envoyer votre demande.</p>
+                  <Button
+                    onClick={() => onAuthRequired?.() || toast({ variant: "destructive", title: "Erreur", description: "Impossible d'ouvrir le formulaire de connexion." })}
+                    variant="default"
+                    className="w-full mt-3 gap-2"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Se connecter ou créer un compte
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+            {isAuthenticated && showJustLoggedInMessage && (
+              <Alert className="bg-green-500/10 border-green-500/30">
+                <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+                <AlertDescription>
+                  <p className="font-medium text-foreground">Vous êtes connecté(e)</p>
+                  <p className="text-sm text-muted-foreground mt-1">Prenez le temps de vérifier nom et email ci-dessus, puis cliquez sur « Rejoindre l'événement » quand vous êtes prêt.</p>
+                </AlertDescription>
+              </Alert>
+            )}
+            {isAuthenticated && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full gap-2 border-primary/50 bg-background hover:bg-primary/10"
+                onClick={() => {
+                  try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
+                  window.location.hash = '#/dashboard';
+                  if (typeof onNavigateToDashboard === 'function') {
+                    onNavigateToDashboard();
+                  } else {
+                    window.dispatchEvent(new HashChangeEvent('hashchange'));
+                  }
+                }}
+              >
+                <Home className="w-4 h-4" />
+                Accéder à mon tableau de bord
+              </Button>
+            )}
             <Button
               onClick={handleJoin}
-              disabled={isLoading || !pseudo.trim() || !email?.trim() || ((!eventCode || eventCode.trim().length < 8) && !event)}
+              disabled={isLoading || !isAuthenticated || !pseudo.trim() || !email?.trim() || ((!eventCode || eventCode.trim().length < 8) && !event)}
               className="w-full gap-2 button-glow"
             >
               {isLoading ? (
@@ -1353,41 +1390,21 @@ export function EventJoin({ onAuthRequired }) {
                 </ul>
               </div>
               <div className="bg-background/50 p-3 rounded-lg space-y-2">
-                <p className="font-semibold text-foreground">Étape 2 : Remplir le formulaire</p>
+                <p className="font-semibold text-foreground">Étape 2 : S'inscrire ou se connecter (obligatoire)</p>
                 <p className="text-muted-foreground ml-2">
-                  Saisissez votre <strong>Nom</strong> et votre <strong>Email</strong> ci-dessous, puis cliquez sur « Rejoindre l'événement ». La connexion est <strong>optionnelle</strong> (utile pour retrouver vos événements).
+                  Pour la <strong>traçabilité</strong> et pour pouvoir <strong>lire et écrire vos transactions, valider, partager</strong> selon la logique Bonkont jusqu'à la fin de l'événement, vous devez avoir un compte Bonkont. Cliquez sur « Se connecter ou créer un compte », puis revenez sur cette page.
                 </p>
               </div>
               <div className="bg-background/50 p-3 rounded-lg space-y-2">
-                <p className="font-semibold text-foreground">Étape 3 : Optionnel – Se connecter</p>
+                <p className="font-semibold text-foreground">Étape 3 : Remplir le formulaire et rejoindre</p>
                 <p className="text-muted-foreground ml-2">
-                  Vous pouvez vous connecter ou créer un compte pour retrouver plus tard vos demandes et événements.
+                  Une fois connecté(e), saisissez votre <strong>Nom</strong> et votre <strong>Email</strong> (souvent pré-remplis), puis cliquez sur « Rejoindre l'événement ».
                 </p>
-                {!isAuthenticated && (
-                  <Button
-                    onClick={() => {
-                      if (onAuthRequired) {
-                        onAuthRequired();
-                      } else {
-                        toast({
-                          variant: "destructive",
-                          title: "Erreur",
-                          description: "Impossible d'ouvrir le formulaire de connexion."
-                        });
-                      }
-                    }}
-                    variant="outline"
-                    className="w-full mt-2"
-                  >
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Se connecter ou créer un compte
-                  </Button>
-                )}
               </div>
               <div className="bg-background/50 p-3 rounded-lg space-y-2">
                 <p className="font-semibold text-foreground">Étape 4 : Attendre la validation</p>
                 <p className="text-muted-foreground ml-2">
-                  Votre demande sera envoyée à l'organisateur. En rejoignant, vous acceptez le statut de l'organisateur (initiateur du projet, leader et modérateur — il clôturera l'événement à la fin de l'expérience). Une fois validée, vous serez dans cet événement de bout en bout jusqu'à la clôture.
+                  Votre demande sera envoyée à l'organisateur. En rejoignant, vous acceptez le statut de l'organisateur (initiateur, leader et modérateur — il clôturera l'événement à la fin). Une fois validée, vous pourrez <strong>lire et écrire vos transactions, valider, partager</strong> selon la logique Bonkont jusqu'à la clôture.
                 </p>
               </div>
             </div>

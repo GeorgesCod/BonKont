@@ -17,6 +17,12 @@ import { FAQ } from '@/components/FAQ';
 import { Contact } from '@/components/Contact';
 import { Wallet2, LogIn, ArrowLeft, Settings, UserPlus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { useEventStore } from '@/store/eventStore';
 import { useToast } from '@/hooks/use-toast';
 import { useI18nStore } from '@/lib/i18n';
@@ -110,11 +116,11 @@ export default function App() {
         return localEvent;
       }
       
-      // 2. Chercher dans Firestore
+      // 2. Chercher dans Firestore (version publique : pas de participants, utilisable par invité)
       console.log('[App] 🔍 Event not found locally, searching in Firestore...');
       try {
-        const { findEventByCode } = await import('@/services/api');
-        const firestoreEvent = await findEventByCode(cleanCode);
+        const { findEventByCodePublic } = await import('@/services/api');
+        const firestoreEvent = await findEventByCodePublic(cleanCode);
         
         if (firestoreEvent) {
           console.log('[App] ✅ Event found in Firestore:', {
@@ -158,14 +164,13 @@ export default function App() {
     console.log('[App] 💡 Usage: window.removeDuplicateParticipants("AMDZQINI")');
   }, []);
 
-  // Correctif molette en production : si le scroll CSS ne réagit pas, on fait défiler le document en JS
+  // Correctif molette : faire défiler le bon conteneur (body = scroll en prod)
   useEffect(() => {
     const isScrollableElement = (el) => {
       if (!el || el === document.documentElement || el === document.body) return false;
       const style = window.getComputedStyle(el);
       const overflowY = style.overflowY || style.overflow;
-      const canScroll = (overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
-      return canScroll;
+      return (overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
     };
     const getScrollableAncestor = (target) => {
       let node = target;
@@ -177,10 +182,18 @@ export default function App() {
     };
     const onWheel = (e) => {
       if (getScrollableAncestor(e.target)) return;
-      const doc = document.documentElement;
-      if (doc.scrollHeight <= doc.clientHeight) return;
-      doc.scrollTop += e.deltaY;
-      e.preventDefault();
+      // Scroll sur body (conteneur en prod) ou documentElement selon où le scroll est actif
+      const body = document.body;
+      const html = document.documentElement;
+      const bodyScrollable = body.scrollHeight > body.clientHeight;
+      const htmlScrollable = html.scrollHeight > html.clientHeight;
+      if (bodyScrollable) {
+        body.scrollTop += e.deltaY;
+        e.preventDefault();
+      } else if (htmlScrollable) {
+        html.scrollTop += e.deltaY;
+        e.preventDefault();
+      }
     };
     window.addEventListener('wheel', onWheel, { passive: false });
     return () => window.removeEventListener('wheel', onWheel);
@@ -302,12 +315,21 @@ export default function App() {
     }
     const isAuthenticated = !!userData;
 
-    // Si pas de hash ou hash vide
+    // Si pas de hash ou hash vide : donner du temps à l'invité en cours de rejoindre
     if (!hash || hash === '' || hash === '#') {
-      // NE PAS ouvrir AuthDialog automatiquement sur la Home
-      // L’utilisateur voit toujours le bouton "Se connecter"
-
-      // Toujours la homepage (Se connecter uniquement).
+      try {
+        const savedJoinHash = sessionStorage.getItem('bonkont-join-hash');
+        if (savedJoinHash && (savedJoinHash.startsWith('#/join/') || savedJoinHash === '#/join')) {
+          // L'utilisateur était en train de rejoindre : restaurer la page pour ne pas décrocher
+          window.location.hash = savedJoinHash;
+          setCurrentView('join');
+          setSelectedEventId(null);
+          setShowHistory(false);
+          setShowStats(false);
+          return;
+        }
+      } catch (_) {}
+      try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
       setCurrentView('home');
       setSelectedEventId(null);
       setViewMode('management');
@@ -350,6 +372,7 @@ export default function App() {
     if (hash === '#/dashboard' || hash === '#dashboard') {
       const isAuthenticatedForDashboard = !!userData;
       if (!isAuthenticatedForDashboard) {
+        try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
         window.location.hash = '';
         setCurrentView('home');
         setSelectedEventId(null);
@@ -358,6 +381,7 @@ export default function App() {
         if (isLoggedIn) setIsLoggedIn(false);
         return;
       }
+      try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
       if (!isLoggedIn) setIsLoggedIn(true);
       setCurrentView('dashboard-view');
       setSelectedEventId(null);
@@ -370,13 +394,14 @@ export default function App() {
     }
     // Route pour rejoindre un événement (seulement si hash explicite #/join ou #/join/CODE)
     if (hash.startsWith('#/join/') || hash === '#/join') {
+      try {
+        sessionStorage.setItem('bonkont-join-hash', hash);
+      } catch (_) {}
       console.log('[App] ✅✅✅ Navigating to JOIN view, hash:', hash);
-      console.log('[App] Setting currentView to "join"');
       setCurrentView('join');
       setSelectedEventId(null);
       setShowHistory(false);
       setShowStats(false);
-      console.log('[App] Navigation to join complete, currentView should be "join"');
       return;
     }
     // Route pour rejoindre via code événement direct: /event/:code
@@ -399,16 +424,44 @@ export default function App() {
 
     if (hash.startsWith('#event/')) {
       const eventId = hash.replace('#event/', '').split('/')[0];
-      // Si le segment ressemble à un code événement (8 lettres majuscules), rediriger vers le formulaire invité
+      // Si le segment est un code événement (8 lettres) : résoudre et ouvrir l'événement si invité confirmé, sinon formulaire rejoindre
       const looksLikeEventCode = /^[A-Z]{8}$/.test(String(eventId).toUpperCase());
       if (looksLikeEventCode && !hash.includes('/transactions') && !hash.includes('/closure')) {
         const code = String(eventId).toUpperCase();
-        console.log('[App] #event/ segment is event code, redirecting to join form:', code);
         window.location.hash = `#/join/${code}`;
         setCurrentView('join');
         setSelectedEventId(null);
         setShowHistory(false);
         setShowStats(false);
+        (async () => {
+          try {
+            const userData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+            if (!userData) return;
+            const { findEventByCodePublic, findEventByCode } = await import('@/services/api');
+            const ev = await findEventByCodePublic(code);
+            if (!ev?.id) return;
+            const fullEvent = await findEventByCode(code);
+            if (!fullEvent?.participants?.length) return;
+            const user = JSON.parse(userData);
+            const userEmail = (user.email || user.id || '').trim().toLowerCase() || null;
+            if (!userEmail) return;
+            const isOrganizer = (fullEvent.organizerId || '').toLowerCase().trim() === userEmail;
+            const isConfirmed = fullEvent.participants.some(p =>
+              ((p.email || '').toLowerCase().trim() === userEmail || (p.userId || '').toLowerCase().trim() === userEmail) &&
+              (p.status === 'confirmed' || p.status === 'approved' || p.approved === true)
+            );
+            if (!isOrganizer && !isConfirmed) return;
+            const addEventToStore = useEventStore.getState().addEvent;
+            addEventToStore({ ...fullEvent, firestoreId: fullEvent.id });
+            try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
+            setSelectedEventId(fullEvent.id);
+            setViewMode('management');
+            setCurrentView('event');
+            setShowHistory(false);
+            setShowStats(false);
+            window.location.hash = `#event/${fullEvent.id}`;
+          } catch (_) {}
+        })();
         return;
       }
       let mode = 'management';
@@ -434,39 +487,95 @@ export default function App() {
         availableIds: events.map(e => ({ id: e.id, firestoreId: e.firestoreId, firestoreEventId: e.firestoreEventId }))
       });
       
-      // Si l'événement n'existe pas, attendre un peu au cas où il serait en cours d'ajout
-      if (!eventExists && events.length > 0) {
-        console.warn('[App] Event not found immediately, waiting for potential async add...');
-        console.log('[App] Available events:', events.map(e => ({ 
-          id: e.id, 
-          firestoreId: e.firestoreId,
-          firestoreEventId: e.firestoreEventId,
-          title: e.title 
-        })));
-        
-        // Attendre un peu et réessayer
-        setTimeout(() => {
-          const eventsAfterWait = useEventStore.getState().events;
-          const eventExistsAfterWait = eventsAfterWait.some(e => 
-            String(e.id) === String(eventId) || 
-            String(e.firestoreId) === String(eventId) ||
-            String(e.firestoreEventId) === String(eventId)
-          );
-          
-          if (eventExistsAfterWait) {
-            console.log('[App] Event found after wait, proceeding with navigation');
-            setSelectedEventId(eventId);
-            setViewMode(mode);
-            setCurrentView('event');
-            setShowHistory(false);
-            setShowStats(false);
-          } else {
-            console.error('[App] Event still not found after wait, redirecting to home');
-            window.location.hash = '';
-            setCurrentView('home');
-            setSelectedEventId(null);
-          }
-        }, 300);
+      // Événement absent du store : charger par ID depuis Firestore, puis brancher selon le rôle
+      if (!eventExists) {
+        const idStr = String(eventId).trim();
+        const looksLikeFirestoreId = idStr.length >= 15 && /^[a-zA-Z0-9]+$/.test(idStr);
+        if (looksLikeFirestoreId) {
+          (async () => {
+            try {
+              const { getEventById } = await import('@/services/api');
+              const ev = await getEventById(eventId);
+              const addEventToStore = useEventStore.getState().addEvent;
+              if (!ev?.code) {
+                window.location.hash = '#/join';
+                setCurrentView('join');
+                setSelectedEventId(null);
+                setShowHistory(false);
+                setShowStats(false);
+                return;
+              }
+              addEventToStore({ ...ev, firestoreId: ev.id });
+              // Branchement clair : si l'utilisateur est déjà organisateur ou participant confirmé → accès direct à l'événement
+              let userEmail = null;
+              try {
+                const userData = localStorage.getItem('bonkont-user');
+                if (userData) {
+                  const user = JSON.parse(userData);
+                  userEmail = (user.email || user.id || '').trim().toLowerCase() || null;
+                }
+              } catch (_) {}
+              const isOrganizer = userEmail && (ev.organizerId || '').toLowerCase().trim() === userEmail;
+              const isConfirmedParticipant = userEmail && ev.participants?.some(p =>
+                ((p.email || '').toLowerCase().trim() === userEmail || (p.userId || '').toLowerCase().trim() === userEmail) &&
+                (p.status === 'confirmed' || p.status === 'approved' || p.approved === true)
+              );
+              if (isOrganizer || isConfirmedParticipant) {
+                try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
+                setSelectedEventId(ev.id);
+                setViewMode(mode);
+                setCurrentView('event');
+                setShowHistory(false);
+                setShowStats(false);
+                return;
+              }
+              // Sinon : invité non accepté → parcours Rejoindre
+              window.location.hash = `#/join/${ev.code}`;
+              setCurrentView('join');
+              setSelectedEventId(null);
+              setShowHistory(false);
+              setShowStats(false);
+            } catch (_) {
+              window.location.hash = '#/join';
+              setCurrentView('join');
+              setSelectedEventId(null);
+              setShowHistory(false);
+              setShowStats(false);
+            }
+          })();
+          return;
+        }
+        // Court délai au cas où l'événement serait en cours d'ajout (ex. juste après création)
+        if (events.length > 0) {
+          setTimeout(() => {
+            const eventsAfterWait = useEventStore.getState().events;
+            const existsAfter = eventsAfterWait.some(e => 
+              String(e.id) === String(eventId) || 
+              String(e.firestoreId) === String(eventId) ||
+              String(e.firestoreEventId) === String(eventId)
+            );
+            if (existsAfter) {
+              setSelectedEventId(eventId);
+              setViewMode(mode);
+              try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
+              setCurrentView('event');
+              setShowHistory(false);
+              setShowStats(false);
+            } else {
+              window.location.hash = '#/join';
+              setCurrentView('join');
+              setSelectedEventId(null);
+              setShowHistory(false);
+              setShowStats(false);
+            }
+          }, 300);
+          return;
+        }
+        window.location.hash = '#/join';
+        setCurrentView('join');
+        setSelectedEventId(null);
+        setShowHistory(false);
+        setShowStats(false);
         return;
       }
       
@@ -490,14 +599,12 @@ export default function App() {
             }
           })();
           
-          // Vérifier si l'utilisateur est un participant confirmé
-          const isParticipant = userEmail && foundEvent.participants?.some(p => 
+          // Vérifier si l'utilisateur est un participant confirmé (confirmed ou approved)
+          const part = foundEvent.participants?.find(p =>
             (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
             (p.userId && p.userId.toLowerCase() === userEmail.toLowerCase())
-          ) && foundEvent.participants?.find(p => 
-            (p.email && p.email.toLowerCase() === userEmail.toLowerCase()) ||
-            (p.userId && p.userId.toLowerCase() === userEmail.toLowerCase())
-          )?.status === 'confirmed';
+          );
+          const isParticipant = userEmail && part && (part.status === 'confirmed' || part.status === 'approved' || part.approved === true);
           
           // Vérifier si l'utilisateur est l'organisateur
           const isOrganizer = userEmail && foundEvent.organizerId && 
@@ -540,6 +647,7 @@ export default function App() {
         }
       }
       
+      try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
       setSelectedEventId(eventId);
       setViewMode(mode);
       setCurrentView('event');
@@ -578,7 +686,18 @@ export default function App() {
     // ✅ Si on est sur EventJoin, rester sur EventJoin pour la demande
     // Sinon : aller au tableau de bord et mettre à jour l’URL pour un routage correct
     setShowEventCreation(false);
-    if (currentView === 'join') return;
+    if (currentView === 'join') {
+      const joinHash = window.location.hash;
+      if (joinHash && (joinHash.startsWith('#/join/') || joinHash === '#/join')) {
+        try { sessionStorage.setItem('bonkont-join-hash', joinHash); } catch (_) {}
+      }
+      toast({
+        title: 'Vous êtes connecté(e)',
+        description: "Remplissez le formulaire pour rejoindre ou cliquez sur « Accéder à mon tableau de bord » pour voir vos événements.",
+        duration: 8000,
+      });
+      return;
+    }
     {
       // Sur mobile : laisser le dialog se fermer avant de naviguer
       const goToDashboard = () => {
@@ -879,9 +998,31 @@ export default function App() {
                 setIsAuthOpen(true);
                 console.log('[App] ✅ setIsAuthOpen(true) called');
               };
-              console.log('[App] Passing onAuthRequired prop to EventJoin:', typeof handleAuthRequired);
+              const handleNavigateToDashboard = () => {
+                try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
+                window.location.hash = '#/dashboard';
+                setCurrentView('dashboard-view');
+                setSelectedEventId(null);
+                setShowEventCreation(false);
+                setShowHistory(false);
+                setShowStats(false);
+                setShowDashboardList(false);
+              };
+              const handleOpenEvent = (eventId) => {
+                try { sessionStorage.removeItem('bonkont-join-hash'); } catch (_) {}
+                window.location.hash = `#event/${eventId}`;
+                setSelectedEventId(eventId);
+                setViewMode('management');
+                setCurrentView('event');
+                setShowHistory(false);
+                setShowStats(false);
+              };
               return (
-                <EventJoin onAuthRequired={handleAuthRequired} />
+                <EventJoin
+                  onAuthRequired={handleAuthRequired}
+                  onNavigateToDashboard={handleNavigateToDashboard}
+                  onOpenEvent={handleOpenEvent}
+                />
               );
             })()
           ) : currentView === 'event' && selectedEventId ? (
@@ -900,41 +1041,53 @@ export default function App() {
                   </p>
                 </div>
               )}
-              <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 border-b border-border pb-4">
-                  <Button
-                    variant={viewMode === 'management' ? 'default' : 'outline'}
-                    onClick={() => {
-                      console.log('[App] Switching to management view');
-                      setViewMode('management');
-                      window.location.hash = `#event/${selectedEventId}`;
-                    }}
-                    className="gap-2 min-h-[44px] w-full sm:w-auto"
-                  >
-                    <span className="text-sm sm:text-base">Gestion de l'événement</span>
-                  </Button>
-                  <Button
-                    variant={viewMode === 'transactions' ? 'default' : 'outline'}
-                    onClick={() => {
-                      console.log('[App] Switching to transactions view');
-                      setViewMode('transactions');
-                      window.location.hash = `#event/${selectedEventId}/transactions`;
-                    }}
-                    className="gap-2 min-h-[44px] w-full sm:w-auto"
-                  >
-                    <span className="text-sm sm:text-base">Gestion des transactions</span>
-                  </Button>
-                  <Button
-                    variant={viewMode === 'closure' ? 'default' : 'outline'}
-                    onClick={() => {
-                      console.log('[App] Switching to closure view');
-                      setViewMode('closure');
-                      window.location.hash = `#event/${selectedEventId}/closure`;
-                    }}
-                    className="gap-2 min-h-[44px] w-full sm:w-auto"
-                  >
-                    <span className="text-sm sm:text-base">Gérer la fin Évènementielle</span>
-                  </Button>
-                </div>
+              <Accordion type="single" collapsible defaultValue="gestion" className="border-b border-border pb-4">
+                <AccordionItem value="gestion" className="border-0">
+                  <AccordionTrigger className="py-3 hover:no-underline [&[data-state=open]]:pb-2">
+                    <span className="text-sm font-semibold flex items-center gap-2">
+                      <Settings className="w-4 h-4 text-primary" />
+                      Gestion
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-0 pb-2">
+                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+                      <Button
+                        variant={viewMode === 'management' ? 'default' : 'outline'}
+                        onClick={() => {
+                          console.log('[App] Switching to management view');
+                          setViewMode('management');
+                          window.location.hash = `#event/${selectedEventId}`;
+                        }}
+                        className="gap-2 min-h-[44px] w-full sm:w-auto"
+                      >
+                        <span className="text-sm sm:text-base">Gestion de l'événement</span>
+                      </Button>
+                      <Button
+                        variant={viewMode === 'transactions' ? 'default' : 'outline'}
+                        onClick={() => {
+                          console.log('[App] Switching to transactions view');
+                          setViewMode('transactions');
+                          window.location.hash = `#event/${selectedEventId}/transactions`;
+                        }}
+                        className="gap-2 min-h-[44px] w-full sm:w-auto"
+                      >
+                        <span className="text-sm sm:text-base">Gestion des transactions</span>
+                      </Button>
+                      <Button
+                        variant={viewMode === 'closure' ? 'default' : 'outline'}
+                        onClick={() => {
+                          console.log('[App] Switching to closure view');
+                          setViewMode('closure');
+                          window.location.hash = `#event/${selectedEventId}/closure`;
+                        }}
+                        className="gap-2 min-h-[44px] w-full sm:w-auto"
+                      >
+                        <span className="text-sm sm:text-base">Gérer la fin Évènementielle</span>
+                      </Button>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
                 {viewMode === 'management' ? (
                   <EventManagement
                     eventId={selectedEventId}
@@ -1036,38 +1189,50 @@ export default function App() {
                 const firstEventId = events[0].id;
                 return (
                   <div className="space-y-4 animate-fade-in">
-                    <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 border-b border-border pb-4">
-                      <Button
-                        variant={viewMode === 'management' ? 'default' : 'outline'}
-                        onClick={() => {
-                          setViewMode('management');
-                          window.location.hash = `#event/${firstEventId}`;
-                        }}
-                        className="gap-2 min-h-[44px] w-full sm:w-auto"
-                      >
-                        <span className="text-sm sm:text-base">Gestion de l'événement</span>
-                      </Button>
-                      <Button
-                        variant={viewMode === 'transactions' ? 'default' : 'outline'}
-                        onClick={() => {
-                          setViewMode('transactions');
-                          window.location.hash = `#event/${firstEventId}/transactions`;
-                        }}
-                        className="gap-2 min-h-[44px] w-full sm:w-auto"
-                      >
-                        <span className="text-sm sm:text-base">Gestion des transactions</span>
-                      </Button>
-                      <Button
-                        variant={viewMode === 'closure' ? 'default' : 'outline'}
-                        onClick={() => {
-                          setViewMode('closure');
-                          window.location.hash = `#event/${firstEventId}/closure`;
-                        }}
-                        className="gap-2 min-h-[44px] w-full sm:w-auto"
-                      >
-                        <span className="text-sm sm:text-base">Gérer la fin Évènementielle</span>
-                      </Button>
-                    </div>
+                    <Accordion type="single" collapsible defaultValue="gestion" className="border-b border-border pb-4">
+                      <AccordionItem value="gestion" className="border-0">
+                        <AccordionTrigger className="py-3 hover:no-underline [&[data-state=open]]:pb-2">
+                          <span className="text-sm font-semibold flex items-center gap-2">
+                            <Settings className="w-4 h-4 text-primary" />
+                            Gestion
+                          </span>
+                        </AccordionTrigger>
+                        <AccordionContent className="pt-0 pb-2">
+                          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+                            <Button
+                              variant={viewMode === 'management' ? 'default' : 'outline'}
+                              onClick={() => {
+                                setViewMode('management');
+                                window.location.hash = `#event/${firstEventId}`;
+                              }}
+                              className="gap-2 min-h-[44px] w-full sm:w-auto"
+                            >
+                              <span className="text-sm sm:text-base">Gestion de l'événement</span>
+                            </Button>
+                            <Button
+                              variant={viewMode === 'transactions' ? 'default' : 'outline'}
+                              onClick={() => {
+                                setViewMode('transactions');
+                                window.location.hash = `#event/${firstEventId}/transactions`;
+                              }}
+                              className="gap-2 min-h-[44px] w-full sm:w-auto"
+                            >
+                              <span className="text-sm sm:text-base">Gestion des transactions</span>
+                            </Button>
+                            <Button
+                              variant={viewMode === 'closure' ? 'default' : 'outline'}
+                              onClick={() => {
+                                setViewMode('closure');
+                                window.location.hash = `#event/${firstEventId}/closure`;
+                              }}
+                              className="gap-2 min-h-[44px] w-full sm:w-auto"
+                            >
+                              <span className="text-sm sm:text-base">Gérer la fin Évènementielle</span>
+                            </Button>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
                     {viewMode === 'management' ? (
                       <EventManagement
                         eventId={firstEventId}

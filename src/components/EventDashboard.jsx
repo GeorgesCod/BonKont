@@ -174,9 +174,19 @@ export function EventDashboard({ onShowHistory, onBack }) {
         
         // Participant sans événement organisateur : ne voir QUE ses événements (où il est participant accepté)
         // Organisateur ou mixte : base (organisateur) + tout le local qui n’est pas en base (dont invité)
+        const participantMerged = (() => {
+          const out = [];
+          const seen = new Set();
+          const norm = (e) => String(e?.firestoreId || e?.id || '') || normalizeCode(e?.code);
+          for (const e of [...participantOnlyEvents, ...participantServerConfirmed]) {
+            const k = norm(e);
+            if (k && !seen.has(k)) { seen.add(k); out.push(e); }
+          }
+          return out;
+        })();
         const merged =
-          firestoreEvents.length === 0 && currentEvents.length > 0
-            ? (participantOnlyEvents.length > 0 ? participantOnlyEvents : currentEvents)
+          firestoreEvents.length === 0
+            ? (participantMerged.length > 0 ? participantMerged : currentEvents)
             : [...firestoreEvents, ...toKeepFromCurrent, ...participantServerConfirmed];
 
         // Ne jamais écraser le store par une liste vide quand l'utilisateur n'a pas d'événements organisateur

@@ -415,7 +415,7 @@ export function EventClosure({ eventId, onBack }) {
           });
         }
         
-        if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01) {
+        if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.02) {
           checkNewPage(8);
           yPosition += 2;
           doc.setFontSize(8);
@@ -472,7 +472,7 @@ export function EventClosure({ eventId, onBack }) {
       doc.setFontSize(8);
       doc.setTextColor(60, 60, 60);
       doc.setFont(undefined, 'normal');
-      const typesText = '• Contributions au POT : Validées ET partagées équitablement (tous les participants concernés consomment leur part)\n• Dépenses/Avances : Validées ET partagées équitablement\n• Transferts directs : Validés pour traçabilité (paiement direct)\n• Remboursements POT : Validés pour traçabilité (remboursement direct)';
+      const typesText = '• Contributions au POT : Versées en cagnotte ; si le contributeur paie, dépense prélevée sur sa cagnotte ; reste disponible.\n• Dépenses/Avances : Payeur contributeur → prélèvement cagnotte ; sinon avance.\n• Transferts directs : Validés pour traçabilité.\n• Remboursements POT : Validés pour traçabilité.';
       const typesLines = doc.splitTextToSize(typesText, pageWidth - 2 * margin - 5);
       typesLines.forEach((line, idx) => {
         checkNewPage(5);
@@ -1113,7 +1113,7 @@ export function EventClosure({ eventId, onBack }) {
                     <div className="space-y-1">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Mise totale:</span>
-                        <span className="font-medium">{(balance.mise || 0).toFixed(2)}€</span>
+                        <span className="font-medium">{(balance.miseAvecContribution ?? balance.mise ?? 0).toFixed(2)}€</span>
                       </div>
                       <div className="flex justify-between items-center border-t pt-1">
                         <div className="flex items-center gap-1">
@@ -1182,8 +1182,7 @@ export function EventClosure({ eventId, onBack }) {
                 Comment ça marche ?
               </p>
               <p className="text-sm text-blue-800 dark:text-blue-200">
-                Basé sur les dépenses validées et les paiements enregistrés.
-                Les transferts sont calculés uniquement à partir du <strong>solde final</strong> de chaque participant.
+                Seules les <strong>transactions initiées et validées</strong> entrent dans le calcul. La part théorique (budget annoncé) est un repère ; les contributions et dépenses réelles déterminent les transferts. La contribution vers la cagnotte : si le contributeur paie une dépense, elle est <strong>prélevée sur sa cagnotte</strong> ; le reste reste disponible. Les transferts sont calculés à partir du <strong>solde final</strong> de chaque participant.
               </p>
             </div>
           </div>
@@ -1222,7 +1221,7 @@ export function EventClosure({ eventId, onBack }) {
                 <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
                   {transfersResult.warning}
                 </p>
-                {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01 && (
+                {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.02 && (
                   <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-2 italic">
                     Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
                   </p>
@@ -1235,41 +1234,33 @@ export function EventClosure({ eventId, onBack }) {
                       📚 Qu'est-ce qu'une répartition incomplète ?
                     </h4>
                     <p className="text-xs text-yellow-800 dark:text-yellow-200 mb-3">
-                      Une répartition incomplète signifie que la somme des soldes de tous les participants et de la cagnotte n'est pas égale à 0€. 
-                      En comptabilité, cette équation doit toujours être vraie : <strong>Σ soldes participants + solde POT = 0€</strong>
+                      La somme des soldes de tous les participants et de la cagnotte doit être égale à 0€ : <strong>Σ soldes participants + solde POT = 0€</strong>. Seules les transactions <strong>initiées et validées</strong> suivent la logique Bonkont. Le contributeur verse en cagnotte ; s'il paie une dépense, elle est <strong>prélevée sur sa cagnotte</strong> ; le reste reste disponible.
                     </p>
                     <div className="text-xs text-yellow-800 dark:text-yellow-200 mb-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded">
-                      <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". 
-                      Si toutes les transactions sont <strong>validées collectivement</strong> et équilibrées, alors la répartition devrait être équilibrée automatiquement.
-              </div>
+                      <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes".
+                    </div>
                     
                     <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
                       🔍 Causes possibles :
                     </h4>
                     <ul className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-3 list-disc list-inside">
-                      <li><strong>Dépenses partagées mal enregistrées</strong> : Si une dépense de 100€ est partagée entre 4 personnes mais que seule la personne qui a payé est dans la liste "participants", alors cette personne consomme 100€ au lieu de 25€ (100/4).</li>
-                      <li><strong>Contributions manquantes</strong> : Si la cagnotte est déficitaire, il manque des contributions pour équilibrer les comptes.</li>
-                      <li><strong>Transactions incomplètes</strong> : Certaines transactions peuvent avoir des informations manquantes (montant, participants, payeur).</li>
+                      <li><strong>Dépenses partagées mal enregistrées</strong> : Tous les participants concernés doivent figurer dans la liste.</li>
+                      <li><strong>Contributions manquantes</strong> : Contributions réelles non enregistrées ; la part théorique n'est qu'un repère budgétaire.</li>
+                      <li><strong>Transactions incomplètes</strong> : Montant, participants ou payeur manquant.</li>
                     </ul>
                     
                     <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
                       ✅ Solutions pour corriger :
                     </h4>
                     <ol className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-2 list-decimal list-inside">
-                      <li><strong>Vérifier les dépenses partagées</strong> : Pour chaque dépense partagée, ouvrez la transaction et assurez-vous que <strong>tous les participants concernés</strong> sont dans la liste "participants". Par exemple, si A paie 100€ pour A, B, C, D, la liste doit contenir [A, B, C, D], pas seulement [A].</li>
-                      <li><strong>Ajouter des contributions</strong> : Si la cagnotte est déficitaire, enregistrez des contributions supplémentaires pour combler le déficit.</li>
-                      <li><strong>Corriger les transactions suspectes</strong> : Bonkont détecte automatiquement les transactions où seul le payeur est dans la liste. Ouvrez ces transactions et ajoutez tous les participants concernés.</li>
-                      <li><strong>Vérifier les montants</strong> : Assurez-vous que tous les montants sont corrects et que les devises sont cohérentes.</li>
+                      <li><strong>Vérifier les dépenses partagées</strong> : Tous les participants concernés dans la liste "participants".</li>
+                      <li><strong>Enregistrer les contributions réelles</strong> : Seules les contributions réellement versées équilibrent les comptes.</li>
+                      <li><strong>Corriger les transactions suspectes</strong> : Ajouter tous les participants concernés.</li>
+                      <li><strong>Vérifier les montants</strong> : Montants et devises cohérents.</li>
                     </ol>
                     
-                    <div className="mt-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded text-xs text-yellow-900 dark:text-yellow-100">
-                      <strong>💡 Astuce</strong> : Bonkont applique automatiquement une correction pour les dépenses où seul le payeur est dans la liste, mais il est préférable de corriger manuellement les transactions pour garantir la précision des calculs.
-                    </div>
-                    
                     <div className="mt-3 p-2 bg-blue-100 dark:bg-blue-900/30 rounded text-xs text-blue-900 dark:text-blue-100">
-                      <strong>📌 Important</strong> : Le budget théorique fixé au départ de l'événement est UNIQUEMENT un repère indicatif à ne pas dépasser. 
-                      Seules les contributions RÉELLES (paiements en espèces, virements, etc.) doivent être enregistrées et prises en compte dans les calculs. 
-                      Si un déséquilibre apparaît, c'est normal tant que les contributions réelles n'ont pas encore été enregistrées.
+                      <strong>📌 Important</strong> : Le budget théorique (ex. 1000€ pour 2 = 500€/personne) est un repère à ne pas dépasser. Seules les contributions RÉELLES et les dépenses validées déterminent les transferts. Le reste en cagnotte du contributeur reste disponible (futures dépenses ou remboursement).
                     </div>
                   </div>
                 )}
@@ -1286,6 +1277,9 @@ export function EventClosure({ eventId, onBack }) {
                 <ArrowRight className="w-5 h-5 text-primary" />
                 Vue globale des transferts
               </h3>
+              <p className="text-sm text-muted-foreground mb-3">
+                Calculés à partir des transactions validées. Part théorique = repère ; contributions et dépenses réelles déterminent qui verse à qui. Le reste en cagnotte du contributeur reste disponible.
+              </p>
               <div className="space-y-3">
               {transfers.map((transfer, index) => (
                 <Card key={index} className="p-4 border-2 border-primary/20 hover:border-primary/40 transition-colors">
@@ -1420,7 +1414,7 @@ export function EventClosure({ eventId, onBack }) {
                 <p className="text-muted-foreground mb-2">
                   {transfersResult.warning || 'Impossible de calculer les transferts.'}
                 </p>
-                {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01 && (
+                {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.02 && (
                   <p className="text-sm text-muted-foreground italic max-w-md mx-auto">
                     Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
                   </p>

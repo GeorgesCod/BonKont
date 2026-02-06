@@ -68,6 +68,8 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 
+const PRODUCTION_URL = 'https://bonkont-48a2c.web.app';
+
 export function EventManagement({ eventId, onBack }) {
   console.log('[EventManagement] Component mounted:', { eventId, type: typeof eventId });
   
@@ -1700,7 +1702,7 @@ export function EventManagement({ eventId, onBack }) {
         });
       }
       
-      if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01) {
+      if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.02) {
         checkNewPage(8);
         yPosition += 2;
         doc.setFontSize(8);
@@ -1796,7 +1798,7 @@ export function EventManagement({ eventId, onBack }) {
     doc.setFontSize(8);
     doc.setTextColor(60, 60, 60);
     doc.setFont(undefined, 'normal');
-    const typesText = '• Contributions au POT : Validées ET partagées équitablement (tous les participants concernés consomment leur part)\n• Dépenses/Avances : Validées ET partagées équitablement\n• Transferts directs : Validés pour traçabilité (paiement direct)\n• Remboursements POT : Validés pour traçabilité (remboursement direct)';
+    const typesText = '• Contributions au POT : Versées en cagnotte ; si le contributeur paie, dépense prélevée sur sa cagnotte ; reste disponible.\n• Dépenses/Avances : Payeur contributeur → prélèvement cagnotte ; sinon avance.\n• Transferts directs : Validés pour traçabilité.\n• Remboursements POT : Validés pour traçabilité.';
     const typesLines = doc.splitTextToSize(typesText, pageWidth - 2 * margin - 5);
     typesLines.forEach((line, idx) => {
       checkNewPage(5);
@@ -2112,7 +2114,7 @@ export function EventManagement({ eventId, onBack }) {
         
         // Solde avec explication
           doc.setFontSize(9);
-        if (solde > 0.01) {
+        if (solde > 0.02) {
           doc.setTextColor(34, 197, 94); // Vert
           doc.setFont(undefined, 'bold');
           doc.text(`Solde: +${solde.toFixed(2)}€ (à recevoir)`, margin + 5, yPosition);
@@ -2123,7 +2125,7 @@ export function EventManagement({ eventId, onBack }) {
           doc.text(`Explication: Vous avez mis ${((balance.mise || 0)).toFixed(2)}€ et consommé ${((balance.consomme || 0)).toFixed(2)}€.`, margin + 5, yPosition);
           yPosition += 4;
           doc.text(`Vous devez donc recevoir ${solde.toFixed(2)}€ pour équilibrer votre compte.`, margin + 5, yPosition);
-        } else if (solde < -0.01) {
+        } else if (solde < -0.02) {
           doc.setTextColor(239, 68, 68); // Rouge
           doc.setFont(undefined, 'bold');
           doc.text(`Solde: ${solde.toFixed(2)}€ (à verser)`, margin + 5, yPosition);
@@ -2289,7 +2291,7 @@ export function EventManagement({ eventId, onBack }) {
         // Afficher les transferts de manière claire et visible avec "De Qui vers Qui"
         // IMPORTANT: Si le solde est négatif mais qu'il n'y a pas de transfert direct, 
         // il faut quand même indiquer à qui verser (redistribution équitable)
-        if (participantTransfers.toReceive.length > 0 || participantTransfers.toPay.length > 0 || solde < -0.01) {
+        if (participantTransfers.toReceive.length > 0 || participantTransfers.toPay.length > 0 || solde < -0.02) {
           checkNewPage(10);
           yPosition += 3;
         }
@@ -2355,7 +2357,7 @@ export function EventManagement({ eventId, onBack }) {
             doc.text(amountText, amountX, yPosition);
             yPosition += 7;
           });
-        } else if (solde < -0.01) {
+        } else if (solde < -0.02) {
           // Si solde négatif mais pas de transfert direct calculé, 
           // cela signifie que le système n'est pas équilibré ou que les transferts ne sont pas encore calculés
           // Dans ce cas, indiquer qu'il faut consulter la section globale
@@ -2668,6 +2670,54 @@ export function EventManagement({ eventId, onBack }) {
         )}
       </div>
 
+      {/* Parcours Rejoindre : visible pour que l’organisateur et les participants sachent comment les invités rejoignent */}
+      {event?.code && (
+        <Accordion type="single" collapsible className="rounded-xl border border-primary/30 bg-primary/5 shadow">
+          <AccordionItem value="join-path" className="border-0 px-4 sm:px-5">
+            <AccordionTrigger className="py-4 sm:py-5 hover:no-underline [&[data-state=open]]:pb-2">
+              <div className="flex items-center gap-2 text-left">
+                <UserPlus className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-sm font-semibold text-foreground">Parcours pour rejoindre l’événement</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="pt-0 pb-4 sm:pb-5">
+              <p className="text-sm text-muted-foreground mb-3">
+            Partagez le lien ou le code <strong>{event.code}</strong> aux personnes à inviter. Une fois acceptées, elles pourront <strong>lire et écrire leurs transactions, valider, partager</strong> selon la logique Bonkont jusqu'à la clôture.
+          </p>
+          <div className="flex flex-col gap-2 mb-3">
+            <Label className="text-xs text-muted-foreground">Lien à partager</Label>
+            <div className="flex flex-wrap gap-2 items-center">
+              <Input
+                readOnly
+                className="font-mono text-xs sm:text-sm bg-muted/50"
+                value={`${PRODUCTION_URL}/#/join/${event.code}`}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => {
+                  const url = `${PRODUCTION_URL}/#/join/${event.code}`;
+                  navigator.clipboard?.writeText(url).then(() => {
+                    toast({ title: 'Lien copié', description: 'Le lien de rejoindre a été copié.', duration: 2000 });
+                  });
+                }}
+              >
+                Copier le lien
+              </Button>
+            </div>
+          </div>
+          <ol className="text-xs sm:text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+            <li>L’invité ouvre ce lien (ou saisit le code sur la page « Rejoindre »).</li>
+            <li>Il <strong>s'inscrit ou se connecte</strong> (obligatoire pour la traçabilité), puis remplit Nom et Email et clique sur « Rejoindre l’événement ».</li>
+            <li>Sa demande apparaît dans l’onglet <strong>Participants</strong> ; vous acceptez ou rejetez. Une fois accepté, il peut lire et écrire ses transactions, valider et partager selon la logique Bonkont jusqu'à la clôture.</li>
+            <li><strong>Accès après reconnexion :</strong> s'il rouvre le lien de l'événement (#event/...) en étant connecté, il arrive directement sur la page de l'événement (sans repasser par Rejoindre).</li>
+          </ol>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
         <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
@@ -2737,7 +2787,77 @@ export function EventManagement({ eventId, onBack }) {
 
       </div>
 
-      {/* Accordéon principal avec les 4 sections */}
+      {/* Information clé : Qui verse combien à qui ? — visible sans ouvrir les accordéons */}
+      {(() => {
+        const balancesResult = computeBalances(eventForCalc || event, transactions);
+        const transfersResult = computeTransfers(balancesResult);
+        const transfersSummary = transfersResult.transfers || [];
+        if (transfersSummary.length === 0) {
+          return (
+            <div className="rounded-xl border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20 p-4 mb-4">
+              <p className="text-sm font-medium text-green-800 dark:text-green-200 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 shrink-0" />
+                Tout est équilibré — aucun transfert nécessaire.
+              </p>
+            </div>
+          );
+        }
+        return (
+          <div className="rounded-xl border border-primary/30 bg-primary/5 shadow p-4 sm:p-5 mb-4">
+            <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+              <ArrowRight className="w-5 h-5 text-primary" />
+              Qui verse combien à qui ?
+            </h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Calculés à partir des transactions validées. Ouvrez « Les Ajustements » pour le détail par participant.
+            </p>
+            <div className="space-y-3">
+              {transfersSummary.map((transfer, index) => (
+                <div
+                  key={index}
+                  className="rounded-xl bg-card text-card-foreground shadow p-4 border-2 border-primary/20 hover:border-primary/40 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="font-semibold text-lg text-destructive">{transfer.fromName}</span>
+                        <span className="text-muted-foreground">verse</span>
+                        <span className="font-semibold text-lg text-primary">{(transfer.amount || 0).toFixed(2)}€</span>
+                        <span className="text-muted-foreground">à</span>
+                        <span className="font-semibold text-lg text-green-600 dark:text-green-400">{transfer.toName}</span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-auto p-1 text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          const participant = event.participants?.find(p => p.id === transfer.from);
+                          if (participant) setSelectedParticipant(participant);
+                          setAccordionValue(prev => (Array.isArray(prev) ? [...prev, 'adjustments'] : ['adjustments']));
+                        }}
+                      >
+                        Voir le détail
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Accordéon parent "Evènement" pour regroupement et lecture mobile */}
+      <Accordion type="single" collapsible defaultValue="evenement" className="w-full">
+        <AccordionItem value="evenement" className="border rounded-lg px-4">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-primary" />
+              <h2 className="text-xl font-semibold">Evènement</h2>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pt-0 pb-4">
+      {/* Accordéon des 4 sections (L'événement, Règle Bonkont, Participants, Ajustements) */}
       <Accordion 
         type="multiple" 
         value={accordionValue} 
@@ -2884,10 +3004,10 @@ export function EventManagement({ eventId, onBack }) {
               </p>
               <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
                 <ul className="text-xs text-blue-800 dark:text-blue-200 space-y-2 ml-4 list-disc">
-                  <li><strong>Contributions au POT</strong> : Validées ET partagées équitablement (tous les participants concernés consomment leur part)</li>
-                  <li><strong>Dépenses/Avances</strong> : Validées ET partagées équitablement (qui consomme quoi)</li>
-                  <li><strong>Transferts directs</strong> : Validés pour traçabilité (paiement direct, pas de partage)</li>
-                  <li><strong>Remboursements POT</strong> : Validés pour traçabilité (remboursement direct, pas de partage)</li>
+                  <li><strong>Contributions au POT</strong> : Argent versé dans la cagnotte (validé). Tant qu'aucune dépense n'est faite, la cagnotte ne bouge. Si le contributeur paie une dépense, elle est <strong>prélevée sur sa cagnotte</strong> ; le reste reste disponible (futures dépenses ou remboursement).</li>
+                  <li><strong>Dépenses/Avances</strong> : Validées et partagées équitablement (qui consomme quoi). Payeur = contributeur → prélevé sur la cagnotte ; sinon avance du payeur.</li>
+                  <li><strong>Transferts directs</strong> : Validés pour traçabilité (paiement direct entre participants).</li>
+                  <li><strong>Remboursements POT</strong> : Validés pour traçabilité (remboursement direct depuis la cagnotte).</li>
                 </ul>
             </div>
               <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
@@ -3309,7 +3429,15 @@ export function EventManagement({ eventId, onBack }) {
                                           }))
                                         });
                                         
-                                        useEventStore.getState().updateEvent(event.id, { participants: syncedParticipants });
+                                        // Mettre à jour l'événement dans le store par sa clé réelle (id ou firestoreId)
+                                        const storeEvents = useEventStore.getState().events;
+                                        const eventToUpdate = storeEvents.find(e => 
+                                          String(e.id) === String(event.id) || 
+                                          String(e.firestoreId) === String(event.id) ||
+                                          (e.code && event.code && (e.code || '').toString().toUpperCase().replace(/[^A-Z]/g, '') === (event.code || '').toString().toUpperCase().replace(/[^A-Z]/g, ''))
+                                        );
+                                        const storeKey = eventToUpdate ? eventToUpdate.id : event.id;
+                                        useEventStore.getState().updateEvent(storeKey, { participants: syncedParticipants });
                                         setSyncTrigger((prev) => prev + 1); // Forcer le re-render de la liste des participants
                                         console.log('[EventManagement] ✅✅✅ Participants synced successfully ✅✅✅');
                                         console.log('[EventManagement] Local event now has', syncedParticipants.length, 'participants');
@@ -3328,7 +3456,10 @@ export function EventManagement({ eventId, onBack }) {
                                             hasConfirmed: true,
                                             approved: true
                                           };
-                                          useEventStore.getState().updateEvent(event.id, { participants: [organizerParticipant] });
+                                          const storeEvents = useEventStore.getState().events;
+                                          const eventToUpdate = storeEvents.find(e => String(e.id) === String(event.id) || String(e.firestoreId) === String(event.id) || (e.code && event.code && (e.code || '').toString().toUpperCase().replace(/[^A-Z]/g, '') === (event.code || '').toString().toUpperCase().replace(/[^A-Z]/g, '')));
+                                          const storeKey = eventToUpdate ? eventToUpdate.id : event.id;
+                                          useEventStore.getState().updateEvent(storeKey, { participants: [organizerParticipant] });
                                           setSyncTrigger((prev) => prev + 1);
                                           console.log('[EventManagement] ✅ Organizer added as only participant');
                                         }
@@ -3481,7 +3612,7 @@ export function EventManagement({ eventId, onBack }) {
                             La seule demande en attente est la vôtre (email organisateur). Elle n'est pas affichée ici.
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            <strong>Où est le formulaire pour l'invité ?</strong> Sur le <strong>lien de rejoindre</strong> (lien ou QR code que vous partagez). L'invité ouvre ce lien → il voit le formulaire <strong>Nom</strong> et <strong>Email</strong> → il remplit et clique sur « Rejoindre l'événement » → sa demande apparaît ici.
+                            <strong>Où est le formulaire pour l'invité ?</strong> Sur le <strong>lien de rejoindre</strong> (lien ou QR code que vous partagez). L'invité ouvre ce lien → il doit <strong>s'inscrire ou se connecter</strong> (traçabilité) → il remplit Nom et Email et clique sur « Rejoindre l'événement » → sa demande apparaît ici.
                           </p>
                         </div>
                       );
@@ -3492,7 +3623,7 @@ export function EventManagement({ eventId, onBack }) {
                             Aucune demande en attente pour le moment.
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            Partagez le lien ou le QR code : l'invité <strong>ouvre le lien</strong> → voit le formulaire (Nom, Email) → remplit et clique sur « Rejoindre l'événement » → sa demande apparaît ici.
+                            Partagez le lien ou le QR code : l'invité <strong>ouvre le lien</strong> → <strong>s'inscrit ou se connecte</strong> (traçabilité) → remplit le formulaire (Nom, Email) et clique sur « Rejoindre l'événement » → sa demande apparaît ici.
                           </p>
                         </div>
                       );
@@ -3803,8 +3934,7 @@ export function EventManagement({ eventId, onBack }) {
                     Comment ça marche ?
                   </p>
                   <p className="text-sm text-blue-800 dark:text-blue-200">
-                    Basé sur les dépenses <strong>validées</strong> et les paiements enregistrés.
-                    Les transferts sont calculés uniquement à partir du <strong>solde final</strong> de chaque participant.
+                    Seules les <strong>transactions initiées et validées</strong> entrent dans le calcul. Le budget annoncé en début d'événement (ex. 1000€ pour 2) donne une <strong>part théorique</strong> (500€/personne), repère à ne pas dépasser — en réalité ce sont les contributions et dépenses réelles qui comptent. Les transferts sont calculés à partir du <strong>solde final</strong> de chaque participant. La contribution vers la cagnotte reste disponible : si le contributeur paie une dépense, elle est <strong>prélevée sur sa cagnotte</strong> ; le reste peut servir à d'autres dépenses ou au remboursement de sa dette éventuelle.
                     <span className="block mt-1 text-xs italic">Rappel : Seuls les participants qui valident consomment et doivent rembourser.</span>
                   </p>
                 </div>
@@ -3844,7 +3974,7 @@ export function EventManagement({ eventId, onBack }) {
                     <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
                       {transfersResult.warning}
                     </p>
-                    {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.01 && (
+                    {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.02 && (
                       <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-2 italic">
                         Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
                       </p>
@@ -3857,31 +3987,29 @@ export function EventManagement({ eventId, onBack }) {
                           📚 Qu'est-ce qu'une répartition incomplète ?
                         </h4>
                         <p className="text-xs text-yellow-800 dark:text-yellow-200 mb-3">
-                          Une répartition incomplète signifie que la somme des soldes de tous les participants et de la cagnotte n'est pas égale à 0€. 
-                          En comptabilité, cette équation doit toujours être vraie : <strong>Σ soldes participants + solde POT = 0€</strong>
+                          La somme des soldes de tous les participants et de la cagnotte doit être égale à 0€ : <strong>Σ soldes participants + solde POT = 0€</strong>. Seules les transactions <strong>initiées et validées</strong> suivent la logique Bonkont (contributions réelles, dépenses prélevées sur la cagnotte du contributeur ou en avance).
                         </p>
                         <div className="text-xs text-yellow-800 dark:text-yellow-200 mb-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded">
-                          <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". 
-                          Si toutes les transactions sont <strong>validées collectivement</strong> et équilibrées, alors la répartition devrait être équilibrée automatiquement.
-                  </div>
+                          <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". Le contributeur verse en cagnotte ; s'il paie une dépense, elle est <strong>prélevée sur sa cagnotte</strong> ; le reste reste disponible (futures dépenses ou remboursement).
+                        </div>
                         
                         <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
                           🔍 Causes possibles :
                         </h4>
                         <ul className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-3 list-disc list-inside">
-                          <li><strong>Dépenses partagées mal enregistrées</strong> : Si une dépense de 100€ est partagée entre 4 personnes mais que seule la personne qui a payé est dans la liste "participants", alors cette personne consomme 100€ au lieu de 25€ (100/4).</li>
-                          <li><strong>Contributions manquantes</strong> : Si la cagnotte est déficitaire, il manque des contributions pour équilibrer les comptes.</li>
-                          <li><strong>Transactions incomplètes</strong> : Certaines transactions peuvent avoir des informations manquantes (montant, participants, payeur).</li>
+                          <li><strong>Dépenses partagées mal enregistrées</strong> : Une dépense partagée doit inclure <strong>tous les participants concernés</strong> dans la liste (pas seulement le payeur).</li>
+                          <li><strong>Contributions manquantes</strong> : Contributions réelles non enregistrées (espèces, virement) ; la part théorique (ex. 500€/personne) n'est qu'un repère budgétaire.</li>
+                          <li><strong>Transactions incomplètes</strong> : Montant, participants ou payeur manquant.</li>
                         </ul>
                         
                         <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
                           ✅ Solutions pour corriger :
                         </h4>
                         <ol className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-2 list-decimal list-inside">
-                          <li><strong>Vérifier les dépenses partagées</strong> : Pour chaque dépense partagée, ouvrez la transaction et assurez-vous que <strong>tous les participants concernés</strong> sont dans la liste "participants". Par exemple, si A paie 100€ pour A, B, C, D, la liste doit contenir [A, B, C, D], pas seulement [A].</li>
-                          <li><strong>Ajouter des contributions</strong> : Si la cagnotte est déficitaire, enregistrez des contributions supplémentaires pour combler le déficit.</li>
-                          <li><strong>Corriger les transactions suspectes</strong> : Bonkont détecte automatiquement les transactions où seul le payeur est dans la liste. Ouvrez ces transactions et ajoutez tous les participants concernés.</li>
-                          <li><strong>Vérifier les montants</strong> : Assurez-vous que tous les montants sont corrects et que les devises sont cohérentes.</li>
+                          <li><strong>Vérifier les dépenses partagées</strong> : Ouvrez chaque dépense et assurez-vous que tous les participants concernés sont dans la liste "participants".</li>
+                          <li><strong>Enregistrer les contributions réelles</strong> : Seules les contributions réellement versées (cagnotte) équilibrent les comptes ; le budget annoncé (part théorique) est indicatif.</li>
+                          <li><strong>Corriger les transactions suspectes</strong> : Ajoutez tous les participants concernés aux dépenses où seul le payeur figure.</li>
+                          <li><strong>Vérifier les montants</strong> : Montants et devises cohérents.</li>
                         </ol>
                         
                         <div className="mt-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded text-xs text-yellow-900 dark:text-yellow-100">
@@ -3922,6 +4050,9 @@ export function EventManagement({ eventId, onBack }) {
                     <ArrowRight className="w-5 h-5 text-primary" />
                     Vue globale des transferts
                   </h3>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Calculés à partir des transactions validées. Part théorique (budget annoncé) = repère ; seules les contributions et dépenses réelles déterminent qui verse à qui. Le reste en cagnotte du contributeur reste disponible.
+                  </p>
                   <div className="space-y-3">
                     {transfers.map((transfer, index) => (
                       <Card key={index} className="p-4 border-2 border-primary/20 hover:border-primary/40 transition-colors">
@@ -3998,16 +4129,16 @@ export function EventManagement({ eventId, onBack }) {
                                 </div>
                                 <div>
                                   <p className="text-muted-foreground mb-1">Mise totale</p>
-                                  <p className="font-semibold">{(balance.mise || 0).toFixed(2)}€</p>
+                                  <p className="font-semibold">{(balance.miseAvecContribution ?? balance.mise ?? 0).toFixed(2)}€</p>
                                 </div>
                               </div>
                               <div className="pt-3 border-t border-blue-200 dark:border-blue-800">
                                 <p className="text-xs text-muted-foreground mb-1">Solde final</p>
-                                <p className={`text-lg font-bold ${solde > 0.01 ? 'text-green-600 dark:text-green-400' : solde < -0.01 ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground'}`}>
+                                <p className={`text-lg font-bold ${solde > 0.02 ? 'text-green-600 dark:text-green-400' : solde < -0.02 ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground'}`}>
                                   {solde >= 0 ? '+' : ''}{solde.toFixed(2)}€
-                                  {solde > 0.01 && <span className="ml-2 text-sm font-normal">(à recevoir)</span>}
-                                  {solde < -0.01 && <span className="ml-2 text-sm font-normal">(à verser)</span>}
-                                  {Math.abs(solde) <= 0.01 && <span className="ml-2 text-sm font-normal">(équilibré)</span>}
+                                  {solde > 0.02 && <span className="ml-2 text-sm font-normal">(à recevoir)</span>}
+                                  {solde < -0.02 && <span className="ml-2 text-sm font-normal">(à verser)</span>}
+                                  {Math.abs(solde) <= 0.02 && <span className="ml-2 text-sm font-normal">(équilibré)</span>}
                                 </p>
                               </div>
                             </div>
@@ -4017,16 +4148,16 @@ export function EventManagement({ eventId, onBack }) {
                               <p className="text-xs font-medium text-muted-foreground mb-2">Explication du solde :</p>
                               <div className="text-xs text-muted-foreground space-y-1">
                                 <p>
-                                  <strong>Mise totale</strong> = Contribution ({((balance.contribution || 0)).toFixed(2)}€) + Avancé ({((balance.avance || 0)).toFixed(2)}€) = <strong>{((balance.mise || 0)).toFixed(2)}€</strong>
+                                  <strong>Mise totale</strong> = Contribution ({((balance.contribution || 0)).toFixed(2)}€) + Avancé ({((balance.avance || 0)).toFixed(2)}€) = <strong>{((balance.miseAvecContribution ?? balance.mise) || 0).toFixed(2)}€</strong>
                                 </p>
                                 <p>
-                                  <strong>Solde</strong> = Mise ({((balance.mise || 0)).toFixed(2)}€) - Consommé ({((balance.consomme || 0)).toFixed(2)}€) = <strong>{solde >= 0 ? '+' : ''}{solde.toFixed(2)}€</strong>
+                                  <strong>Solde</strong> = Mise hors cagnotte ({((balance.mise || 0)).toFixed(2)}€) - Consommé ({((balance.consomme || 0)).toFixed(2)}€) = <strong>{solde >= 0 ? '+' : ''}{solde.toFixed(2)}€</strong>
                                 </p>
-                                {Math.abs(solde) <= 0.01 ? (
+                                {Math.abs(solde) <= 0.02 ? (
                                   <p className="text-green-600 dark:text-green-400 font-medium mt-2">
                                     ✓ Votre compte est équilibré : vous avez consommé exactement ce que vous avez mis ({((balance.mise || 0)).toFixed(2)}€). Aucun ajustement n'est nécessaire.
                                   </p>
-                                ) : solde > 0.01 ? (
+                                ) : solde > 0.02 ? (
                                   <p className="text-green-600 dark:text-green-400 font-medium mt-2">
                                     ✓ Vous devez recevoir {solde.toFixed(2)}€ car vous avez mis {((balance.mise || 0)).toFixed(2)}€ et consommé seulement {((balance.consomme || 0)).toFixed(2)}€.
                                   </p>
@@ -4090,9 +4221,9 @@ export function EventManagement({ eventId, onBack }) {
                                 ✓ Aucun transfert nécessaire
                               </p>
                               <p className="text-xs text-green-600 dark:text-green-400">
-                                {Math.abs(solde) <= 0.01 
+                                {Math.abs(solde) <= 0.02 
                                   ? "Votre compte est équilibré : vous avez consommé exactement ce que vous avez mis. Aucun ajustement n'est nécessaire."
-                                  : solde > 0.01
+                                  : solde > 0.02
                                     ? `Votre solde positif de ${solde.toFixed(2)}€ sera équilibré par les transferts des autres participants.`
                                     : `Votre solde négatif de ${Math.abs(solde).toFixed(2)}€ sera équilibré par les transferts vers les autres participants.`
                                 }
@@ -4122,6 +4253,9 @@ export function EventManagement({ eventId, onBack }) {
             </AccordionContent>
         </AccordionItem>
 
+      </Accordion>
+          </AccordionContent>
+        </AccordionItem>
       </Accordion>
 
       {/* Scanner de ticket */}
@@ -4296,24 +4430,24 @@ export function EventManagement({ eventId, onBack }) {
                     <>
                       {/* Bloc 1: Résumé du solde */}
                       <div className={`p-4 rounded-lg border-2 ${
-                        soldeProvisoire > 0.01 
+                        soldeProvisoire > 0.02 
                           ? 'border-blue-300 bg-blue-50 dark:bg-blue-950/20' 
-                          : soldeProvisoire < -0.01
+                          : soldeProvisoire < -0.02
                             ? 'border-orange-300 bg-orange-50 dark:bg-orange-950/20'
                             : 'border-green-300 bg-green-50 dark:bg-green-950/20'
                       }`}>
                         <h5 className="font-semibold text-base mb-3">
-                          {soldeProvisoire > 0.01 
+                          {soldeProvisoire > 0.02 
                             ? '💰 Solde : À recevoir' 
-                            : soldeProvisoire < -0.01
+                            : soldeProvisoire < -0.02
                               ? '💸 Solde : À verser'
                               : '✅ Solde : Équilibré'}
                         </h5>
                         <div className="text-center mb-3">
                           <span className={`text-3xl font-bold ${
-                            soldeProvisoire > 0.01 
+                            soldeProvisoire > 0.02 
                               ? 'text-blue-600 dark:text-blue-400' 
-                              : soldeProvisoire < -0.01
+                              : soldeProvisoire < -0.02
                                 ? 'text-orange-600 dark:text-orange-400'
                                 : 'text-green-600 dark:text-green-400'
                           }`}>
@@ -4372,7 +4506,7 @@ export function EventManagement({ eventId, onBack }) {
                         </div>
                       )}
                       
-                      {!participantTransfers.hasTransfers && Math.abs(soldeProvisoire) < 0.01 && (
+                      {!participantTransfers.hasTransfers && Math.abs(soldeProvisoire) < 0.02 && (
                         <div className="p-4 rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/20">
                           <p className="text-sm text-center text-green-700 dark:text-green-400">
                             ✅ Aucun transfert nécessaire - Participation équilibrée

@@ -201,23 +201,10 @@ export function EventCreation({ onEventCreated, onClose }) {
           result 
         });
         return result;
-      case 5: {
-        // Étape de récapitulatif - validation très permissive
-        // Si on arrive à l'étape 5, toutes les étapes précédentes sont validées
-        // On vérifie juste que les données minimales existent
+      case 5:
+        // Récap : si on est arrivé à l’étape 5, les étapes précédentes sont déjà validées
         result = !!(title && description && amount && startDate && participants && participants.length > 0);
-        
-        console.log('[EventCreation] Step 5 validation (simplified):', { 
-          title: !!title,
-          description: !!description,
-          amount: !!amount,
-          startDate: !!startDate,
-          participants: participants?.length || 0,
-          result 
-        });
-        
         return result;
-      }
       default:
         console.log('[EventCreation] Step', step, 'validation: default true');
         return true;
@@ -504,35 +491,34 @@ export function EventCreation({ onEventCreated, onClose }) {
 
       console.log('[EventCreation] Event object created:', newEvent);
       
-      // Créer l'événement dans Firestore via l'API
+      // Créer l'événement dans Firestore (obligatoire : sans Firestore, le code ne sera pas trouvé par les invités)
       let firestoreEventId = null;
       try {
         console.log('[EventCreation] Creating event in Firestore...');
-        // IMPORTANT: Le code événement est lié à l'organisateur via organizerId dans Firestore
-        // L'organisateur est automatiquement ajouté comme participant dans Firestore
         const firestoreResult = await createEventAPI({
           ...newEvent,
-          startDate: start.toISOString().split('T')[0], // Format YYYY-MM-DD
+          startDate: start.toISOString().split('T')[0],
           endDate: end.toISOString().split('T')[0],
-          organizerEmail: participants.find(p => p.isOrganizer)?.email || organizerId // Transmettre l'email de l'organisateur
+          organizerEmail: participants.find(p => p.isOrganizer)?.email || organizerId
         });
         firestoreEventId = firestoreResult.eventId;
         console.log('[EventCreation] ✅ Event created in Firestore, eventId:', firestoreEventId);
-        
-        // Mettre à jour l'ID de l'événement local avec l'ID Firestore
         newEvent.id = firestoreEventId;
         newEvent.firestoreId = firestoreEventId;
       } catch (error) {
-        console.error('[EventCreation] ⚠️ Error creating event in Firestore:', error);
-        // Continuer quand même avec le store local (fallback)
+        console.error('[EventCreation] ❌ Error creating event in Firestore:', error?.code || error?.message || error);
+        const isNetwork = /network|unavailable|failed to fetch|load/i.test(String(error?.message || error));
         toast({
-          variant: "default",
-          title: "Avertissement",
-          description: "L'événement a été créé localement. La synchronisation avec le serveur sera effectuée automatiquement."
+          variant: "destructive",
+          title: "Événement non enregistré",
+          description: isNetwork
+            ? "Connexion impossible. Vérifiez le réseau (Wi‑Fi / 4G) et réessayez."
+            : "Impossible d'enregistrer sur Firestore. Vérifiez la connexion et que l'app utilise la bonne config Firebase (voir console), puis réessayez."
         });
+        return; // Ne pas ajouter au store ni afficher l'écran de partage
       }
-      
-      // Toujours ajouter au store local pour que l'événement soit disponible immédiatement
+
+      // Firestore a réussi : ajouter au store local et afficher le partage du code
       console.log('[EventCreation] Adding event to local store...');
       console.log('[EventCreation] Event data before adding:', { 
         id: newEvent.id, 

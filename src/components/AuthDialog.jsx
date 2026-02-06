@@ -8,6 +8,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AvatarUpload } from '@/components/AvatarUpload';
 import { Mail, Lock, AlertCircle, User, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { getAuthApp } from '@/lib/firebase';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+} from 'firebase/auth';
 
 
 export function AuthDialog({ isOpen, onClose, onSuccess }) {
@@ -39,40 +45,52 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const trimmedEmail = (email || '').trim();
+    if (!trimmedEmail) {
+      toast({
+        variant: "destructive",
+        title: "Email requis",
+        description: "Veuillez saisir votre adresse email.",
+      });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast({
+        variant: "destructive",
+        title: "Email invalide",
+        description: "Veuillez saisir une adresse email valide (ex. vous@exemple.fr).",
+      });
+      return;
+    }
+    if (!password.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Mot de passe requis",
+        description: "Veuillez saisir votre mot de passe.",
+      });
+      return;
+    }
     setIsLoading(true);
 
     try {
-      // Simuler une authentification
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      const auth = getAuthApp();
+
       if (activeTab === 'login') {
-        let existingUserData = null;
-        try {
-          existingUserData = localStorage.getItem('bonkont-user');
-        } catch (_) {}
-        let userData;
-        if (existingUserData) {
-          try {
-            userData = JSON.parse(existingUserData);
-            userData.email = email;
-          } catch (_) {
-            userData = { name: email.split('@')[0], email, avatar: null, createdAt: new Date() };
-          }
-        } else {
-          userData = {
-            name: email.split('@')[0],
-            email,
-            avatar: null,
-            createdAt: new Date()
-          };
-        }
+        const userCred = await signInWithEmailAndPassword(auth, trimmedEmail, password);
+        const user = userCred.user;
+        const userData = {
+          name: user.displayName || user.email?.split('@')[0] || '',
+          email: user.email || trimmedEmail,
+          avatar: null,
+          createdAt: new Date(),
+        };
         try {
           localStorage.setItem('bonkont-user', JSON.stringify(userData));
         } catch (storageError) {
           toast({
             variant: "destructive",
             title: "Connexion impossible",
-            description: "Le stockage local est indisponible (mode privé ou quota). Essayez un autre navigateur.",
+            description: "Le stockage local est indisponible (mode privé ou quota).",
           });
           setIsLoading(false);
           return;
@@ -82,7 +100,6 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           description: "Bienvenue sur BONKONT !",
         });
       } else {
-        // Vérifier l'acceptation des CGU pour l'inscription
         if (!acceptedTerms) {
           toast({
             variant: "destructive",
@@ -92,15 +109,19 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           setIsLoading(false);
           return;
         }
-        
-        // Sauvegarder les données utilisateur
+
+        const userCred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+        const user = userCred.user;
+        try {
+          await updateProfile(user, { displayName: name.trim() || trimmedEmail.split('@')[0] });
+        } catch (_) {}
         const userData = {
-          name,
-          email,
+          name: name.trim() || user.email?.split('@')[0] || '',
+          email: user.email || trimmedEmail,
           avatar: avatar || null,
           createdAt: new Date(),
           acceptedTerms: true,
-          termsAcceptedAt: new Date()
+          termsAcceptedAt: new Date(),
         };
         try {
           localStorage.setItem('bonkont-user', JSON.stringify(userData));
@@ -108,7 +129,7 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           toast({
             variant: "destructive",
             title: "Inscription impossible",
-            description: "Le stockage local est indisponible (mode privé ou quota). Essayez un autre navigateur.",
+            description: "Le stockage local est indisponible (mode privé ou quota).",
           });
           setIsLoading(false);
           return;
@@ -121,10 +142,27 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
 
       onSuccess();
     } catch (error) {
+      const code = error?.code || '';
+      const msg =
+        code === 'auth/user-not-found'
+          ? "Aucun compte avec cet email. Créez un compte (onglet Inscription)."
+          : code === 'auth/wrong-password' || code === 'auth/invalid-credential' || code === 'auth/invalid-login-credentials'
+            ? "Email ou mot de passe incorrect. Vérifiez vos identifiants."
+            : code === 'auth/invalid-email'
+              ? "Adresse email invalide."
+              : code === 'auth/email-already-in-use'
+                ? "Cet email est déjà utilisé. Connectez-vous (onglet Connexion)."
+                : code === 'auth/weak-password'
+                  ? "Le mot de passe doit contenir au moins 6 caractères."
+                  : code === 'auth/user-disabled'
+                    ? "Ce compte a été désactivé. Contactez le support."
+                    : code === 'auth/too-many-requests'
+                      ? "Trop de tentatives. Réessayez plus tard."
+                      : error?.message || "Une erreur est survenue. Veuillez réessayer.";
       toast({
         variant: "destructive",
-        title: "Erreur",
-        description: "Une erreur est survenue. Veuillez réessayer.",
+        title: "Erreur de connexion",
+        description: msg,
       });
     } finally {
       setIsLoading(false);
