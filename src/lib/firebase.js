@@ -25,10 +25,15 @@ export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
 
 // Alerter si la config ressemble aux valeurs par défaut (build sans .env / variables non injectées)
 const apiKey = (firebaseConfig.apiKey || '').trim();
-if (!apiKey || apiKey.includes('Dummy') || apiKey.includes('ReplaceWithReal')) {
+const configValid = !!apiKey && !apiKey.includes('Dummy') && !apiKey.includes('ReplaceWithReal');
+console.log('[Firebase] init', {
+  projectId: firebaseConfig.projectId,
+  authDomain: firebaseConfig.authDomain,
+  configValid,
+});
+if (!configValid) {
   console.warn(
-    '[Firebase] ⚠️ Configuration invalide ou placeholder détectée (apiKey). ' +
-    'Les écritures Firestore peuvent échouer. Vérifiez que VITE_FIREBASE_* sont définis au build (voir .env.example).'
+    '[Firebase] ⚠️ Configuration invalide ou placeholder (apiKey). Activez Auth dans la console Firebase (Authentication > Sign-in method > Email/Mot de passe) et vérifiez VITE_FIREBASE_* au build.'
   );
 }
 
@@ -37,7 +42,10 @@ export const db = getFirestore(app);
 
 // Instance Auth (pour signInWithEmailAndPassword, etc.) — requise pour les règles Firestore (request.auth)
 const auth = getAuth(app);
-export const getAuthApp = () => auth;
+export const getAuthApp = () => {
+  console.log('[Firebase] getAuthApp:', { appName: app.name, projectId: firebaseConfig.projectId, authDomain: firebaseConfig.authDomain });
+  return auth;
+};
 
 // Helper pour convertir les dates Firestore
 export const convertFirestoreDate = (timestamp) => {

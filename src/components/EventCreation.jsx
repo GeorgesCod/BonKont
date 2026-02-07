@@ -705,6 +705,7 @@ export function EventCreation({ onEventCreated, onClose }) {
             onClick={handleBackToHome}
             className="shrink-0 min-h-[44px] min-w-[44px] hover:bg-destructive/10 hover:text-destructive"
             title="Retour à l'accueil"
+            aria-label="Retour à l'accueil"
           >
             <X className="w-5 h-5 sm:w-6 sm:h-6" />
           </Button>
@@ -803,6 +804,7 @@ export function EventCreation({ onEventCreated, onClose }) {
                       description: "Le code a été copié dans le presse-papier."
                     });
                   }}
+                  aria-label="Copier le code de l'événement"
                 >
                   <Copy className="w-4 h-4" />
                 </Button>

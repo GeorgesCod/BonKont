@@ -19,6 +19,7 @@ export function ParticipantForm({
           size="icon"
           className="absolute -top-3 -right-3 rounded-full w-8 h-8 opacity-0 group-hover-100 transition-opacity"
           onClick={onRemove}
+          aria-label="Supprimer le participant"
         >
           <Trash2 className="w-4 h-4" />
         </Button>

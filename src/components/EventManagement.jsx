@@ -2756,6 +2756,7 @@ export function EventManagement({ eventId, onBack }) {
             handleSyncFromFirestore();
           }}
           disabled={isSyncing}
+          aria-label={isSyncing ? 'Mise à jour en cours' : 'Synchroniser depuis Firestore'}
         >
           {isSyncing ? (
             <>
@@ -2780,6 +2781,7 @@ export function EventManagement({ eventId, onBack }) {
     variant="outline"
     className="gap-2"
     onClick={handleExportPDF}
+    aria-label="Exporter en PDF"
   >
     📄 Export PDF
   </Button>
@@ -2804,10 +2806,10 @@ export function EventManagement({ eventId, onBack }) {
         }
         return (
           <div className="rounded-xl border border-primary/30 bg-primary/5 shadow p-4 sm:p-5 mb-4">
-            <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+            <h2 className="text-base font-semibold mb-3 flex items-center gap-2">
               <ArrowRight className="w-5 h-5 text-primary" />
               Qui verse combien à qui ?
-            </h3>
+            </h2>
             <p className="text-xs text-muted-foreground mb-3">
               Calculés à partir des transactions validées. Ouvrez « Les Ajustements » pour le détail par participant.
             </p>
@@ -2853,7 +2855,7 @@ export function EventManagement({ eventId, onBack }) {
           <AccordionTrigger className="hover:no-underline py-4">
             <div className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">Evènement</h2>
+              <span className="text-xl font-semibold">Evènement</span>
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-0 pb-4">
@@ -2877,7 +2879,7 @@ export function EventManagement({ eventId, onBack }) {
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">L'événement</h2>
+              <span className="text-xl font-semibold">L'événement</span>
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-4 pb-6">
@@ -2977,7 +2979,7 @@ export function EventManagement({ eventId, onBack }) {
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">La Règle Bonkont</h2>
+              <span className="text-xl font-semibold">La Règle Bonkont</span>
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-4 pb-6">
@@ -3070,7 +3072,7 @@ export function EventManagement({ eventId, onBack }) {
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">
+              <span className="text-xl font-semibold">
                 Les Participants ({confirmedParticipants.length}
                 {pendingParticipants.length > 0 && ` + ${pendingParticipants.length} en attente`})
                 {firestoreJoinRequests.length > 0 && (
@@ -3078,7 +3080,7 @@ export function EventManagement({ eventId, onBack }) {
                     {firestoreJoinRequests.length} nouvelle{firestoreJoinRequests.length > 1 ? 's' : ''} demande{firestoreJoinRequests.length > 1 ? 's' : ''}
                   </Badge>
                 )}
-              </h2>
+              </span>
               {event.status === 'draft' && isOrganizer && (
                 <Badge variant="outline" className="ml-2">Brouillon</Badge>
               )}
@@ -3892,7 +3894,7 @@ export function EventManagement({ eventId, onBack }) {
           <AccordionTrigger className="hover:no-underline">
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">Les Ajustements</h2>
+              <span className="text-xl font-semibold">Les Ajustements</span>
               {(() => {
                 const balancesResult = computeBalances(eventForCalc || event, transactions);
                 const transfersResult = computeTransfers(balancesResult);
@@ -3916,10 +3918,10 @@ export function EventManagement({ eventId, onBack }) {
         return (
           <Card className="p-6 neon-border border-primary/30 bg-primary/5">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold flex items-center gap-2">
+              <span className="text-xl font-semibold flex items-center gap-2">
                 <TrendingUp className="w-6 h-6 text-primary" />
                 Ajustements entre participants
-              </h2>
+              </span>
               <Badge variant="outline" className="text-sm">
                 {transfers.length} transfert{transfers.length > 1 ? 's' : ''}
               </Badge>

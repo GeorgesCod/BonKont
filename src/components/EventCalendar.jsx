@@ -24,6 +24,7 @@ export function EventCalendar({ selectedDate, onDateSelect }) {
           size="icon"
           onClick={goToPreviousMonth}
           className="hover-glow text-primary"
+          aria-label="Mois précédent"
         >
           <ChevronLeft className="h-5 w-5" />
         </Button>
@@ -35,6 +36,7 @@ export function EventCalendar({ selectedDate, onDateSelect }) {
           size="icon"
           onClick={goToNextMonth}
           className="hover-glow text-primary"
+          aria-label="Mois suivant"
         >
           <ChevronRight className="h-5 w-5" />
         </Button>

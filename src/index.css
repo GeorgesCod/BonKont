@@ -10,19 +10,20 @@
     --card-foreground: 240 10% 3.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
-    --primary: 263.4 70% 50.4%;
+    /* Primary assombri pour contraste ≥ 4.5:1 sur fond clair (WCAG AA) */
+    --primary: 263.4 70% 42%;
     --primary-foreground: 210 40% 98%;
     --secondary: 217 91% 60%;
     --secondary-foreground: 210 40% 98%;
     --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 263.4 70% 50.4%;
+    --muted-foreground: 240 6% 26%;
+    --accent: 263.4 70% 42%;
     --accent-foreground: 240 5.9% 10%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
-    --ring: 263.4 70% 50.4%;
+    --ring: 263.4 70% 42%;
     --radius: 0.75rem;
   }
 
@@ -33,19 +34,20 @@
     --card-foreground: 0 0% 98%;
     --popover: 240 10% 3.9%;
     --popover-foreground: 0 0% 98%;
-    --primary: 263.4 70% 50.4%;
+    /* Primary légèrement éclairci en dark pour contraste sur fond sombre */
+    --primary: 263.4 70% 58%;
     --primary-foreground: 210 40% 98%;
     --secondary: 217 91% 60%;
     --secondary-foreground: 210 40% 98%;
     --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 263.4 70% 50.4%;
+    --muted-foreground: 240 5% 84%;
+    --accent: 263.4 70% 58%;
     --accent-foreground: 0 0% 98%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
-    --ring: 263.4 70% 50.4%;
+    --ring: 263.4 70% 58%;
   }
 
   * {
@@ -57,7 +59,7 @@
 
   html {
     overflow-x: hidden;
-    overflow-y: auto; /* Réserve l’espace scrollbar, évite les sauts */
+    overflow-y: hidden; /* Réserve l’espace scrollbar, évite les sauts */
     width: 100%;
     max-width: 100vw;
     height: 100%;
@@ -79,11 +81,13 @@
     min-height: -webkit-fill-available;
     height: auto;
     overflow-x: hidden !important;
-    overflow-y: auto !important; /* scroll vertical sur body = fiable en prod */
+    overflow-y: auto !important;
     -webkit-overflow-scrolling: touch;
+    overflow-scrolling: touch;
     overscroll-behavior-y: contain;
     scroll-behavior: smooth;
     touch-action: pan-y;
+    -webkit-tap-highlight-color: transparent;
     background: linear-gradient(
       to bottom,
       transparent,
@@ -310,9 +314,11 @@
   @media (max-width: 768px) {
     html {
       overflow-x: hidden;
+      overflow-y: hidden;
       height: 100%;
       min-height: 100%;
       min-height: 100dvh;
+      -webkit-text-size-adjust: 100%;
     }
 
     body {
@@ -322,8 +328,11 @@
       min-height: 100vh;
       min-height: 100dvh;
       min-height: -webkit-fill-available;
+      height: 100%;
       -webkit-overflow-scrolling: touch;
+      overflow-scrolling: touch;
       touch-action: pan-y;
+      overflow-anchor: auto;
     }
 
     #root,

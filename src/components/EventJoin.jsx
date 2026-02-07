@@ -1199,6 +1199,7 @@ export function EventJoin({ onAuthRequired, onNavigateToDashboard, onOpenEvent }
           onClick={handleBackToDashboard}
           className="shrink-0 min-h-[44px] min-w-[44px] hover:bg-destructive/10 hover:text-destructive"
           title="Retour au tableau de bord"
+          aria-label="Retour au tableau de bord"
         >
           <X className="w-5 h-5 sm:w-6 sm:h-6" />
         </Button>

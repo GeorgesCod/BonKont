@@ -37,9 +37,12 @@ const DialogContent = React.forwardRef(({ className, children, ...props }, ref) 
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-3 top-3 sm:right-4 sm:top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground p-2 min-h-[44px] min-w-[44px] flex items-center justify-center">
-        <Cross2Icon className="h-5 w-5 sm:h-4 sm:w-4" />
-        <span className="sr-only">Close</span>
+      <DialogPrimitive.Close
+        className="absolute right-3 top-3 sm:right-4 sm:top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground px-3 py-2 min-h-[44px] flex items-center justify-center gap-1.5"
+        aria-label="Fermer"
+      >
+        <Cross2Icon className="h-5 w-5 sm:h-4 sm:w-4 shrink-0" />
+        <span className="text-sm font-medium">Fermer</span>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>

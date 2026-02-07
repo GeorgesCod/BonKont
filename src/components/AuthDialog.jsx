@@ -13,6 +13,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 
 
@@ -27,6 +28,7 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
   const [isLoading, setIsLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
 
   // Réinitialiser le formulaire quand le dialogue s'ouvre
   useEffect(() => {
@@ -40,6 +42,7 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
       setIsLoading(false);
       setAcceptedTerms(false);
       setShowPassword(false);
+      setForgotPasswordLoading(false);
     }
   }, [isOpen]);
 
@@ -71,13 +74,20 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
       return;
     }
     setIsLoading(true);
+    console.log('[Auth] handleSubmit start', { activeTab, email: trimmedEmail, hasPassword: !!password?.length });
 
     try {
       const auth = getAuthApp();
+      if (!auth) {
+        console.error('[Auth] getAuthApp() returned null/undefined');
+        throw new Error('Configuration Auth Firebase manquante.');
+      }
 
       if (activeTab === 'login') {
+        console.log('[Auth] signInWithEmailAndPassword...');
         const userCred = await signInWithEmailAndPassword(auth, trimmedEmail, password);
         const user = userCred.user;
+        console.log('[Auth] signIn OK', { uid: user?.uid, email: user?.email });
         const userData = {
           name: user.displayName || user.email?.split('@')[0] || '',
           email: user.email || trimmedEmail,
@@ -86,7 +96,9 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
         };
         try {
           localStorage.setItem('bonkont-user', JSON.stringify(userData));
+          console.log('[Auth] localStorage bonkont-user saved (login)');
         } catch (storageError) {
+          console.error('[Auth] localStorage.setItem failed', storageError);
           toast({
             variant: "destructive",
             title: "Connexion impossible",
@@ -110,11 +122,15 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
           return;
         }
 
+        console.log('[Auth] createUserWithEmailAndPassword...');
         const userCred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
         const user = userCred.user;
+        console.log('[Auth] createUser OK', { uid: user?.uid, email: user?.email });
         try {
           await updateProfile(user, { displayName: name.trim() || trimmedEmail.split('@')[0] });
-        } catch (_) {}
+        } catch (profileErr) {
+          console.warn('[Auth] updateProfile failed (non-blocking)', profileErr);
+        }
         const userData = {
           name: name.trim() || user.email?.split('@')[0] || '',
           email: user.email || trimmedEmail,
@@ -125,7 +141,9 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
         };
         try {
           localStorage.setItem('bonkont-user', JSON.stringify(userData));
+          console.log('[Auth] localStorage bonkont-user saved (register)');
         } catch (storageError) {
+          console.error('[Auth] localStorage.setItem failed', storageError);
           toast({
             variant: "destructive",
             title: "Inscription impossible",
@@ -140,8 +158,23 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
         });
       }
 
-      onSuccess();
+      console.log('[Auth] calling onSuccess()');
+      if (typeof onSuccess === 'function') {
+        try {
+          onSuccess();
+        } catch (onSuccessErr) {
+          console.error('[Auth] onSuccess() threw', onSuccessErr);
+          toast({
+            variant: "destructive",
+            title: "Erreur",
+            description: "Connexion réussie mais mise à jour de l'interface en échec. Rechargez la page.",
+          });
+        }
+      } else {
+        console.warn('[Auth] onSuccess is not a function', typeof onSuccess);
+      }
     } catch (error) {
+      console.error('[Auth] handleSubmit error', error?.code, error?.message, error);
       const code = error?.code || '';
       const msg =
         code === 'auth/user-not-found'
@@ -158,7 +191,11 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
                     ? "Ce compte a été désactivé. Contactez le support."
                     : code === 'auth/too-many-requests'
                       ? "Trop de tentatives. Réessayez plus tard."
-                      : error?.message || "Une erreur est survenue. Veuillez réessayer.";
+                      : code === 'auth/operation-not-allowed'
+                        ? "Connexion par email désactivée. L'administrateur doit activer « Email/Mot de passe » dans la console Firebase (Authentication > Sign-in method)."
+                        : code === 'auth/network-request-failed'
+                          ? "Erreur réseau. Vérifiez votre connexion et réessayez."
+                          : error?.message || "Une erreur est survenue. Veuillez réessayer.";
       toast({
         variant: "destructive",
         title: "Erreur de connexion",
@@ -169,8 +206,10 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
     }
   };
 
-  const handleForgotPassword = () => {
-    if (email.trim() === '') {
+  const handleForgotPassword = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const trimmedEmail = (email || '').trim();
+    if (!trimmedEmail) {
       toast({
         variant: "destructive",
         title: "Email requis",
@@ -178,11 +217,40 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
       });
       return;
     }
-
-    toast({
-      title: "Email envoyé",
-      description: "Les instructions de réinitialisation ont été envoyées à votre adresse email.",
-    });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast({
+        variant: "destructive",
+        title: "Email invalide",
+        description: "Veuillez saisir une adresse email valide.",
+      });
+      return;
+    }
+    setForgotPasswordLoading(true);
+    try {
+      const auth = getAuthApp();
+      await sendPasswordResetEmail(auth, trimmedEmail);
+      toast({
+        title: "Email envoyé",
+        description: "Si un compte existe pour cet email, vous recevrez les instructions de réinitialisation. Vérifiez aussi les spams.",
+      });
+    } catch (err) {
+      const code = err?.code || '';
+      const msg =
+        code === 'auth/user-not-found'
+          ? "Aucun compte avec cet email. Vérifiez l'adresse ou créez un compte."
+          : code === 'auth/invalid-email'
+            ? "Adresse email invalide."
+            : code === 'auth/too-many-requests'
+              ? "Trop de tentatives. Réessayez plus tard."
+              : err?.message || "Impossible d'envoyer l'email. Réessayez plus tard.";
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: msg,
+      });
+    } finally {
+      setForgotPasswordLoading(false);
+    }
   };
 
   return (
@@ -292,8 +360,9 @@ export function AuthDialog({ isOpen, onClose, onSuccess }) {
                   variant="link"
                   className="text-sm"
                   onClick={handleForgotPassword}
+                  disabled={forgotPasswordLoading}
                 >
-                  Mot de passe oublié ?
+                  {forgotPasswordLoading ? "Envoi en cours..." : "Mot de passe oublié ?"}
                 </Button>
               </div>
             )}

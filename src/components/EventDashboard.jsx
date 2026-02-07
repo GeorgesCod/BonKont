@@ -675,6 +675,7 @@ setPaymentMethod('card');
             className="shrink-0 h-9 w-9 neon-border"
             onClick={() => (onBack ? onBack() : window.history.back())}
             title="Retour à l'événement"
+            aria-label="Retour à l'événement"
           >
             <ArrowLeft className="w-4 h-4" />
             <span className="sr-only">Retour à l'événement</span>

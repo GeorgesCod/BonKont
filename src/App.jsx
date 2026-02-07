@@ -28,6 +28,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useI18nStore } from '@/lib/i18n';
 import { migrateLocalTransactionsToFirestore } from '@/utils/migrateLocalTransactions';
 import { addTransactionToFirestore } from '@/services/api';
+import { getAuthApp } from '@/lib/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 export default function App() {
   const { toast } = useToast();
@@ -235,6 +237,39 @@ export default function App() {
     return () => {
       window.removeEventListener('storage', onStorage);
       document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
+  // Sync isLoggedIn avec Firebase Auth (après connexion/inscription, l'UI se met à jour même si onSuccess échoue)
+  useEffect(() => {
+    let unsubscribeAuth;
+    try {
+      const auth = getAuthApp();
+      unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+        if (user) {
+          console.log('[App] onAuthStateChanged: user', user.uid, user.email);
+          try {
+            if (!localStorage.getItem('bonkont-user')) {
+              const userData = {
+                name: user.displayName || user.email?.split('@')[0] || '',
+                email: user.email || '',
+                avatar: null,
+                createdAt: new Date(),
+              };
+              localStorage.setItem('bonkont-user', JSON.stringify(userData));
+            }
+          } catch (_) {}
+          setIsLoggedIn(true);
+        } else {
+          console.log('[App] onAuthStateChanged: no user');
+          setIsLoggedIn(false);
+        }
+      });
+    } catch (e) {
+      console.warn('[App] onAuthStateChanged setup failed', e);
+    }
+    return () => {
+      if (typeof unsubscribeAuth === 'function') unsubscribeAuth();
     };
   }, []);
 
@@ -736,7 +771,14 @@ export default function App() {
       // 2) Laisser React appliquer le state (mini "yield")
       await new Promise(resolve => setTimeout(resolve, 0));
       
-      // 3) Nettoyer les données utilisateur et le store d'événements (chaque utilisateur voit uniquement les siens)
+      // 3) Déconnexion Firebase Auth + nettoyage local
+      try {
+        const auth = getAuthApp();
+        await signOut(auth);
+        console.log('[App] Firebase signOut done');
+      } catch (e) {
+        console.warn('[App] Firebase signOut failed (non-blocking)', e);
+      }
       try {
         localStorage.removeItem('bonkont-user');
         localStorage.removeItem('bonkont-joined-codes');
@@ -858,9 +900,9 @@ export default function App() {
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <Wallet2 className="w-5 h-5 sm:w-6 sm:h-6 text-primary hover-glow flex-shrink-0" />
               <div className="min-w-0">
-                <h1 className="text-base sm:text-xl lg:text-2xl font-bold neon-glow bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary truncate">
+                <span className="text-base sm:text-xl lg:text-2xl font-bold neon-glow bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary truncate" role="img" aria-label="BONKONT">
                   BONKONT
-                </h1>
+                </span>
                 <p className="text-[10px] sm:text-xs text-muted-foreground italic hidden sm:block">
                   Les bons comptes font les bons amis
                 </p>
@@ -946,6 +988,7 @@ export default function App() {
                     className="neon-border h-9 w-9"
                     onClick={() => setIsSettingsOpen(true)}
                     title="Paramètres"
+                    aria-label="Paramètres"
                   >
                     <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
                   </Button>

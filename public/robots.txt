@@ -1,0 +1,5 @@
+# BONKONT - Les bons comptes font les bons amis
+# https://bonkont-48a2c.web.app
+
+User-agent: *
+Allow: /

@@ -199,6 +199,7 @@ Lien : ${shareUrl}
                 size="icon"
                 className="neon-border"
                 onClick={handleCopyCode}
+                aria-label="Copier le code"
               >
                 <Copy className="w-4 h-4" />
               </Button>
@@ -207,6 +208,7 @@ Lien : ${shareUrl}
                 size="icon"
                 className="neon-border"
                 onClick={() => setIsQRDialogOpen(true)}
+                aria-label="Afficher le QR code"
               >
                 <QrCode className="w-4 h-4" />
               </Button>

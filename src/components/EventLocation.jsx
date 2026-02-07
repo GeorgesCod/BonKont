@@ -637,6 +637,7 @@ export function EventLocation({ initialLocation, onLocationChange = () => {}, is
                 onClick={handleShareLocation}
                 className="neon-border shrink-0"
                 title="Partager la localisation"
+                aria-label="Partager la localisation"
               >
                 <Share2 className="w-4 h-4" />
               </Button>

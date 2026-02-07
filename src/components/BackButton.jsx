@@ -12,6 +12,7 @@ export function BackButton() {
       size="icon"
       className="fixed top-4 left-4 z-50 md md-0 md-0"
       onClick={handleBack}
+      aria-label="Retour"
     >
       <ArrowLeft className="w-5 h-5" />
       <span className="sr-only">Retour</span>

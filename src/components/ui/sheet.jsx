@@ -45,9 +45,12 @@ const SheetContent = React.forwardRef,
       className={cn(sheetVariants({ side }), className)}
       {...props}
     >
-      <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover-100 focus-none focus-2 focus-ring focus-offset-2 disabled-events-none data-[state=open]-secondary">
-        <Cross2Icon className="h-4 w-4" />
-        <span className="sr-only">Close</span>
+      <SheetPrimitive.Close
+        className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary flex items-center justify-center gap-1.5 px-3 py-2 min-h-[44px]"
+        aria-label="Fermer"
+      >
+        <Cross2Icon className="h-4 w-4 shrink-0" />
+        <span className="text-sm font-medium">Fermer</span>
       </SheetPrimitive.Close>
       {children}
     </SheetPrimitive.Content>

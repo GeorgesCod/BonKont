@@ -30,6 +30,7 @@ export function ScrollToTop() {
       size="icon"
       className="fixed bottom-4 right-4 z-50 rounded-full neon-border md-8 md-8"
       onClick={scrollToTop}
+      aria-label="Retour en haut de la page"
     >
       <ArrowUp className="w-5 h-5" />
       <span className="sr-only">Retour en haut</span>
