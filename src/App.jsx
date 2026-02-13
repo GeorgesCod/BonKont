@@ -15,6 +15,7 @@ import { PrivacyPolicy } from '@/components/PrivacyPolicy';
 import { TermsOfService } from '@/components/TermsOfService';
 import { FAQ } from '@/components/FAQ';
 import { Contact } from '@/components/Contact';
+import { ModeEmploi } from '@/components/ModeEmploi';
 import { Wallet2, LogIn, ArrowLeft, Settings, UserPlus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -398,6 +399,13 @@ export default function App() {
     }
     if (hash === '#/contact' || hash === '#contact') {
       setCurrentView('contact');
+      setSelectedEventId(null);
+      setShowHistory(false);
+      setShowStats(false);
+      return;
+    }
+    if (hash === '#/manual' || hash === '#/mode-emploi' || hash === '#manual' || hash === '#mode-emploi') {
+      setCurrentView('manual');
       setSelectedEventId(null);
       setShowHistory(false);
       setShowStats(false);
@@ -1026,6 +1034,13 @@ export default function App() {
             }} />
           ) : currentView === 'contact' ? (
             <Contact onBack={() => {
+              setCurrentView('home');
+              window.location.hash = '';
+              setSettingsDefaultTab('preferences');
+              setIsSettingsOpen(true);
+            }} />
+          ) : currentView === 'manual' ? (
+            <ModeEmploi onBack={() => {
               setCurrentView('home');
               window.location.hash = '';
               setSettingsDefaultTab('preferences');

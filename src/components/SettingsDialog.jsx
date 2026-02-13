@@ -533,6 +533,27 @@ export function SettingsDialog({ isOpen, onClose, onLogout, onDeleteAccount, onN
                   </Button>
                 </div>
               </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <h3 className="font-semibold text-base sm:text-lg flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  {t('manual')}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {currentLanguage?.code === 'en' ? 'Complete user guide: account, events, transactions, closure' : 'Guide complet utilisateur : compte, événements, transactions, clôture'}
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2"
+                  onClick={() => handleNavigateToPublicPage('manual')}
+                >
+                  <FileText className="w-4 h-4" />
+                  {t('manual')}
+                  <ExternalLink className="w-3 h-3 ml-auto opacity-50" />
+                </Button>
+              </div>
             </TabsContent>
 
             {/* Onglet Aide */}
