@@ -1,17 +1,21 @@
 /**
  * Module Bonkont : Calcul des soldes et répartition avec POT (Cagnotte)
  *
- * Part théorique vs réel :
- * - En début d'événement (ex. 1000€ pour 2 participants) : part théorique = 500€/personne = repère
- *   budgétaire à ne pas dépasser, pas une obligation.
- * - Seules les transactions initiées et validées suivent la logique Bonkont (contributions réelles,
- *   dépenses prélevées sur la cagnotte ou en avance, consommation partagée).
+ * CLARIFICATION DU FLUX (logique établie, sans changer la règle Bonkont) :
+ * 1. Montant théorique (ex. 200€/personne) : repère fixé au début de l'événement, il reste THEORIQUE.
+ * 2. Le pot reçoit des contributions réelles (validées) ; tant que non dépensées, elles restent en cagnotte.
+ * 3. Quand un participant prend du pot pour une dépense du groupe (ex. 50€ courses pour 4), ces 50€
+ *    deviennent une avance réelle → entrent dans la règle Bonkont (qui paie, qui consomme, qui doit à qui).
+ * 4. Le reste en cagnotte sert à de futures dépenses ou en fin d'événement à rembourser (débiteur)
+ *    ou à être augmenté (créancier). La règle Bonkont ne change jamais : "Tu paies, tu consommes,
+ *    tu verses ou tu reçois, on est quittes."
  *
- * Cagnotte du contributeur :
- * - Le contributeur (ex. Jacques 125€) peut puiser pour des dépenses : elles sont prélevées sur
- *   sa cagnotte (ex. 50€ → il reste 75€). Si Alice fait une dépense (ex. 25€), c'est son avance.
- * - On consomme (parts réelles), on se doit des remboursements si besoin. Les 75€ restant dans la
- *   cagnotte de Jacques restent disponibles (futures dépenses ou remboursement de sa dette éventuelle).
+ * Équité cagnotte / avance : ce qui compte est la CONTRIBUTION TOTALE du participant. Pour chaque dépense
+ * du payeur, part cagnotte = min(montant, contribution totale − déjà utilisée), reste = avance. Logique sans faille.
+ *
+ * Part théorique vs réel :
+ * - Part théorique = repère budgétaire à ne pas dépasser, pas une obligation.
+ * - Seules les transactions initiées et validées suivent la logique Bonkont.
  *
  * Modèle POT : La cagnotte est un acteur comptable (compte de groupe)
  * - Reçoit les contributions (cash, virement, etc.)
@@ -729,20 +733,8 @@ export function computeBalances(event, transactions) {
   // Double règle : Validation + Partage Équitable
   let totalConsommation = 0;
   let totalAvances = 0;
-  
-  // Log désactivé pour éviter la boucle infinie
-  // console.log('[computeBalances] Traitement des dépenses:', {
-  //   expensesCount: expenses.length,
-  //   expensesDetails: expenses.map(e => ({
-  //     id: e.id,
-  //     source: e.source,
-  //     participants: e.participants,
-  //     payerId: e.payerId,
-  //     validatedBy: e.validatedBy || [],
-  //     amount: parseFloat((e.amount || 0).toFixed(2)),
-  //     message: 'RÈGLE BONKONT: Dépense validée → déclenche le partage équitable'
-  //   }))
-  // });
+  // Contribution totale déjà utilisée par le pot pour chaque payeur (équité : ne jamais dépasser la contribution totale)
+  const contributionUtiliseeParPayeur = {};
   
   expenses.forEach(transaction => {
     const amount = parseFloat(transaction.amount) || 0;
@@ -991,26 +983,32 @@ export function computeBalances(event, transactions) {
     // });
     
     if (paidByPot) {
-      // Dépense payée par POT (ou prélevée sur la cagnotte car payeur = contributeur)
-      potBalance.expensesPaid = parseFloat((potBalance.expensesPaid + amount).toFixed(2));
+      // Part cagnotte + part avance : on s'appuie sur la CONTRIBUTION TOTALE du participant (équité, logique sans faille).
+      // Disponible cagnotte pour ce payeur = contribution totale - déjà utilisée pour ses dépenses précédentes.
+      let amountFromPot = amount;
+      let amountAsAdvance = 0;
+      if (payerHasContribution && payerIdStr && balances[payerIdStr]) {
+        const contributionTotale = balances[payerIdStr].contribution || 0;
+        const dejaUtilise = contributionUtiliseeParPayeur[payerIdStr] || 0;
+        const disponibleCagnotte = Math.max(0, contributionTotale - dejaUtilise);
+        amountFromPot = Math.min(amount, disponibleCagnotte);
+        amountAsAdvance = parseFloat((amount - amountFromPot).toFixed(2));
+        contributionUtiliseeParPayeur[payerIdStr] = parseFloat((dejaUtilise + amountFromPot).toFixed(2));
+        potBalance.expensesPaid = parseFloat((potBalance.expensesPaid + amountFromPot).toFixed(2));
+        if (amountAsAdvance > 0.01) {
+          balances[payerIdStr].avance = parseFloat((balances[payerIdStr].avance + amountAsAdvance).toFixed(2));
+          totalAvances = parseFloat((totalAvances + amountAsAdvance).toFixed(2));
+        }
+        if (amountFromPot > 0.01) {
+          balances[payerIdStr].consomme = parseFloat((balances[payerIdStr].consomme - amountFromPot).toFixed(2));
+        }
+      } else {
+        potBalance.expensesPaid = parseFloat((potBalance.expensesPaid + amount).toFixed(2));
+      }
       
-      // Chaque participant concerné consomme sa part
       validParticipants.forEach(participantId => {
         balances[participantId].consomme = parseFloat((balances[participantId].consomme + share).toFixed(2));
       });
-      
-      // Si c'était le contributeur qui payait : la somme prélevée vient de sa contribution (il reste 125-50=75 dans la cagnotte).
-      // Compenser sa consomme : on avait +contribution, on enlève "amount" (prélevé) + "amount" pour garder Σ soldes + POT = 0.
-      if (payerHasContribution && payerIdStr && balances[payerIdStr]) {
-        balances[payerIdStr].consomme = parseFloat((balances[payerIdStr].consomme - amount * 2).toFixed(2));
-      }
-      
-      // Log désactivé pour éviter la boucle infinie
-      // console.log('[computeBalances] Dépense payée par POT:', {
-      //   transactionId: transaction.id,
-      //   amount: parseFloat(amount.toFixed(2)),
-      //   participantsConcerned: validParticipants.length
-      // });
     } else if (payerIdStr && balances[payerIdStr]) {
       // Dépense payée par un participant
       // RÈGLE BONKONT : Le payeur avance le montant TOTAL, mais chaque participant (y compris le payeur) consomme seulement sa PART
@@ -1191,13 +1189,23 @@ export function computeBalances(event, transactions) {
     potBalance.payouts = parseFloat((potBalance.payouts + amount).toFixed(2));
   });
   
-  // ===== CALCUL DES MISES DE FONDS RÉELLES =====
-  // Mise (pour le solde) = avance + paidOut - received - rembPot, sans "contribution", pour que Σ soldes + solde POT = 0.
-  // Mise affichée (contribution + avance + ...) pour cohérence UI "Mise totale = Contribution + Avancé".
+  // ===== CONTRIBUTION PRÉLEVÉE / RESTANT CAGNOTTE (pour présentation équitable) =====
   Object.keys(balances).forEach(participantId => {
     const balance = balances[participantId];
-    balance.mise = parseFloat((balance.avance + balance.paidOut - balance.received - balance.rembPot).toFixed(2));
-    balance.miseAvecContribution = parseFloat((balance.contribution + balance.avance + balance.paidOut - balance.received - balance.rembPot).toFixed(2));
+    const contrib = balance.contribution || 0;
+    const utilisee = contributionUtiliseeParPayeur[participantId] || 0;
+    balance.contributionUtilisee = parseFloat(utilisee.toFixed(2));
+    balance.restantCagnotte = parseFloat((contrib - utilisee).toFixed(2));
+  });
+  
+  // ===== CALCUL DES MISES DE FONDS RÉELLES =====
+  // Toute somme prélevée sur la cagnotte du participant pour des dépenses devient une avance de fait → entre dans la mise pour le solde.
+  // Mise = avance (hors cagnotte) + contributionUtilisee (prélevé sur cagnotte = avance de fait) + paidOut - received - rembPot
+  Object.keys(balances).forEach(participantId => {
+    const balance = balances[participantId];
+    const avanceDeFait = balance.contributionUtilisee || 0;
+    balance.mise = parseFloat((balance.avance + avanceDeFait + balance.paidOut - balance.received - balance.rembPot).toFixed(2));
+    balance.miseAvecContribution = parseFloat(((balance.restantCagnotte ?? (balance.contribution || 0)) + balance.avance + avanceDeFait + balance.paidOut - balance.received - balance.rembPot).toFixed(2));
   });
   
   // ===== CALCUL DES SOLDES PROVISOIRES =====
@@ -1360,6 +1368,8 @@ export function computeBalances(event, transactions) {
  * @param {Object} balancesResult - Résultat de computeBalances
  * @param {string} mode - 'participants_only' | 'use_pot_priority' (défaut)
  * @returns {Object} - { transfers: [...], potTransfers: [...], isBalanced: boolean, warning: string }
+ *   Affichage : si warning est défini (ex. cagnotte déficitaire), ne pas afficher "répartition équilibrée"
+ *   même si isBalanced est true — utiliser (isBalanced && !warning) pour le message équilibré.
  */
 export function computeTransfers(balancesResult, mode = 'use_pot_priority') {
   const { balances, potBalance, isBalanced: globalBalanced } = balancesResult;
@@ -1697,50 +1707,85 @@ export function getPaymentTraceability(participantId, event, transactions) {
 }
 
 /**
- * Obtient la traçabilité des dépenses pour un participant
+ * Obtient la traçabilité des dépenses pour un participant.
+ * Aligné sur computeBalances : même résolution du payeur et même règle "avance vs prélèvement cagnotte"
+ * pour que détail des transactions = dépenses avancées (somme des montants = balance.avance).
  */
 export function getExpenseTraceability(participantId, event, transactions) {
   const expenses = transactions.filter(t => isExpense(t));
-  
+  const participantIdStr = String(participantId);
   const depensesAvancees = [];
   const depensesConsommees = [];
+  // Même logique que computeBalances : contribution totale déjà utilisée par payeur (équité)
+  const contributionUtiliseeParPayeur = {};
   
   expenses.forEach(transaction => {
     const amount = parseFloat(transaction.amount) || 0;
     
     if (amount === 0) return;
     
-    const payerId = transaction.payerId || transaction.payer || transaction.selectedPayerId || null;
-    const paidByPot = isPaidByPot(transaction);
+    // Même résolution du payeur que computeBalances (pour cohérence détail = avances)
+    let payerId = transaction.payerId || transaction.payer || transaction.selectedPayerId || null;
+    if (!payerId && transaction.source === 'scanned_ticket' && transaction.participants && transaction.participants.length > 0) {
+      payerId = transaction.participants[0];
+    }
+    if (!payerId && !isPaidByPot(transaction) && transaction.participants && transaction.participants.length > 0) {
+      const firstId = String(transaction.participants[0]);
+      if (event.participants?.some(p => String(p.id) === firstId)) {
+        payerId = transaction.participants[0];
+      }
+    }
+    const payerIdStr = payerId ? String(payerId) : null;
     
-    // RÈGLE BONKONT : Seuls les participants qui valident une dépense ou une avance sont redevables au payeur au prorata.
-    // La validation (complète ou partielle) détermine la règle de répartition et de transferts.
-    // C'est la même logique que dans computeBalances()
+    // Même règle que computeBalances : explicite POT OU payeur a contribué → part cagnotte + éventuelle part avance
+    let paidByPot = isPaidByPot(transaction);
+    let payerContribution = 0;
+    if (payerIdStr) {
+      payerContribution = getContributionToPot(payerIdStr, event, transactions);
+      if (payerContribution > 0.01) paidByPot = true;
+    }
+    
     const participantsConcerned = getParticipantsConcernedByExpense(transaction, event);
-    
-    // Si aucun participant concerné, on ne peut pas calculer
     if (participantsConcerned.length === 0) return;
     
-    // Calcul de la part réelle : montant total / nombre de participants concernés
     const share = amount / participantsConcerned.length;
     
-    // Dépense avancée par ce participant
-    if (payerId === participantId && !paidByPot) {
-      depensesAvancees.push({
-        id: transaction.id,
-        amount,
-        description: transaction.description || transaction.store || 'Dépense',
-        date: transaction.date || transaction.createdAt,
-        participantsConcerned: participantsConcerned.length,
-        share,
-        partParPersonne: share // Alias pour compatibilité
-      });
+    // Dépense avancée par ce participant : montant total si pas de pot, sinon seulement la part non couverte par sa cagnotte (ex. 75€ au pot + 129,60€ dépense → 54,60€ avance)
+    if (payerIdStr === participantIdStr) {
+      if (!paidByPot) {
+        depensesAvancees.push({
+          id: transaction.id,
+          amount,
+          description: transaction.description || transaction.store || 'Dépense',
+          date: transaction.date || transaction.createdAt,
+          participantsConcerned: participantsConcerned.length,
+          share,
+          partParPersonne: share,
+          amountFromPot: 0
+        });
+      } else if (payerContribution > 0.01) {
+        const dejaUtilise = contributionUtiliseeParPayeur[payerIdStr] || 0;
+        const disponibleCagnotte = Math.max(0, payerContribution - dejaUtilise);
+        const amountFromPot = Math.min(amount, disponibleCagnotte);
+        const amountAsAdvance = parseFloat((amount - amountFromPot).toFixed(2));
+        contributionUtiliseeParPayeur[payerIdStr] = parseFloat((dejaUtilise + amountFromPot).toFixed(2));
+        if (amountAsAdvance > 0.01) {
+          depensesAvancees.push({
+            id: transaction.id,
+            amount: amountAsAdvance,
+            description: transaction.description || transaction.store || 'Dépense',
+            date: transaction.date || transaction.createdAt,
+            participantsConcerned: participantsConcerned.length,
+            share,
+            partParPersonne: share,
+            amountFromPot: parseFloat(amountFromPot.toFixed(2)),
+            amountTotal: amount
+          });
+        }
+      }
     }
     
     // Dépense consommée par ce participant
-    // RÈGLE BONKONT : Si ce participant est dans la liste des participants concernés, il consomme sa part
-    // Il faut comparer les IDs en string pour garantir la correspondance
-    const participantIdStr = String(participantId);
     const isConcerned = participantsConcerned.some(pId => String(pId) === participantIdStr);
     
     if (isConcerned) {

@@ -99,7 +99,6 @@ export function EventManagement({ eventId, onBack }) {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerParticipantId, setScannerParticipantId] = useState(null);
   const [scannerManualMode, setScannerManualMode] = useState(false);
-  const [showHelpIncompleteDistribution, setShowHelpIncompleteDistribution] = useState(false);
   const [showBonkontRule, setShowBonkontRule] = useState(true);
   const [firestoreJoinRequests, setFirestoreJoinRequests] = useState([]);
   const [loadingJoinRequests, setLoadingJoinRequests] = useState(false);
@@ -1528,7 +1527,7 @@ export function EventManagement({ eventId, onBack }) {
     
     yPosition = doc.lastAutoTable.finalY + 10;
     
-    // ===== DÉTAIL DES TRANSACTIONS PAR PARTICIPANT =====
+    // ===== DÉTAIL DES TRANSACTIONS PAR PARTICIPANT (AVANCES DU PAYEUR RÉEL UNIQUEMENT) =====
     if (transactions && transactions.length > 0) {
       checkNewPage(30);
       doc.setFontSize(16);
@@ -1540,58 +1539,16 @@ export function EventManagement({ eventId, onBack }) {
       doc.setFontSize(8);
       doc.setTextColor(100, 100, 100);
       doc.setFont(undefined, 'italic');
-      doc.text('Toutes les transactions validées collectivement, tracées et équilibrées.', margin, yPosition);
+      doc.text('Dépenses avancées par chaque participant (payeur réel uniquement). Une même transaction n\'apparaît que sous le nom du payeur.', margin, yPosition);
       yPosition += 10;
       
-      // Grouper les transactions par participant
-      const transactionsByParticipant = {};
-      transactions.forEach(transaction => {
-        if (transaction.participants && transaction.participants.length > 0) {
-          transaction.participants.forEach(participantId => {
-            if (!transactionsByParticipant[participantId]) {
-              transactionsByParticipant[participantId] = [];
-            }
-            transactionsByParticipant[participantId].push(transaction);
-          });
-        }
-      });
-      
-      // Pour chaque participant avec des transactions
-      Object.keys(transactionsByParticipant).forEach(participantId => {
-        // Chercher le participant avec comparaison flexible des IDs (string/number)
-        const participant = participants.find(p => 
-          String(p.id) === String(participantId) || 
-          p.id === participantId ||
-          String(p.id) === participantId ||
-          p.id === String(participantId)
-        );
+      // Pour chaque participant : n'afficher que les dépenses qu'il a RÉELLEMENT avancées (getExpenseTraceability = source de vérité)
+      participants.forEach(participant => {
+        const participantId = participant.id;
+        const traceability = getExpenseTraceability(participantId, eventForCalc || event, transactions);
+        const depensesAvancees = traceability.depensesAvancees || [];
         
-        // Construire le nom du participant avec toutes les options possibles
-        let participantName = 'Participant inconnu';
-        if (participant) {
-          if (participant.name) {
-            participantName = participant.name;
-          } else if (participant.firstName && participant.lastName) {
-            participantName = `${participant.firstName} ${participant.lastName}`.trim();
-          } else if (participant.firstName) {
-            participantName = participant.firstName;
-          } else if (participant.lastName) {
-            participantName = participant.lastName;
-          } else if (participant.email) {
-            participantName = participant.email;
-          } else if (participant.mobile) {
-            participantName = participant.mobile;
-          }
-        }
-        
-        console.log('[EventManagement PDF] Participant found:', {
-          participantId,
-          participant,
-          participantName,
-          participantIds: participants.map(p => ({ id: p.id, name: p.name, type: typeof p.id }))
-        });
-        
-        const participantTransactions = transactionsByParticipant[participantId];
+        let participantName = participant.name || (participant.firstName && participant.lastName ? `${participant.firstName} ${participant.lastName}`.trim() : participant.firstName || participant.lastName || participant.email || participant.mobile || 'Participant inconnu');
         
         checkNewPage(30);
         doc.setFontSize(12);
@@ -1600,14 +1557,27 @@ export function EventManagement({ eventId, onBack }) {
         doc.text(`${participantName}`, margin, yPosition);
         yPosition += 8;
         
-        const transactionsTableData = participantTransactions.map(t => {
-          const date = t.date ? format(new Date(t.date), 'dd/MM/yyyy', { locale: fr }) : 'N/A';
-          const time = t.time || '';
-          const store = t.store || 'N/A';
-          const amount = `${(t.amount || 0).toFixed(2)} €`;
-          const currency = t.currency || 'EUR';
+        if (depensesAvancees.length === 0) {
+          doc.setFontSize(9);
+          doc.setTextColor(120, 120, 120);
+          doc.setFont(undefined, 'normal');
+          doc.text('Aucune dépense avancée par ce participant.', margin, yPosition);
+          yPosition += 10;
+          return;
+        }
+        
+        const transactionsTableData = depensesAvancees.map(dep => {
+          const t = transactions.find(tr => tr.id === dep.id);
+          const date = dep.date || (t && t.date) ? format(new Date(dep.date || t.date), 'dd/MM/yyyy', { locale: fr }) : 'N/A';
+          const time = (t && t.time) ? t.time : '';
+          const store = (t && (t.store || t.description)) ? (t.store || t.description) : (dep.description || 'N/A');
+          const amount = `${(dep.amount || 0).toFixed(2)} €`;
+          const currency = (t && t.currency) ? t.currency : 'EUR';
           return [date, time, store, amount, currency];
         });
+        
+        const totalAvance = depensesAvancees.reduce((sum, dep) => sum + (dep.amount || 0), 0);
+        transactionsTableData.push(['', '', 'Total avancé', `${totalAvance.toFixed(2)} €`, '']);
         
         autoTable(doc, {
           startY: yPosition,
@@ -1618,7 +1588,6 @@ export function EventManagement({ eventId, onBack }) {
           alternateRowStyles: { fillColor: [250, 250, 250] },
           margin: { left: margin, right: margin },
         });
-        
         yPosition = doc.lastAutoTable.finalY + 10;
       });
     } else {
@@ -1653,7 +1622,34 @@ export function EventManagement({ eventId, onBack }) {
     doc.setTextColor(120, 120, 120);
     doc.setFont(undefined, 'italic');
     doc.text('Basée sur les transactions validées collectivement à ce jour', margin, yPosition);
-    yPosition += 10;
+    yPosition += 12;
+    
+    // ===== CLARIFICATION DU FLUX BONKONT (pour tout le monde) =====
+    checkNewPage(45);
+    doc.setFontSize(10);
+    doc.setTextColor(99, 102, 241);
+    doc.setFont(undefined, 'bold');
+    doc.text('Clarification du flux : montant théorique, cagnotte et règle Bonkont', margin, yPosition);
+    yPosition += 6;
+    doc.setFontSize(9);
+    doc.setTextColor(60, 60, 60);
+    doc.setFont(undefined, 'normal');
+    const fluxLines = [
+      '1. Le montant théorique (ex. 200€/personne) est un repère fixé au début de l\'événement ; il reste théorique.',
+      '2. Les contributions réelles au pot (validées) alimentent la cagnotte tant qu\'elles ne sont pas dépensées.',
+      '3. Quand un participant prend de l\'argent du pot pour une dépense du groupe, cette somme devient une avance réelle et entre dans la règle Bonkont (qui paie, qui consomme, qui doit à qui).',
+      '4. Le reste en cagnotte sert à de futures dépenses ou aux remboursements en fin d\'événement. La règle Bonkont ne change pas : "Tu paies, tu consommes, tu verses ou tu reçois, on est quittes."'
+    ];
+    fluxLines.forEach((line) => {
+      checkNewPage(6);
+      const lines = doc.splitTextToSize(line, pageWidth - 2 * margin);
+      lines.forEach((l) => {
+        doc.text(l, margin, yPosition);
+        yPosition += 5;
+      });
+      yPosition += 2;
+    });
+    yPosition += 8;
     
     // Calculer les soldes (eventForCalc pour cohérence avec transaction.eventId)
     const balancesResult = computeBalances(eventForCalc || event, transactions);
@@ -1661,62 +1657,11 @@ export function EventManagement({ eventId, onBack }) {
     const transfersResult = computeTransfers(balancesResult);
     const transfers = transfersResult.transfers || [];
     
-    // Afficher un avertissement si répartition incomplète
-    if (transfersResult.warning) {
-      checkNewPage(30);
-      doc.setFontSize(11);
-      doc.setTextColor(239, 68, 68); // Rouge
-      doc.setFont(undefined, 'bold');
-      doc.text('[ATTENTION] Répartition incomplète', margin, yPosition);
-      yPosition += 6;
-      doc.setFontSize(9);
-      doc.setTextColor(120, 120, 120);
-      doc.setFont(undefined, 'normal');
-      const warningLines = doc.splitTextToSize(transfersResult.warning, pageWidth - 2 * margin);
-      warningLines.forEach((line, idx) => {
-        checkNewPage(5);
-        doc.text(line, margin, yPosition);
-        yPosition += 5;
-      });
-      
-      // Message informatif sur les contributions réelles vs théoriques
-      if (transfersResult.warning && transfersResult.warning.includes('contribution réelle')) {
-        checkNewPage(15);
-        yPosition += 5;
-        doc.setFontSize(10);
-        doc.setTextColor(59, 130, 246); // Bleu
-        doc.setFont(undefined, 'bold');
-        doc.text('[INFORMATION IMPORTANTE]', margin, yPosition);
-        yPosition += 6;
-        doc.setFontSize(9);
-        doc.setTextColor(59, 130, 246);
-        doc.setFont(undefined, 'normal');
-        const infoText = `Le budget théorique fixé au départ est UNIQUEMENT un repère indicatif à ne pas dépasser. ` +
-                        `Seules les contributions RÉELLES (paiements en espèces, virements, etc.) doivent être enregistrées et prises en compte. ` +
-                        `Un déséquilibre temporaire est normal tant que les contributions réelles n'ont pas encore été enregistrées.`;
-        const infoLines = doc.splitTextToSize(infoText, pageWidth - 2 * margin);
-        infoLines.forEach((line, idx) => {
-          checkNewPage(5);
-          doc.text(line, margin, yPosition);
-          yPosition += 5;
-        });
-      }
-      
-      if (balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.02) {
-        checkNewPage(8);
-        yPosition += 2;
-        doc.setFontSize(8);
-        doc.setTextColor(150, 150, 150);
-        doc.setFont(undefined, 'italic');
-        doc.text(`Écart détecté : ${balancesResult.totalSolde.toFixed(2)}€`, margin, yPosition);
-        yPosition += 5;
-      }
-      checkNewPage(10);
-      yPosition += 5;
-    }
+    // Pas d'affichage "[ATTENTION] Répartition incomplète" / "Cagnotte déficitaire" dans le PDF pour éviter incohérence avec le message équilibré.
     
-    // ===== MESSAGE RASSURANT SUR L'ÉQUILIBRE =====
-    if (transfersResult.isBalanced) {
+    // ===== MESSAGE RASSURANT SUR L'ÉQUILIBRE (uniquement si pas d'avertissement) =====
+    const showEquilibre = transfersResult.isBalanced && !transfersResult.warning;
+    if (showEquilibre) {
       checkNewPage(20);
       doc.setFontSize(10);
       doc.setTextColor(34, 197, 94); // Vert
@@ -1971,10 +1916,11 @@ export function EventManagement({ eventId, onBack }) {
           ? `${solde.toFixed(2)} € (à verser)`
           : '0,00 € (équilibré)';
       
+      const avanceTotal = (balance.avance || 0) + (balance.contributionUtilisee || 0);
       return [
         balance.participantName,
         `${(balance.contribution || 0).toFixed(2)} €`,
-        `${(balance.avance || 0).toFixed(2)} €`,
+        `${avanceTotal.toFixed(2)} €`,
         `${(balance.consomme || 0).toFixed(2)} €`,
         `${(balance.mise || 0).toFixed(2)} €`,
         soldeText
@@ -2109,7 +2055,8 @@ export function EventManagement({ eventId, onBack }) {
         doc.setFontSize(8);
         doc.setTextColor(60, 60, 60);
         doc.setFont(undefined, 'normal');
-        doc.text(`Contribution: ${((balance.contribution || 0)).toFixed(2)}€ | Avancé: ${((balance.avance || 0)).toFixed(2)}€ | Consommé: ${((balance.consomme || 0)).toFixed(2)}€ | Mise: ${((balance.mise || 0)).toFixed(2)}€`, margin + 5, yPosition);
+        const avanceTot = (balance.avance || 0) + (balance.contributionUtilisee || 0);
+        doc.text(`Contribution: ${((balance.contribution || 0)).toFixed(2)}€ | Avancé: ${avanceTot.toFixed(2)}€ | Consommé: ${((balance.consomme || 0)).toFixed(2)}€ | Mise: ${((balance.mise || 0)).toFixed(2)}€`, margin + 5, yPosition);
         yPosition += 5;
         
         // Solde avec explication
@@ -2206,7 +2153,13 @@ export function EventManagement({ eventId, onBack }) {
               doc.text(`  → Vous consommez ${shareAmount}€ (votre part) | Les autres participants concernés consomment aussi ${shareAmount}€ chacun`, margin + 20, yPosition);
           yPosition += 5;
             });
-            yPosition += 3;
+            const totalAvanceParticipant = traceability.depensesAvancees.reduce((s, d) => s + (d.amount || 0), 0);
+            checkNewPage(5);
+            doc.setFontSize(8);
+            doc.setTextColor(99, 102, 241);
+            doc.setFont(undefined, 'bold');
+            doc.text(`Total avancé: ${totalAvanceParticipant.toFixed(2)}€`, margin + 15, yPosition);
+            yPosition += 8;
           }
           
           // Dépenses consommées par ce participant (avancées par d'autres)
@@ -2385,8 +2338,8 @@ export function EventManagement({ eventId, onBack }) {
         yPosition += 3;
       });
       
-    } else if (transfersResult.isBalanced) {
-      // Message positif si équilibré
+    } else if (transfersResult.isBalanced && !transfersResult.warning) {
+      // Message positif si équilibré et sans avertissement (pas de double "équilibré" + "incomplète")
       checkNewPage(15);
       doc.setFontSize(11);
       doc.setTextColor(34, 197, 94);
@@ -2795,11 +2748,12 @@ export function EventManagement({ eventId, onBack }) {
         const transfersResult = computeTransfers(balancesResult);
         const transfersSummary = transfersResult.transfers || [];
         if (transfersSummary.length === 0) {
+          const showEquilibreMsg = transfersResult.isBalanced && !transfersResult.warning;
           return (
-            <div className="rounded-xl border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20 p-4 mb-4">
-              <p className="text-sm font-medium text-green-800 dark:text-green-200 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 shrink-0" />
-                Tout est équilibré — aucun transfert nécessaire.
+            <div className={`rounded-xl border p-4 mb-4 ${showEquilibreMsg ? 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20' : 'border-border bg-muted/30'}`}>
+              <p className={`text-sm font-medium flex items-center gap-2 ${showEquilibreMsg ? 'text-green-800 dark:text-green-200' : 'text-muted-foreground'}`}>
+                {showEquilibreMsg && <CheckCircle className="w-4 h-4 shrink-0" />}
+                {showEquilibreMsg ? 'Tout est équilibré — aucun transfert nécessaire.' : 'Aucun transfert entre participants pour le moment.'}
               </p>
             </div>
           );
@@ -3943,107 +3897,6 @@ export function EventManagement({ eventId, onBack }) {
               </div>
             </div>
             
-            {/* Avertissement si répartition incomplète */}
-            {transfersResult.warning && (
-              <div className="mb-4 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-medium text-yellow-900 dark:text-yellow-100">
-                      ⚠️ Répartition incomplète
-                    </p>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-yellow-700 dark:text-yellow-300 hover:text-yellow-900 dark:hover:text-yellow-100"
-                        onClick={() => setShowHelpIncompleteDistribution(!showHelpIncompleteDistribution)}
-                      >
-                        <HelpCircle className="w-4 h-4 mr-1" />
-                        {showHelpIncompleteDistribution ? (
-                          <>
-                            <span className="text-xs">Masquer l'aide</span>
-                            <ChevronUp className="w-3 h-3 ml-1" />
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-xs">Comment corriger ?</span>
-                            <ChevronDown className="w-3 h-3 ml-1" />
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-2">
-                      {transfersResult.warning}
-                    </p>
-                    {balancesResult.totalSolde && Math.abs(balancesResult.totalSolde) > 0.02 && (
-                      <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-2 italic">
-                        Écart détecté : {balancesResult.totalSolde.toFixed(2)}€
-                      </p>
-                    )}
-                    
-                    {/* Section d'aide détaillée */}
-                    {showHelpIncompleteDistribution && (
-                      <div className="mt-4 p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg border border-yellow-300 dark:border-yellow-700">
-                        <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2">
-                          📚 Qu'est-ce qu'une répartition incomplète ?
-                        </h4>
-                        <p className="text-xs text-yellow-800 dark:text-yellow-200 mb-3">
-                          La somme des soldes de tous les participants et de la cagnotte doit être égale à 0€ : <strong>Σ soldes participants + solde POT = 0€</strong>. Seules les transactions <strong>initiées et validées</strong> suivent la logique Bonkont (contributions réelles, dépenses prélevées sur la cagnotte du contributeur ou en avance).
-                        </p>
-                        <div className="text-xs text-yellow-800 dark:text-yellow-200 mb-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded">
-                          <strong>RÈGLE BONKONT :</strong> "Que je paie ou dépense, je consomme comme toi, cette avance tu dois me la rembourser, et vice versa, on est quittes". Le contributeur verse en cagnotte ; s'il paie une dépense, elle est <strong>prélevée sur sa cagnotte</strong> ; le reste reste disponible (futures dépenses ou remboursement).
-                        </div>
-                        
-                        <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
-                          🔍 Causes possibles :
-                        </h4>
-                        <ul className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-3 list-disc list-inside">
-                          <li><strong>Dépenses partagées mal enregistrées</strong> : Une dépense partagée doit inclure <strong>tous les participants concernés</strong> dans la liste (pas seulement le payeur).</li>
-                          <li><strong>Contributions manquantes</strong> : Contributions réelles non enregistrées (espèces, virement) ; la part théorique (ex. 500€/personne) n'est qu'un repère budgétaire.</li>
-                          <li><strong>Transactions incomplètes</strong> : Montant, participants ou payeur manquant.</li>
-                        </ul>
-                        
-                        <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-2 mt-3">
-                          ✅ Solutions pour corriger :
-                        </h4>
-                        <ol className="text-xs text-yellow-800 dark:text-yellow-200 space-y-1.5 mb-2 list-decimal list-inside">
-                          <li><strong>Vérifier les dépenses partagées</strong> : Ouvrez chaque dépense et assurez-vous que tous les participants concernés sont dans la liste "participants".</li>
-                          <li><strong>Enregistrer les contributions réelles</strong> : Seules les contributions réellement versées (cagnotte) équilibrent les comptes ; le budget annoncé (part théorique) est indicatif.</li>
-                          <li><strong>Corriger les transactions suspectes</strong> : Ajoutez tous les participants concernés aux dépenses où seul le payeur figure.</li>
-                          <li><strong>Vérifier les montants</strong> : Montants et devises cohérents.</li>
-                        </ol>
-                        
-                        <div className="mt-3 p-2 bg-yellow-200 dark:bg-yellow-800/50 rounded text-xs text-yellow-900 dark:text-yellow-100">
-                          <strong>💡 Astuce</strong> : Bonkont applique automatiquement une correction pour les dépenses où seul le payeur est dans la liste, mais il est préférable de corriger manuellement les transactions pour garantir la précision des calculs.
-                        </div>
-                        
-                        {/* Bouton pour enregistrer automatiquement les contributions théoriques */}
-                        {transfersResult.autoCorrectionSuggestion && transfersResult.autoCorrectionSuggestion.type === 'missing_contributions' && (
-                          <div className="mt-4 p-3 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-300 dark:border-green-700">
-                            <p className="text-sm font-semibold text-green-900 dark:text-green-100 mb-2">
-                              🚀 Correction automatique disponible
-                            </p>
-                            <p className="text-xs text-green-800 dark:text-green-200 mb-3">
-                              Vous pouvez enregistrer automatiquement les contributions théoriques ({transfersResult.autoCorrectionSuggestion.theoreticalContributionPerParticipant.toFixed(2)}€ par participant) 
-                              pour équilibrer les comptes.
-                            </p>
-                            <Button
-                              onClick={handleRegisterTheoreticalContributions}
-                              className="w-full bg-green-600 hover:bg-green-700 text-white"
-                              size="sm"
-                            >
-                              Enregistrer les contributions théoriques ({transfersResult.autoCorrectionSuggestion.totalTheoreticalContributions.toFixed(2)}€ total)
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-            
             {transfers.length > 0 ? (
               <>
                 {/* Vue globale des transferts */}
@@ -4121,17 +3974,32 @@ export function EventManagement({ eventId, onBack }) {
                                   <p className="text-muted-foreground mb-1">Contribution</p>
                                   <p className="font-semibold">{(balance.contribution || 0).toFixed(2)}€</p>
                               </div>
+                                {(balance.contributionUtilisee ?? 0) > 0.01 && (
+                                  <>
+                                    <div>
+                                      <p className="text-muted-foreground mb-1">Dont prélevé (dépenses)</p>
+                                      <p className="font-semibold">-{(balance.contributionUtilisee || 0).toFixed(2)}€</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-muted-foreground mb-1">Restant en cagnotte</p>
+                                      <p className="font-semibold text-primary">{(balance.restantCagnotte ?? (balance.contribution || 0)).toFixed(2)}€</p>
+                                    </div>
+                                  </>
+                                )}
                                 <div>
                                   <p className="text-muted-foreground mb-1">Avancé</p>
-                                  <p className="font-semibold">{(balance.avance || 0).toFixed(2)}€</p>
+                                  <p className="font-semibold">{((balance.avance || 0) + (balance.contributionUtilisee || 0)).toFixed(2)}€</p>
+                                  {(balance.contributionUtilisee ?? 0) > 0.01 && (
+                                    <p className="text-[10px] text-muted-foreground italic">dont {(balance.contributionUtilisee || 0).toFixed(2)}€ prélevé sur cagnotte (avance de fait)</p>
+                                  )}
                             </div>
                                 <div>
                                   <p className="text-muted-foreground mb-1">Consommé</p>
                                   <p className="font-semibold">{(balance.consomme || 0).toFixed(2)}€</p>
                                 </div>
                                 <div>
-                                  <p className="text-muted-foreground mb-1">Mise totale</p>
-                                  <p className="font-semibold">{(balance.miseAvecContribution ?? balance.mise ?? 0).toFixed(2)}€</p>
+                                  <p className="text-muted-foreground mb-1">Mise (pour le solde)</p>
+                                  <p className="font-semibold">{(balance.mise ?? 0).toFixed(2)}€</p>
                                 </div>
                               </div>
                               <div className="pt-3 border-t border-blue-200 dark:border-blue-800">
@@ -4145,15 +4013,21 @@ export function EventManagement({ eventId, onBack }) {
                               </div>
                             </div>
                             
-                            {/* Explication détaillée du solde */}
+                            {/* Explication détaillée du solde (logique : on puise dans la cagnotte, pas Contribution + Avancé) */}
                             <div className="mb-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
                               <p className="text-xs font-medium text-muted-foreground mb-2">Explication du solde :</p>
                               <div className="text-xs text-muted-foreground space-y-1">
+                                {(balance.contributionUtilisee ?? 0) > 0.01 ? (
+                                  <p>
+                                    <strong>Contribution</strong> {((balance.contribution || 0)).toFixed(2)}€ dont <strong>{((balance.contributionUtilisee || 0)).toFixed(2)}€ prélevés</strong> pour les dépenses du groupe (= avance de fait) → <strong>{((balance.restantCagnotte ?? 0)).toFixed(2)}€ restant en cagnotte</strong>. <strong>Avancé total</strong> {((balance.avance || 0) + (balance.contributionUtilisee || 0)).toFixed(2)}€ (dont {(balance.contributionUtilisee || 0).toFixed(2)}€ prélevé sur cagnotte).
+                                  </p>
+                                ) : (
+                                  <p>
+                                    <strong>Contribution</strong> {((balance.contribution || 0)).toFixed(2)}€. <strong>Avancé</strong> {((balance.avance || 0)).toFixed(2)}€.
+                                  </p>
+                                )}
                                 <p>
-                                  <strong>Mise totale</strong> = Contribution ({((balance.contribution || 0)).toFixed(2)}€) + Avancé ({((balance.avance || 0)).toFixed(2)}€) = <strong>{((balance.miseAvecContribution ?? balance.mise) || 0).toFixed(2)}€</strong>
-                                </p>
-                                <p>
-                                  <strong>Solde</strong> = Mise hors cagnotte ({((balance.mise || 0)).toFixed(2)}€) - Consommé ({((balance.consomme || 0)).toFixed(2)}€) = <strong>{solde >= 0 ? '+' : ''}{solde.toFixed(2)}€</strong>
+                                  <strong>Solde</strong> = Mise ({((balance.mise || 0)).toFixed(2)}€) - Consommé ({((balance.consomme || 0)).toFixed(2)}€) = <strong>{solde >= 0 ? '+' : ''}{solde.toFixed(2)}€</strong>
                                 </p>
                                 {Math.abs(solde) <= 0.02 ? (
                                   <p className="text-green-600 dark:text-green-400 font-medium mt-2">
@@ -4165,7 +4039,7 @@ export function EventManagement({ eventId, onBack }) {
                                   </p>
                                 ) : (
                                   <p className="text-orange-600 dark:text-orange-400 font-medium mt-2">
-                                    ⚠ Vous devez verser {Math.abs(solde).toFixed(2)}€ car vous avez consommé {((balance.consomme || 0)).toFixed(2)}€ alors que vous n'avez mis que {((balance.mise || 0)).toFixed(2)}€.
+                                    ⚠ Vous devez verser {Math.abs(solde).toFixed(2)}€ car vous avez consommé {((balance.consomme || 0)).toFixed(2)}€ alors que votre mise est de {((balance.mise || 0)).toFixed(2)}€ (avances + prélevé sur cagnotte).
                                   </p>
                                 )}
                               </div>
@@ -4238,7 +4112,7 @@ export function EventManagement({ eventId, onBack }) {
                   </div>
                 </div>
               </>
-            ) : (
+            ) : (transfersResult.isBalanced && !transfersResult.warning) ? (
               <div className="text-center py-6">
                 <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
                 <h3 className="text-lg font-semibold mb-2 text-green-700 dark:text-green-400">
@@ -4246,6 +4120,12 @@ export function EventManagement({ eventId, onBack }) {
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   Aucun transfert nécessaire. La liste sera mise à jour automatiquement dès qu'une transaction créera un déséquilibre.
+                </p>
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <p className="text-sm text-muted-foreground">
+                  Aucun transfert entre participants pour le moment.
                 </p>
               </div>
             )}
@@ -4533,9 +4413,9 @@ export function EventManagement({ eventId, onBack }) {
                               </span>
                             </div>
                             <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
-                              <span className="text-muted-foreground">Avancé (dépenses payées):</span>
+                              <span className="text-muted-foreground">Avancé (dont prélevé cagnotte):</span>
                               <span className="font-medium text-green-600 dark:text-green-400">
-                                +{safeBalance.avance.toFixed(2)}€
+                                +{((safeBalance.avance || 0) + (safeBalance.contributionUtilisee || 0)).toFixed(2)}€
                               </span>
                             </div>
                             <div className="flex justify-between p-2 bg-white dark:bg-gray-800 rounded">
@@ -4557,7 +4437,7 @@ export function EventManagement({ eventId, onBack }) {
                               </span>
                             </div>
                             <div className="flex justify-between p-2 bg-blue-50 dark:bg-blue-950/20 rounded border border-blue-200 dark:border-blue-800">
-                              <span className="font-semibold">Mise totale:</span>
+                              <span className="font-semibold">Mise (pour le solde):</span>
                               <span className={`font-bold ${
                                 safeBalance.mise >= 0 
                                   ? 'text-blue-600 dark:text-blue-400' 
@@ -4598,7 +4478,7 @@ export function EventManagement({ eventId, onBack }) {
                         </div>
                       </div>
                       
-                      {/* Bloc 4: Traçabilité - Sur quelles dépenses ça se base */}
+                      {/* Bloc 4: Traçabilité - Sur quelles dépenses ça se base (payeur réel = avances, totaux affichés) */}
                       {(expenseTraceability.depensesAvancees.length > 0 || expenseTraceability.depensesConsommees.length > 0) && (
                         <div className="p-4 rounded-lg border border-border bg-indigo-50 dark:bg-indigo-950/20">
                           <h5 className="font-semibold text-sm mb-3 text-indigo-700 dark:text-indigo-400">
@@ -4630,6 +4510,12 @@ export function EventManagement({ eventId, onBack }) {
                                   ))}
                                 </div>
                               </ScrollArea>
+                              <div className="mt-2 flex justify-between items-center p-2 bg-green-100 dark:bg-green-900/30 rounded border border-green-300 dark:border-green-700">
+                                <span className="text-xs font-bold text-green-800 dark:text-green-200">Total avancé :</span>
+                                <span className="text-sm font-bold text-green-700 dark:text-green-300">
+                                  {expenseTraceability.depensesAvancees.reduce((s, d) => s + (d.amount || 0), 0).toFixed(2)}€
+                                </span>
+                              </div>
                             </div>
                           )}
                           
@@ -4657,6 +4543,12 @@ export function EventManagement({ eventId, onBack }) {
                                   ))}
                                 </div>
                               </ScrollArea>
+                              <div className="mt-2 flex justify-between items-center p-2 bg-blue-100 dark:bg-blue-900/30 rounded border border-blue-300 dark:border-blue-700">
+                                <span className="text-xs font-bold text-blue-800 dark:text-blue-200">Total consommé :</span>
+                                <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                                  {expenseTraceability.depensesConsommees.reduce((s, d) => s + (d.part || 0), 0).toFixed(2)}€
+                                </span>
+                              </div>
                             </div>
                           )}
                         </div>

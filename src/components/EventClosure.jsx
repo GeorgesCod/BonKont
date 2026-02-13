@@ -281,8 +281,8 @@ export function EventClosure({ eventId, onBack }) {
         yPosition += 5;
       }
       
-      // ===== NOTE IMPORTANTE SUR L'ÉQUILIBRE =====
-      if (transfersResult.isBalanced) {
+      // ===== NOTE IMPORTANTE SUR L'ÉQUILIBRE (uniquement si pas d'avertissement) =====
+      if (transfersResult.isBalanced && !transfersResult.warning) {
         checkNewPage(15);
         doc.setFontSize(9);
         doc.setTextColor(34, 197, 94); // Vert
@@ -326,6 +326,11 @@ export function EventClosure({ eventId, onBack }) {
       doc.setTextColor(120, 120, 120);
       doc.setFont(undefined, 'italic');
       doc.text('Basée sur toutes les transactions validées', margin, yPosition);
+      yPosition += 8;
+      doc.setFontSize(8);
+      doc.setTextColor(80, 80, 80);
+      doc.setFont(undefined, 'normal');
+      doc.text('Flux : montant théorique = repère ; contributions réelles = cagnotte ; dépense depuis le pot = avance (règle Bonkont) ; reste en cagnotte = futures dépenses ou remboursements.', margin, yPosition);
       yPosition += 10;
       
       // Soldes par participant
@@ -344,10 +349,11 @@ export function EventClosure({ eventId, onBack }) {
             ? `${solde.toFixed(2)} € (à verser)`
             : '0,00 € (équilibré)';
         
+        const avanceTotal = (balance.avance || 0) + (balance.contributionUtilisee || 0);
         return [
           balance.participantName,
           `${(balance.contribution || 0).toFixed(2)} €`,
-          `${(balance.avance || 0).toFixed(2)} €`,
+          `${avanceTotal.toFixed(2)} €`,
           `${(balance.consomme || 0).toFixed(2)} €`,
           `${(balance.mise || 0).toFixed(2)} €`,
           soldeText
@@ -641,7 +647,8 @@ export function EventClosure({ eventId, onBack }) {
           doc.setFontSize(7);
           doc.setTextColor(60, 60, 60);
           doc.setFont(undefined, 'normal');
-          doc.text(`Contribution: ${((balance.contribution || 0)).toFixed(2)}€ | Avancé: ${((balance.avance || 0)).toFixed(2)}€ | Consommé: ${((balance.consomme || 0)).toFixed(2)}€ | Solde: ${((balance.solde || 0)).toFixed(2)}€`, margin + 5, yPosition);
+          const avanceTot = (balance.avance || 0) + (balance.contributionUtilisee || 0);
+          doc.text(`Contribution: ${((balance.contribution || 0)).toFixed(2)}€ | Avancé: ${avanceTot.toFixed(2)}€ | Consommé: ${((balance.consomme || 0)).toFixed(2)}€ | Mise: ${((balance.mise || 0)).toFixed(2)}€ | Solde: ${((balance.solde || 0)).toFixed(2)}€`, margin + 5, yPosition);
           yPosition += 5;
           
           // Traçabilité des dépenses (Règle Bonkont)
@@ -702,18 +709,34 @@ export function EventClosure({ eventId, onBack }) {
         
       } else {
         checkNewPage(20);
-        doc.setFontSize(12);
-        doc.setTextColor(34, 197, 94);
-        doc.setFont(undefined, 'bold');
-        doc.text('[EQUILIBRE] Tout est équilibré', margin, yPosition);
-        yPosition += 6;
-        doc.setFontSize(9);
-        doc.setTextColor(120, 120, 120);
-        doc.setFont(undefined, 'normal');
-        doc.text('Aucun transfert nécessaire. Les dépenses et paiements enregistrés', margin, yPosition);
-        yPosition += 5;
-        doc.text('permettent un équilibre parfait entre les participants.', margin, yPosition);
-        yPosition += 10;
+        if (transfersResult.isBalanced && !transfersResult.warning) {
+          doc.setFontSize(12);
+          doc.setTextColor(34, 197, 94);
+          doc.setFont(undefined, 'bold');
+          doc.text('[EQUILIBRE] Tout est équilibré', margin, yPosition);
+          yPosition += 6;
+          doc.setFontSize(9);
+          doc.setTextColor(120, 120, 120);
+          doc.setFont(undefined, 'normal');
+          doc.text('Aucun transfert nécessaire. Les dépenses et paiements enregistrés', margin, yPosition);
+          yPosition += 5;
+          doc.text('permettent un équilibre parfait entre les participants.', margin, yPosition);
+          yPosition += 10;
+        } else {
+          doc.setFontSize(10);
+          doc.setTextColor(120, 120, 120);
+          doc.setFont(undefined, 'normal');
+          doc.text('Aucun transfert entre participants pour le moment.', margin, yPosition);
+          yPosition += 5;
+          if (transfersResult.warning) {
+            doc.setFontSize(9);
+            doc.setTextColor(251, 146, 60);
+            doc.setFont(undefined, 'bold');
+            doc.text('Répartition incomplète : voir l\'avertissement ci-dessus.', margin, yPosition);
+            yPosition += 6;
+          }
+          yPosition += 8;
+        }
       }
       
       // ===== AVIS ET NOTES =====
@@ -1103,7 +1126,7 @@ export function EventClosure({ eventId, onBack }) {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Avancé:</span>
-                        <span className="font-medium">{(balance.avance || 0).toFixed(2)}€</span>
+                        <span className="font-medium">{((balance.avance || 0) + (balance.contributionUtilisee || 0)).toFixed(2)}€</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Consommé:</span>
@@ -1112,8 +1135,8 @@ export function EventClosure({ eventId, onBack }) {
                     </div>
                     <div className="space-y-1">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Mise totale:</span>
-                        <span className="font-medium">{(balance.miseAvecContribution ?? balance.mise ?? 0).toFixed(2)}€</span>
+                        <span className="text-muted-foreground">Mise:</span>
+                        <span className="font-medium">{(balance.mise ?? 0).toFixed(2)}€</span>
                       </div>
                       <div className="flex justify-between items-center border-t pt-1">
                         <div className="flex items-center gap-1">
@@ -1392,7 +1415,7 @@ export function EventClosure({ eventId, onBack }) {
           </>
         ) : (
           <div className="text-center py-8">
-            {transfersResult.isBalanced ? (
+            {(transfersResult.isBalanced && !transfersResult.warning) ? (
               <>
                 <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
                 <h3 className="text-xl font-semibold mb-2 text-green-700 dark:text-green-400">
