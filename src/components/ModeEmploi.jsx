@@ -1,8 +1,31 @@
-import { useState, useEffect } from 'react';
 import { ArrowLeft, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Card, CardContent } from '@/components/ui/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { useI18nStore } from '@/lib/i18n';
+// Contenu intégré au bundle pour le même rendu accordéon en dev et en prod (évite fetch réécrit vers index.html)
+import modeEmploiFr from '@/content/MODE_EMPLOI.md?raw';
+import modeEmploiEn from '@/content/MODE_EMPLOI_EN.md?raw';
+
+/**
+ * Découpe le markdown en rubriques (sections ##).
+ * Retourne { intro: string, sections: [{ title: string, body: string }] }.
+ */
+function parseSections(md) {
+  if (!md || typeof md !== 'string') return { intro: '', sections: [] };
+  const normalized = md.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const parts = normalized.split(/\n##\s+/);
+  const intro = (parts[0] || '').trim();
+  const sections = [];
+  for (let i = 1; i < parts.length; i++) {
+    const block = parts[i].trim();
+    const firstLineEnd = block.indexOf('\n');
+    const title = firstLineEnd >= 0 ? block.slice(0, firstLineEnd).trim() : block;
+    const body = firstLineEnd >= 0 ? block.slice(firstLineEnd + 1).trim() : '';
+    if (title) sections.push({ title, body });
+  }
+  return { intro, sections };
+}
 
 /**
  * Convertit du markdown simple en éléments React (h1, h2, h3, p, strong, ul, li, hr).
@@ -20,7 +43,7 @@ function renderMarkdown(md) {
   const flushList = () => {
     if (listItems.length > 0) {
       out.push(
-        <ul key={`ul-${i}`} className="list-disc list-inside space-y-1 text-muted-foreground ml-2 my-2">
+        <ul key={`ul-${i}`} className="list-disc list-inside space-y-1 text-muted-foreground text-xs sm:text-sm ml-2 my-2">
           {listItems.map((item, idx) => (
             <li key={idx}>{item}</li>
           ))}
@@ -39,12 +62,12 @@ function renderMarkdown(md) {
     const header = tableRows[0];
     const body = tableRows.slice(1).filter(row => row.some(cell => cell.trim()));
     out.push(
-      <div key={`table-${i}`} className="my-4 overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
+      <div key={`table-${i}`} className="my-4 overflow-x-auto rounded-lg border border-border max-w-full">
+        <table className="w-full max-w-full text-xs sm:text-sm table-fixed" style={{ tableLayout: 'fixed' }}>
           <thead>
             <tr className="border-b border-border bg-muted/50">
               {header.map((cell, ci) => (
-                <th key={ci} className="px-3 py-2 text-left font-semibold">{renderInline(cell)}</th>
+                <th key={ci} className="px-2 sm:px-3 py-2 text-left font-semibold break-words align-top">{renderInline(cell)}</th>
               ))}
             </tr>
           </thead>
@@ -52,7 +75,7 @@ function renderMarkdown(md) {
             {body.map((row, ri) => (
               <tr key={ri} className="border-b border-border/50">
                 {row.map((cell, ci) => (
-                  <td key={ci} className="px-3 py-2 text-muted-foreground">{renderInline(cell)}</td>
+                  <td key={ci} className="px-2 sm:px-3 py-2 text-muted-foreground break-words align-top">{renderInline(cell)}</td>
                 ))}
               </tr>
             ))}
@@ -124,19 +147,19 @@ function renderMarkdown(md) {
 
     if (trimmed.startsWith('### ')) {
       flushList();
-      out.push(<h3 key={i} className="text-base font-semibold mt-4 mb-2">{renderInline(trimmed.slice(4))}</h3>);
+      out.push(<h3 key={i} className="text-sm sm:text-base font-semibold mt-4 mb-2">{renderInline(trimmed.slice(4))}</h3>);
       i++;
       continue;
     }
     if (trimmed.startsWith('## ')) {
       flushList();
-      out.push(<h2 key={i} className="text-xl font-bold mt-6 mb-2 text-primary">{renderInline(trimmed.slice(3))}</h2>);
+      out.push(<h2 key={i} className="text-base sm:text-xl font-bold mt-6 mb-2 text-primary">{renderInline(trimmed.slice(3))}</h2>);
       i++;
       continue;
     }
     if (trimmed.startsWith('# ')) {
       flushList();
-      out.push(<h1 key={i} className="text-2xl font-bold mb-2">{renderInline(trimmed.slice(2))}</h1>);
+      out.push(<h1 key={i} className="text-lg sm:text-2xl font-bold mb-2">{renderInline(trimmed.slice(2))}</h1>);
       i++;
       continue;
     }
@@ -154,7 +177,7 @@ function renderMarkdown(md) {
     if (trimmed.match(/^\d+\.\s/)) {
       flushList();
       const content = trimmed.replace(/^\d+\.\s/, '');
-      out.push(<p key={i} className="text-muted-foreground my-1 ml-4">{renderInline(content)}</p>);
+      out.push(<p key={i} className="text-muted-foreground text-xs sm:text-sm my-1 ml-4">{renderInline(content)}</p>);
       i++;
       continue;
     }
@@ -164,7 +187,7 @@ function renderMarkdown(md) {
       continue;
     }
     flushList();
-    out.push(<p key={i} className="text-muted-foreground my-2">{renderInline(trimmed)}</p>);
+    out.push(<p key={i} className="text-muted-foreground text-xs sm:text-sm my-2">{renderInline(trimmed)}</p>);
     i++;
   }
   flushList();
@@ -172,49 +195,62 @@ function renderMarkdown(md) {
   return out;
 }
 
-// Fichiers servis depuis public/ : FR et EN comme les autres pages publiques
-const MODE_EMPLOI_PATHS = { fr: '/MODE_EMPLOI.md', en: '/MODE_EMPLOI_EN.md' };
+const MANUAL_CONTENT = { fr: modeEmploiFr, en: modeEmploiEn };
 
 export function ModeEmploi({ onBack }) {
   const { t, currentLanguage } = useI18nStore();
-  const [content, setContent] = useState(null);
   const lang = currentLanguage?.code === 'en' ? 'en' : 'fr';
-  const manualPath = MODE_EMPLOI_PATHS[lang];
+  const content = MANUAL_CONTENT[lang] ?? MANUAL_CONTENT.fr;
 
-  useEffect(() => {
-    setContent(null);
-    fetch(manualPath)
-      .then(res => res.ok ? res.text() : Promise.reject(new Error('Not found')))
-      .then(setContent)
-      .catch(() => setContent(false));
-  }, [manualPath]);
+  const parsed = parseSections(content);
+  let { intro, sections } = parsed;
+  if (sections.length === 0) {
+    intro = '';
+    sections = [{ title: 'Contenu', body: content }];
+  }
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-4xl mx-auto">
-      <div className="flex items-center gap-4 mb-6">
+    <div className="space-y-6 animate-fade-in max-w-2xl mx-auto w-full min-w-0 px-4 sm:px-4 box-border overflow-x-hidden" style={{ maxWidth: 'min(42rem, 100%)' }}>
+      <div className="flex items-center gap-4 mb-6 min-w-0">
         {onBack && (
-          <Button variant="outline" onClick={onBack} className="gap-2">
+          <Button variant="outline" onClick={onBack} className="gap-2 shrink-0">
             <ArrowLeft className="w-4 h-4" />
             {t('back')}
           </Button>
         )}
-        <div className="flex items-center gap-3">
-          <BookOpen className="w-8 h-8 text-primary" />
-          <h1 className="text-2xl sm:text-3xl font-bold">{t('manualTitle')}</h1>
+        <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
+          <BookOpen className="w-8 h-8 text-primary shrink-0" />
+          <h1 className="text-xl sm:text-2xl font-bold truncate">{t('manualTitle')}</h1>
         </div>
       </div>
 
-      <ScrollArea className="h-[calc(100vh-12rem)] rounded-lg border border-border p-4">
-        {content === null ? (
-          <p className="text-muted-foreground">{t('manualLoading')}</p>
-        ) : content && typeof content === 'string' ? (
-          <div className="prose prose-sm dark:prose-invert max-w-none pr-4">
-            {renderMarkdown(content)}
-          </div>
-        ) : (
-          <p className="text-muted-foreground">{t('manualNotFound')}</p>
-        )}
-      </ScrollArea>
+      <Card className="overflow-hidden w-full min-w-0 max-w-full">
+        <CardContent className="pt-6 px-4 sm:px-6 pb-4 w-full min-w-0 max-w-full box-border">
+          <div className="space-y-4 w-full min-w-0 max-w-full">
+              {intro ? (
+                <div className="w-full min-w-0 max-w-full overflow-x-hidden box-border prose prose-sm dark:prose-invert max-w-full text-muted-foreground text-xs sm:text-sm mb-6 break-words [&_*]:break-words ">
+                  {renderMarkdown(intro)}
+                </div>
+              ) : null}
+              {sections.length > 0 ? (
+                <Accordion type="single" collapsible className="w-full min-w-0 max-w-full" defaultValue="section-0">
+                  {sections.map((section, index) => (
+                    <AccordionItem key={index} value={`section-${index}`} className="min-w-0">
+                      <AccordionTrigger className="text-left text-sm sm:text-base font-semibold py-3 hover:no-underline break-words pr-4">
+                        {section.title}
+                      </AccordionTrigger>
+                      <AccordionContent className="text-muted-foreground w-full min-w-0 max-w-full box-border overflow-x-hidden">
+                        <div className="w-full min-w-0 max-w-full overflow-x-hidden box-border prose prose-sm dark:prose-invert max-w-full text-xs sm:text-sm [&_h2]:text-sm [&_h3]:text-xs sm:[&_h3]:text-sm break-words [&_*]:break-words [&_p]:break-words [&_li]:break-words [&_td]:break-words [&_th]:break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                          {renderMarkdown(section.body)}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              ) : null}
+            </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

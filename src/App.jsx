@@ -1040,12 +1040,14 @@ export default function App() {
               setIsSettingsOpen(true);
             }} />
           ) : currentView === 'manual' ? (
-            <ModeEmploi onBack={() => {
-              setCurrentView('home');
-              window.location.hash = '';
-              setSettingsDefaultTab('preferences');
-              setIsSettingsOpen(true);
-            }} />
+            <div className="w-full min-w-0 overflow-x-hidden">
+              <ModeEmploi onBack={() => {
+                setCurrentView('home');
+                window.location.hash = '';
+                setSettingsDefaultTab('preferences');
+                setIsSettingsOpen(true);
+              }} />
+            </div>
           ) : currentView === 'join' ? (
             (() => {
               console.log('[App] ✅✅✅ RENDERING EventJoin component, currentView:', currentView);
