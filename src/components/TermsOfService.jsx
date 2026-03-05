@@ -142,6 +142,9 @@ export function TermsOfService({ onBack }) {
           <p className="text-muted-foreground">
             {t('termsDeletion1')}
           </p>
+          <p className="text-muted-foreground">
+            {t('termsDeletion2')}
+          </p>
         </CardContent>
       </Card>
     </div>

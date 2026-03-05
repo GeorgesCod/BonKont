@@ -187,8 +187,9 @@ const translations = {
     termsClosure1: 'les données sont figées',
     termsClosure2: 'un récapitulatif final est généré',
     termsClosure3: 'la répartition est considérée comme acceptée collectivement',
-    termsDeletionTitle: '6. Suppression de compte',
+    termsDeletionTitle: '6. Suppression de compte et d\'événement',
     termsDeletion1: 'L\'utilisateur peut supprimer son compte à tout moment depuis les paramètres.',
+    termsDeletion2: 'La suppression définitive d\'un événement est réservée à l\'organisateur. Elle n\'est possible qu\'après clôture validée (délai H+48, validations collectives, finalisation), depuis la page Clôture événementielle, avec reconnexion (email et mot de passe) pour confirmer l\'identité.',
     // FAQ
     faqTitle: 'Questions fréquentes',
     faqQ1: 'Qu\'est-ce que Bonkont ?',
@@ -211,6 +212,8 @@ const translations = {
     faqA9: 'Votre demande a été envoyée à l\'organisateur. Vous recevrez une notification une fois accepté(e). En attendant, vous pouvez consulter les détails de l\'événement mais vous ne pouvez pas effectuer d\'actions financières.',
     faqQ10: 'Puis-je créer plusieurs événements en même temps ?',
     faqA10: 'Non. Vous ne pouvez pas créer ou participer à plusieurs événements qui se chevauchent dans le temps. Une personne ne peut pas être à deux endroits différents en même temps. Le système vérifie automatiquement les conflits de dates.',
+    faqQ11: 'Qui peut supprimer un événement et quand ?',
+    faqA11: 'Seul l\'organisateur peut supprimer définitivement un événement, et uniquement après que la clôture soit complète : délai H+48 écoulé, validations collectives de tous les participants, puis « Finaliser ensemble » (comptes figés). La suppression se fait depuis la page Clôture événementielle, section « Suppression définitive », avec reconnexion (email et mot de passe) pour confirmer l\'identité.',
     // Contact
     contactTitle: 'Contact',
     contactQuestion: 'Une question, une remarque ou un problème ?',
@@ -462,8 +465,9 @@ const translations = {
     termsClosure1: 'data is frozen',
     termsClosure2: 'a final summary is generated',
     termsClosure3: 'the distribution is considered collectively accepted',
-    termsDeletionTitle: '6. Account Deletion',
+    termsDeletionTitle: '6. Account and event deletion',
     termsDeletion1: 'The user can delete their account at any time from the settings.',
+    termsDeletion2: 'Permanent deletion of an event is reserved for the organizer. It is only possible after validated closure (H+48 period, collective validations, finalization), from the Event closure page, with re-login (email and password) to confirm identity.',
     // FAQ
     faqTitle: 'Frequently Asked Questions',
     faqQ1: 'What is Bonkont?',
@@ -486,6 +490,8 @@ const translations = {
     faqA9: 'Your request has been sent to the organizer. You will receive a notification once accepted. In the meantime, you can view event details but cannot perform financial actions.',
     faqQ10: 'Can I create multiple events at the same time?',
     faqA10: 'No. You cannot create or participate in multiple events that overlap in time. A person cannot be in two different places at the same time. The system automatically checks for date conflicts.',
+    faqQ11: 'Who can delete an event and when?',
+    faqA11: 'Only the organizer can permanently delete an event, and only after closure is complete: H+48 period elapsed, collective validations by all participants, then « Finalize together » (accounts frozen). Deletion is done from the Event closure page, « Permanent deletion » section, with re-login (email and password) to confirm identity.',
     // Contact
     contactTitle: 'Contact',
     contactQuestion: 'A question, a remark or a problem?',

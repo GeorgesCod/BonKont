@@ -224,6 +224,17 @@ Closure **locks** the event and produces a **final shared summary** (PDF). It is
 - A **PDF** can be **downloaded**: titled e.g. "Event Closure", it contains the balance details (Contribution, Advanced, Consumed, Stake, Balance), collective validations and any warnings (incomplete split, etc.).
 - This PDF serves as **shared proof** for reimbursements between participants.
 
+### 6.5 Permanent deletion of the event
+
+**Permanent deletion** of an event (erasure from the database of all data: event, participants, transactions) is only possible under the following conditions:
+
+- **Required journey**: the event must have been **fully closed**: reflection period (H+48) elapsed, **collective validations** completed by all participants, then **Finalize together** clicked (accounts frozen).
+- **Who can delete**: **only the organizer** of the event (identified by their account).
+- **Where**: in the **Event closure** section, “Permanent deletion” subsection, after closure has been validated.
+- **Identity confirmation**: to avoid any rash deletion, the organizer must **reconfirm their identity** by logging in again with their **email and password** before deletion is executed.
+
+No deletion is possible before this journey (H+48 period, collective validations, finalization) is completed. Deletion is **irreversible**.
+
 ---
 
 ## 7. Settings and help
@@ -270,6 +281,9 @@ The full detail (examples, partial cases, pot contribution, direct transfers, po
 
 - **Multiple events at the same time?**  
   You cannot create or join several events that **overlap in time** (one person cannot be in two places at once); the system checks for date conflicts.
+
+- **Who can delete an event and when?**  
+  Only the **organizer** can permanently delete an event, and **only after** closure is complete: H+48 period elapsed, collective validations by all participants, then “Finalize together” clicked (accounts frozen). Deletion is done from the **Event closure** page, “Permanent deletion” section, with re-login (email and password) to confirm identity.
 
 ---
 

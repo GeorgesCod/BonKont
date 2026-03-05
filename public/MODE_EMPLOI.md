@@ -221,7 +221,7 @@ La clôture **fige** l’événement et produit un **récapitulatif final** part
 ### 6.4 Récapitulatif et PDF
 
 - Un **récapitulatif final** est affiché : soldes par participant, transferts à effectuer, état d’équilibre.
-- Un **PDF** peut être **téléchargé** : intitulé type « Clôture Évènementielle », il contient le détail des soldes (Contribution, Avancé, Consommé, Mise, Solde), les validations collectives et les éventuels avertissements (répartition incomplète, etc.).
+- Un **PDF** peut être **téléchargé** : intitulé type « Clôture événementielle », il contient le détail des soldes (Contribution, Avancé, Consommé, Mise, Solde), les validations collectives et les éventuels avertissements (répartition incomplète, etc.).
 - Ce PDF sert de **preuve partagée** pour les remboursements à faire entre participants.
 
 ---

@@ -26,7 +26,6 @@ import {
   ArrowRight,
   Timer,
   History,
-  Trash2,
   CreditCard,
   ArrowLeft,
   Wallet,
@@ -74,7 +73,6 @@ export function EventDashboard({ onShowHistory, onBack }) {
   const events = useEventStore((state) => state.events);
   const setEvents = useEventStore((state) => state.setEvents);
   const updateEvent = useEventStore((state) => state.updateEvent);
-  const deleteEvent = useEventStore((state) => state.deleteEvent);
   const updateParticipant = useEventStore((state) => state.updateParticipant);
   
   // Synchroniser le tableau de bord : événements où l'utilisateur est organisateur + conserver ceux où il est participant accepté
@@ -468,14 +466,6 @@ Merci de votre attention.
         return prev.filter(id => String(id) !== idStr);
       }
       return [...prev, idStr];
-    });
-  };
-
-  const handleDeleteEvent = (eventId) => {
-    deleteEvent(eventId);
-    toast({
-      title: "Événement supprimé",
-      description: "L'événement a été supprimé avec succès."
     });
   };
 
@@ -978,19 +968,6 @@ setPaymentMethod('card');
   >
     <Bell className="w-4 h-4" />
     Envoyer un rappel
-  </Button>
-
-  {/* Supprimer */}
-  <Button
-    variant="outline"
-    className="gap-2 neon-border text-destructive"
-    onClick={() => {
-      console.log('[EventDashboard] Delete button clicked for event:', event.id);
-      handleDeleteEvent(event.id);
-    }}
-  >
-    <Trash2 className="w-4 h-4" />
-    Supprimer
   </Button>
 </div>
 

@@ -49,6 +49,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { EventLocation } from '@/components/EventLocation';
+import { fetchPointsOfInterestOSM } from '@/services/placesApi';
 import { EventTicketScanner } from '@/components/EventTicketScanner';
 import { InviteFriends } from '@/components/InviteFriends';
 import { format } from 'date-fns';
@@ -103,6 +104,9 @@ export function EventManagement({ eventId, onBack }) {
   const [firestoreJoinRequests, setFirestoreJoinRequests] = useState([]);
   const [loadingJoinRequests, setLoadingJoinRequests] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [fetchedPOI, setFetchedPOI] = useState([]);
+  const [fetchedPOICoords, setFetchedPOICoords] = useState(null);
+  const [isLoadingSpots, setIsLoadingSpots] = useState(false);
   const joinRequestsRef = useRef([]);
   const acceptHandlersRef = useRef(new Map());
   const rejectHandlersRef = useRef(new Map());
@@ -997,14 +1001,61 @@ export function EventManagement({ eventId, onBack }) {
     return R * c;
   };
 
-  // Utiliser UNIQUEMENT les points d'intérêt réels sauvegardés dans l'événement
-  // Pas de fallback avec des points génériques
-  const locationPOI = event.location?.pointsOfInterest || [];
-  const eventCoords = event.location?.coordinates;
-  
-  // Trier par rating décroissant et limiter aux 3-5 meilleurs
+  // Points d'intérêt : sauvegardés dans l'événement, ou chargés à la volée (coords ou adresse géocodée)
+  const savedPOI = event.location?.pointsOfInterest;
+  const hasCoords = event.location?.coordinates && typeof event.location.coordinates.lat === 'number' && typeof event.location.coordinates.lng === 'number';
+  const addressStr = !event?.location ? '' : (typeof event.location === 'string' ? event.location : (event.location.address || event.location.displayName || ''));
+  const hasAddressOnly = addressStr.trim().length > 0 && !hasCoords;
+  const locationPOI = (savedPOI && savedPOI.length > 0) ? savedPOI : fetchedPOI;
+  const eventCoords = event.location?.coordinates || fetchedPOICoords;
+
+  // Charger les POI via OSM uniquement (gratuit). La géoloc du lieu peut être Google ou Nominatim.
+  useEffect(() => {
+    if (!event?.location || (savedPOI && savedPOI.length > 0)) return;
+    if (!hasCoords && !hasAddressOnly) return;
+
+    let cancelled = false;
+    setIsLoadingSpots(true);
+    setFetchedPOI([]);
+    setFetchedPOICoords(null);
+
+    const run = async () => {
+      let coords = null;
+      if (hasCoords) {
+        coords = event.location.coordinates;
+      } else if (hasAddressOnly) {
+        try {
+          const q = encodeURIComponent(addressStr.trim());
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`, {
+            headers: { Accept: 'application/json', 'User-Agent': 'BonKont-App' }
+          });
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+          }
+        } catch (e) {
+          console.warn('[EventManagement] Geocode for POI failed:', e);
+        }
+      }
+
+      if (cancelled || !coords) {
+        if (!cancelled) setIsLoadingSpots(false);
+        return;
+      }
+      if (!hasCoords && coords) setFetchedPOICoords(coords);
+
+      const poi = await fetchPointsOfInterestOSM(coords);
+      if (!cancelled) setFetchedPOI(poi || []);
+      if (!cancelled) setIsLoadingSpots(false);
+    };
+
+    run();
+    return () => { cancelled = true; };
+  }, [event?.id, hasCoords, hasAddressOnly, addressStr, savedPOI?.length]);
+
+  // Trier par rating décroissant (OSM n'a pas de note, on les garde) et limiter aux 5 meilleurs
   const spots = locationPOI
-    .filter(poi => poi.rating && poi.rating >= 3.5) // Filtrer les points avec au moins 2 avis (rating >= 3.5)
+    .filter(poi => poi.name && (poi.rating == null || poi.rating === 0 || poi.rating >= 3.5))
     .sort((a, b) => {
       // Trier par rating décroissant, puis par nombre d'avis
       if (b.rating !== a.rating) return b.rating - a.rating;
@@ -2871,13 +2922,20 @@ export function EventManagement({ eventId, onBack }) {
           <Star className="w-5 h-5 text-primary" />
           Meilleurs spots à visiter
         </h3>
-        {spots.length === 0 ? (
+        {isLoadingSpots ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
+            <p>Recherche des points d'intérêt à proximité...</p>
+          </div>
+        ) : spots.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-muted-foreground mb-2">
               Aucun point d'intérêt trouvé avec au moins 2 avis
             </p>
             <p className="text-sm text-muted-foreground">
-              Les points d'intérêt seront affichés ici une fois la localisation complète avec coordonnées GPS.
+              {(hasCoords || hasAddressOnly)
+                ? 'Aucun spot trouvé à proximité (rayon 2,5 km).'
+                : 'Les points d\'intérêt seront affichés ici une fois la localisation complète avec coordonnées GPS.'}
             </p>
           </div>
         ) : (
@@ -2903,7 +2961,7 @@ export function EventManagement({ eventId, onBack }) {
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                        <span>{spot.rating}</span>
+                        <span>{spot.rating && spot.rating >= 0.5 ? spot.rating : '—'}</span>
                       </div>
                       {spot.totalReviews >= 2 && (
                         <div className="flex items-center gap-1">

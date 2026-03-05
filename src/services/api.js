@@ -29,5 +29,6 @@ export {
   getTransactionsFromFirestore,
   listenEventTransactions,
   updateTransactionInFirestore,
-  deleteTransactionInFirestore
+  deleteTransactionInFirestore,
+  deleteEventInFirestore
 } from './firestoreService';

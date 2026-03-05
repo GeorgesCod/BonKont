@@ -221,8 +221,19 @@ La clôture **fige** l'événement et produit un **récapitulatif final** partag
 ### 6.4 Récapitulatif et PDF
 
 - Un **récapitulatif final** est affiché : soldes par participant, transferts à effectuer, état d'équilibre.
-- Un **PDF** peut être **téléchargé** : intitulé type « Clôture Évènementielle », il contient le détail des soldes (Contribution, Avancé, Consommé, Mise, Solde), les validations collectives et les éventuels avertissements (répartition incomplète, etc.).
+- Un **PDF** peut être **téléchargé** : intitulé type « Clôture événementielle », il contient le détail des soldes (Contribution, Avancé, Consommé, Mise, Solde), les validations collectives et les éventuels avertissements (répartition incomplète, etc.).
 - Ce PDF sert de **preuve partagée** pour les remboursements à faire entre participants.
+
+### 6.5 Suppression définitive de l'événement
+
+La **suppression définitive** d'un événement (effacement en base de toutes les données : événement, participants, transactions) est possible **uniquement** dans le cadre suivant :
+
+- **Parcours obligatoire** : l'événement doit avoir été **entièrement clôturé** : délai de réflexion (H+48) écoulé, **validations collectives** effectuées par tous les participants, puis **Finaliser ensemble** cliqué (comptes figés).
+- **Qui peut supprimer** : **uniquement l'organisateur** de l'événement (identifié par son compte).
+- **Où** : dans la rubrique **Clôture événementielle**, section « Suppression définitive », après que la clôture soit validée.
+- **Confirmation d'identité** : pour éviter toute suppression intempestive, l'organisateur doit **reconfirmer son identité** en se reconnectant avec son **email et son mot de passe** avant que la suppression soit exécutée.
+
+Aucune suppression n'est possible avant que ce parcours (délai H+48, validations collectives, finalisation) soit respecté. La suppression est **irréversible**.
 
 ---
 
@@ -270,6 +281,9 @@ Le détail complet (exemples, cas partiels, contribution au pot, transferts dire
 
 - **Plusieurs événements en même temps ?**  
   Vous ne pouvez pas créer ou participer à plusieurs événements qui se **chevauchent dans le temps** (une personne ne peut pas être à deux endroits en même temps) ; le système vérifie les conflits de dates.
+
+- **Qui peut supprimer un événement et quand ?**  
+  Seul l'**organisateur** peut supprimer définitivement un événement, et **uniquement après** que la clôture soit complète : délai H+48 écoulé, validations collectives de tous les participants, puis clic sur « Finaliser ensemble » (comptes figés). La suppression se fait depuis la page **Clôture événementielle**, section « Suppression définitive », avec reconnexion (email et mot de passe) pour confirmer l'identité.
 
 ---
 

@@ -44,7 +44,8 @@ import {
   Smile,
   HelpCircle,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Trash2
 } from 'lucide-react';
 import { computeBalances, computeTransfers, formatBalance, getParticipantTransfers, getExpenseTraceability } from '@/utils/bonkontBalances';
 import { useToast } from '@/hooks/use-toast';
@@ -58,12 +59,18 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { getAuthApp } from '@/lib/firebase';
+import { reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
+import { deleteEventInFirestore, updateEventInFirestore } from '@/services/api';
 
 export function EventClosure({ eventId, onBack }) {
   const { toast } = useToast();
   const allEvents = useEventStore((state) => state.events);
   const updateEvent = useEventStore((state) => state.updateEvent);
   const addRating = useEventStore((state) => state.addRating);
+  const deleteEvent = useEventStore((state) => state.deleteEvent);
   const event = allEvents.find(e => String(e.id) === String(eventId) || (e.firestoreId && String(e.firestoreId) === String(eventId)));
   const { transactions, effectiveEventId } = useEventTransactions(event);
   const eventForCalc = useMemo(
@@ -80,7 +87,25 @@ export function EventClosure({ eventId, onBack }) {
   const [ratingParticipantId, setRatingParticipantId] = useState(null);
   const [accordionValue, setAccordionValue] = useState(['closure', 'final-balances']); // Par défaut, Clôture et Soldes finaux ouverts
   const [showHelpIncompleteDistribution, setShowHelpIncompleteDistribution] = useState(false);
-  
+  const [showDeleteEventDialog, setShowDeleteEventDialog] = useState(false);
+  const [deleteEventEmail, setDeleteEventEmail] = useState('');
+  const [deleteEventPassword, setDeleteEventPassword] = useState('');
+  const [isDeletingEvent, setIsDeletingEvent] = useState(false);
+
+  const currentUserData = typeof window !== 'undefined' ? localStorage.getItem('bonkont-user') : null;
+  const currentUserEmail = currentUserData ? (() => { try { return (JSON.parse(currentUserData).email || '').trim().toLowerCase(); } catch { return ''; } })() : '';
+  const isOrganizer = !!(event?.organizerId && currentUserEmail && (event.organizerId || '').toString().trim().toLowerCase() === currentUserEmail);
+
+  /** Clôture validée : état local ou restitué depuis Firestore (pour affichage en production après sync). */
+  const effectiveValidated = isValidated || event?.closureValidated === true;
+
+  // Ouvrir automatiquement la section Finalisation quand clôture validée + organisateur (pour afficher "Supprimer" sans clic)
+  useEffect(() => {
+    if (effectiveValidated && isOrganizer) {
+      setAccordionValue((prev) => (prev.includes('finalization') ? prev : [...prev, 'finalization']));
+    }
+  }, [effectiveValidated, isOrganizer]);
+
   // Calculer la date de fin de l'événement (startDate + deadline jours)
   // Puis H+48 (fin + 48 heures)
   const calculateClosureDeadline = () => {
@@ -218,17 +243,22 @@ export function EventClosure({ eventId, onBack }) {
       doc.setFontSize(24);
       doc.setTextColor(99, 102, 241);
       doc.setFont(undefined, 'bold');
-      doc.text('Clôture Évènementielle', margin, yPosition);
+      doc.text('Clôture événementielle', margin, yPosition);
       yPosition += 12;
       
-      // Badge "FIGÉ / SIGNÉ"
-      if (isValidated) {
-        doc.setFillColor(34, 197, 94); // Vert
-        doc.roundedRect(margin, yPosition, 50, 8, 2, 2, 'F');
-        doc.setTextColor(255, 255, 255);
+      // Badge "CLÔTURE VALIDÉE ET FIGÉE"
+      if (effectiveValidated) {
+        const badgeText = 'CLÔTURE VALIDÉE ET FIGÉE';
+        const paddingX = 4;
         doc.setFontSize(10);
         doc.setFont(undefined, 'bold');
-        doc.text('🟢 CLÔTURE VALIDÉE ET FIGÉE', margin + 2, yPosition + 6);
+        const textWidth = doc.getTextWidth(badgeText);
+        const badgeWidth = textWidth + paddingX * 2;
+
+        doc.setFillColor(34, 197, 94); // Vert
+        doc.roundedRect(margin, yPosition, badgeWidth, 8, 2, 2, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.text(badgeText, margin + paddingX, yPosition + 6);
         yPosition += 12;
       }
       
@@ -248,7 +278,7 @@ export function EventClosure({ eventId, onBack }) {
       yPosition += 10;
       
       // ===== SIGNATURES DE VALIDATION =====
-      if (isValidated && event.closureValidatedBy) {
+      if (effectiveValidated && event.closureValidatedBy) {
         checkNewPage(25);
         doc.setFontSize(14);
         doc.setTextColor(99, 102, 241);
@@ -811,7 +841,7 @@ export function EventClosure({ eventId, onBack }) {
       addFooter();
       
       // Ajouter mention de validation si applicable
-      if (isValidated) {
+      if (effectiveValidated) {
       const pageCount = doc.internal.pages.length - 1;
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
@@ -824,7 +854,7 @@ export function EventClosure({ eventId, onBack }) {
         }
       }
       
-      const fileName = isValidated 
+      const fileName = effectiveValidated 
         ? `BONKONT-CLOSURE-FINAL-${event.code}-${format(new Date(), 'yyyy-MM-dd')}.pdf`
         : `BONKONT-CLOSURE-${event.code}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
       const pdfBlob = doc.output('blob');
@@ -832,8 +862,8 @@ export function EventClosure({ eventId, onBack }) {
       window.open(pdfUrl, '_blank');
       
       toast({
-        title: isValidated ? "📄 PDF final exporté" : "PDF exporté",
-        description: isValidated 
+        title: effectiveValidated ? "📄 PDF final exporté" : "PDF exporté",
+        description: effectiveValidated 
           ? `Le document de clôture final (signé et figé) a été généré avec succès.`
           : `Le document de clôture a été généré avec succès.`,
       });
@@ -864,7 +894,7 @@ export function EventClosure({ eventId, onBack }) {
         <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
           <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold gradient-text truncate">
-              Clôture Évènementielle
+              Clôture événementielle
             </h1>
             <p className="text-sm sm:text-base text-muted-foreground truncate">
               {event.title} - Transparence et répartition finale
@@ -877,7 +907,7 @@ export function EventClosure({ eventId, onBack }) {
           </Badge>
           <Button variant="outline" className="gap-2" onClick={handleExportClosurePDF}>
             <FileText className="w-4 h-4" />
-            {isValidated ? 'Export PDF Final' : 'Export PDF'}
+            {effectiveValidated ? 'Export PDF Final' : 'Export PDF'}
           </Button>
         </div>
       </div>
@@ -891,7 +921,7 @@ export function EventClosure({ eventId, onBack }) {
             <div className="flex items-center gap-2">
               <Lock className="w-5 h-5 text-primary" />
               <h2 className="text-xl font-semibold">Clôture</h2>
-              {isValidated && (
+              {effectiveValidated && (
                 <Badge variant="outline" className="bg-green-50 dark:bg-green-950/20 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 ml-2">
                   Validée
                 </Badge>
@@ -903,7 +933,7 @@ export function EventClosure({ eventId, onBack }) {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {isValidated ? (
+              {effectiveValidated ? (
                 <>
                   <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
                   <div>
@@ -932,7 +962,7 @@ export function EventClosure({ eventId, onBack }) {
           </div>
           
           {/* Signatures et délai */}
-          {!isValidated && (
+          {!effectiveValidated && (
             <div className="space-y-3 pt-3 border-t">
               {/* Compteur H+48 */}
               {closureDeadline && (
@@ -1456,16 +1486,21 @@ export function EventClosure({ eventId, onBack }) {
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-primary" />
               <h2 className="text-xl font-semibold">Finalisation</h2>
-              {!isValidated && (
+              {!effectiveValidated && (
                 <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 ml-2">
                   En attente
+                </Badge>
+              )}
+              {effectiveValidated && isOrganizer && (
+                <Badge variant="outline" className="bg-destructive/10 border-destructive/30 text-destructive ml-2">
+                  Supprimer
                 </Badge>
               )}
             </div>
           </AccordionTrigger>
           <AccordionContent className="pt-4 pb-6">
       {/* Bouton de validation de clôture */}
-      {!isValidated && (
+      {!effectiveValidated && (
         <Card className="p-6 neon-border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
@@ -1592,6 +1627,41 @@ export function EventClosure({ eventId, onBack }) {
               </div>
             )}
           </div>
+        </Card>
+      )}
+
+      {/* Clôture validée : message pour tous, puis bloc Suppression pour l'organisateur uniquement */}
+      {effectiveValidated && !isOrganizer && (
+        <Card className="p-6 mt-6 border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+            <div>
+              <p className="font-medium text-green-900 dark:text-green-100">Clôture validée</p>
+              <p className="text-sm text-muted-foreground mt-1">Les comptes sont figés. Merci d&apos;avoir partagé ce moment ensemble.</p>
+            </div>
+          </div>
+        </Card>
+      )}
+      {effectiveValidated && isOrganizer && (
+        <Card className="p-6 border-destructive/30 bg-destructive/5 mt-6">
+          <p className="text-sm text-muted-foreground mb-4">
+            Une fois tout clôturé et figé, l&apos;organisateur peut supprimer définitivement l&apos;événement de la base. Cette action est irréversible : l&apos;événement et toutes les données associées (participants, transactions) seront effacés.
+          </p>
+          <p className="text-sm font-medium text-destructive mb-2">
+            La suppression définitive est réservée à l&apos;organisateur, exclusivement. Elle ne peut être effectuée qu&apos;après clôture validée, sur cette page, en confirmant son identité par connexion (email et mot de passe).
+          </p>
+          <Button
+            variant="destructive"
+            className="gap-2"
+            onClick={() => {
+              setDeleteEventEmail('');
+              setDeleteEventPassword('');
+              setShowDeleteEventDialog(true);
+            }}
+          >
+            <Trash2 className="w-4 h-4" />
+            Supprimer définitivement l&apos;événement
+          </Button>
         </Card>
       )}
           </AccordionContent>
@@ -1802,14 +1872,26 @@ export function EventClosure({ eventId, onBack }) {
                 }
                 
                 // Toutes les vérifications sont passées, on peut finaliser
-                updateEvent(eventId, {
+                const closurePayload = {
                   closureValidated: true,
                   closureDate: new Date(),
                   closureValidatedBy: closureSignatures,
                   status: 'completed'
-                });
+                };
+                updateEvent(eventId, closurePayload);
                 setIsValidated(true);
                 setShowValidationDialog(false);
+                const firestoreEventId = effectiveEventId || event?.firestoreId || eventId;
+                if (firestoreEventId) {
+                  updateEventInFirestore(firestoreEventId, closurePayload).catch((err) => {
+                    console.error('[EventClosure] updateEventInFirestore:', err);
+                    toast({
+                      variant: 'destructive',
+                      title: 'Enregistrement en base',
+                      description: 'La clôture n\'a pas pu être enregistrée en base. Elle reste valide sur cet appareil.',
+                    });
+                  });
+                }
                 toast({
                   title: "🎉 C'est finalisé !",
                   description: "Les comptes sont clos. Merci d'avoir partagé ce moment ensemble !",
@@ -1819,6 +1901,89 @@ export function EventClosure({ eventId, onBack }) {
             >
               <span className="text-lg mr-2">🎊</span>
               Finaliser ensemble
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog suppression définitive : re-auth organisateur (email + mot de passe) */}
+      <AlertDialog open={showDeleteEventDialog} onOpenChange={(open) => { if (!isDeletingEvent) setShowDeleteEventDialog(open); }}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-5 h-5" />
+              Supprimer définitivement l&apos;événement
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4 pt-2">
+                <p className="text-sm text-muted-foreground">
+                  Seul l&apos;organisateur peut supprimer cet événement. Pour confirmer votre identité, reconnectez-vous avec votre email et mot de passe.
+                </p>
+                <div className="space-y-2">
+                  <Label htmlFor="delete-event-email">Email</Label>
+                  <Input
+                    id="delete-event-email"
+                    type="email"
+                    placeholder="votre@email.fr"
+                    value={deleteEventEmail}
+                    onChange={(e) => setDeleteEventEmail(e.target.value)}
+                    disabled={isDeletingEvent}
+                    autoComplete="email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="delete-event-password">Mot de passe</Label>
+                  <Input
+                    id="delete-event-password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={deleteEventPassword}
+                    onChange={(e) => setDeleteEventPassword(e.target.value)}
+                    disabled={isDeletingEvent}
+                    autoComplete="current-password"
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingEvent}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeletingEvent || !deleteEventEmail.trim() || !deleteEventPassword}
+              onClick={async () => {
+                const email = deleteEventEmail.trim().toLowerCase();
+                const password = deleteEventPassword;
+                if (!email || !password || !event?.organizerId || !effectiveEventId) return;
+                setIsDeletingEvent(true);
+                try {
+                  const auth = getAuthApp();
+                  const user = auth?.currentUser;
+                  if (!user) {
+                    toast({ variant: 'destructive', title: 'Non connecté', description: 'Vous devez être connecté pour supprimer l\'événement.' });
+                    setIsDeletingEvent(false);
+                    return;
+                  }
+                  const credential = EmailAuthProvider.credential(email, password);
+                  await reauthenticateWithCredential(user, credential);
+                  const organizerId = (event.organizerId || '').toString().trim();
+                  await deleteEventInFirestore(effectiveEventId, organizerId);
+                  deleteEvent(event.id);
+                  setShowDeleteEventDialog(false);
+                  setDeleteEventEmail('');
+                  setDeleteEventPassword('');
+                  toast({ title: 'Événement supprimé', description: 'L\'événement a été supprimé définitivement.' });
+                  onBack?.();
+                } catch (err) {
+                  console.error('[EventClosure] Delete event error:', err);
+                  const msg = err?.message || 'Erreur lors de la suppression.';
+                  toast({ variant: 'destructive', title: 'Erreur', description: msg });
+                } finally {
+                  setIsDeletingEvent(false);
+                }
+              }}
+            >
+              {isDeletingEvent ? 'Suppression…' : 'Supprimer définitivement'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

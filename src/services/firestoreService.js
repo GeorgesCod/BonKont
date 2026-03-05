@@ -373,6 +373,18 @@ export async function getEventById(firestoreEventId) {
     const amount = (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1);
     const remainingAmount = eventData.remainingAmount != null ? Number(eventData.remainingAmount) : Math.max(0, amount - totalPaid);
     const status = eventData.status && eventData.status !== 'open' ? eventData.status : (totalPaid >= amount - 0.01 ? 'completed' : 'active');
+    const closureValidatedBy = eventData.closureValidatedBy && typeof eventData.closureValidatedBy === 'object'
+      ? (() => {
+          const by = eventData.closureValidatedBy;
+          const out = {};
+          for (const k of Object.keys(by)) {
+            const v = by[k];
+            out[k] = { ...v, signedAt: v?.signedAt ? convertFirestoreDate(v.signedAt) : v?.signedAt };
+          }
+          return out;
+        })()
+      : undefined;
+
     return {
       id: eventSnap.id,
       code: eventData.code,
@@ -391,7 +403,10 @@ export async function getEventById(firestoreEventId) {
       participants,
       status,
       createdAt: convertFirestoreDate(eventData.createdAt),
-      closedAt: eventData.closedAt ? convertFirestoreDate(eventData.closedAt) : null
+      closedAt: eventData.closedAt ? convertFirestoreDate(eventData.closedAt) : null,
+      closureValidated: eventData.closureValidated === true,
+      closureDate: eventData.closureDate ? convertFirestoreDate(eventData.closureDate) : null,
+      closureValidatedBy
     };
   } catch (err) {
     console.warn('[Firestore] getEventById:', err);
@@ -1028,7 +1043,7 @@ export async function updateParticipantInFirestore(eventId, participantId, updat
 }
 
 /**
- * Met à jour le document événement dans Firestore (totalPaid, remainingAmount, status).
+ * Met à jour le document événement dans Firestore (totalPaid, remainingAmount, status, clôture).
  * Ne modifie jamais organizerId/organizerName (contrat Firestore).
  * Pour restitution fidèle des données saisies.
  */
@@ -1040,10 +1055,25 @@ export async function updateEventInFirestore(eventId, updates) {
     if (updates.totalPaid !== undefined) payload.totalPaid = Number(updates.totalPaid);
     if (updates.remainingAmount !== undefined) payload.remainingAmount = Number(updates.remainingAmount);
     if (updates.status !== undefined) payload.status = String(updates.status);
+    if (updates.closureValidated !== undefined) payload.closureValidated = !!updates.closureValidated;
+    if (updates.closureDate !== undefined) payload.closureDate = toFirestoreDate(updates.closureDate instanceof Date ? updates.closureDate : new Date(updates.closureDate));
+    if (updates.closureValidatedBy !== undefined && updates.closureValidatedBy && typeof updates.closureValidatedBy === 'object') {
+      const by = updates.closureValidatedBy;
+      const out = {};
+      for (const k of Object.keys(by)) {
+        const v = by[k];
+        out[k] = {
+          participantName: v?.participantName || '',
+          signedAt: v?.signedAt ? toFirestoreDate(v.signedAt instanceof Date ? v.signedAt : new Date(v.signedAt)) : null
+        };
+      }
+      payload.closureValidatedBy = out;
+    }
     if (Object.keys(payload).length === 0) return;
     await updateDoc(eventRef, payload);
   } catch (err) {
     console.warn('[Firestore] updateEventInFirestore:', err);
+    throw err;
   }
 }
 
@@ -1201,6 +1231,48 @@ export async function deleteTransactionInFirestore(eventId, transactionId) {
     console.warn('[Firestore] deleteTransactionInFirestore:', err);
     throw err;
   }
+}
+
+const FIRESTORE_BATCH_SIZE = 500;
+
+/**
+ * Supprime définitivement un événement dans Firestore (document + sous-collections).
+ * Réservé à l'organisateur : vérifie que organizerId du document correspond à l'appelant.
+ * @param {string} eventId - ID Firestore de l'événement
+ * @param {string} organizerId - ID de l'organisateur (doit correspondre à l'événement)
+ * @returns {Promise<void>}
+ */
+export async function deleteEventInFirestore(eventId, organizerId) {
+  if (!eventId || !organizerId) {
+    throw new Error('eventId et organizerId sont requis pour supprimer l\'événement.');
+  }
+  const eventDocRef = doc(db, 'events', String(eventId));
+  const eventSnap = await getDoc(eventDocRef);
+  if (!eventSnap.exists()) {
+    throw new Error('L\'événement n\'existe pas.');
+  }
+  const eventData = eventSnap.data();
+  const eventOrganizerId = (eventData.organizerId || '').toString().trim().toLowerCase();
+  const providedOrganizerId = (organizerId || '').toString().trim().toLowerCase();
+  if (eventOrganizerId !== providedOrganizerId) {
+    throw new Error('Seul l\'organisateur peut supprimer cet événement.');
+  }
+
+  const deleteCollection = async (ref) => {
+    for (;;) {
+      const snap = await getDocs(ref);
+      if (snap.empty) break;
+      const batch = writeBatch(db);
+      snap.docs.slice(0, FIRESTORE_BATCH_SIZE).forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+  };
+
+  const eventIdStr = String(eventId);
+  await deleteCollection(collection(db, 'events', eventIdStr, 'participants'));
+  await deleteCollection(collection(db, 'events', eventIdStr, 'transactions'));
+  await deleteCollection(collection(db, 'events', eventIdStr, 'joinRequests'));
+  await deleteDoc(eventDocRef);
 }
 
 /**
@@ -1495,12 +1567,24 @@ export async function getEventsByOrganizer(organizerId) {
         // L'organisateur doit être créé lors de createEvent
       }
       
-      // Restitution fidèle : totalPaid/remainingAmount/status du doc si présents
+      // Restitution fidèle : totalPaid/remainingAmount/status/closure du doc si présents
       const totalPaidFromParticipants = participants.reduce((sum, p) => sum + (parseFloat(p.paidAmount) || 0), 0);
       const totalPaid = eventData.totalPaid != null ? Number(eventData.totalPaid) : totalPaidFromParticipants;
       const amount = (eventData.targetAmountPerPerson || 0) * (eventData.participantsTarget || 1);
       const remainingAmount = eventData.remainingAmount != null ? Number(eventData.remainingAmount) : Math.max(0, amount - totalPaid);
       const status = eventData.status && eventData.status !== 'open' ? eventData.status : (totalPaid >= amount - 0.01 ? 'completed' : 'active');
+
+      const closureValidatedBy = eventData.closureValidatedBy && typeof eventData.closureValidatedBy === 'object'
+        ? (() => {
+            const by = eventData.closureValidatedBy;
+            const out = {};
+            for (const k of Object.keys(by)) {
+              const v = by[k];
+              out[k] = { ...v, signedAt: v?.signedAt ? (v.signedAt?.toDate ? v.signedAt.toDate() : convertFirestoreDate(v.signedAt)) : v?.signedAt };
+            }
+            return out;
+          })()
+        : undefined;
 
       events.push({
         id: docSnap.id,
@@ -1519,8 +1603,11 @@ export async function getEventsByOrganizer(organizerId) {
         organizerId: eventData.organizerId,
         organizerName: eventData.organizerName || '',
         status,
-        createdAt: eventData.createdAt?.toDate() || new Date(),
-        participants
+        createdAt: eventData.createdAt?.toDate ? eventData.createdAt.toDate() : (eventData.createdAt ? convertFirestoreDate(eventData.createdAt) : new Date()),
+        participants,
+        closureValidated: eventData.closureValidated === true,
+        closureDate: eventData.closureDate ? (eventData.closureDate?.toDate ? eventData.closureDate.toDate() : convertFirestoreDate(eventData.closureDate)) : null,
+        closureValidatedBy
       });
     }
     if (import.meta.env.DEV) {

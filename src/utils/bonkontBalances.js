@@ -1749,9 +1749,37 @@ export function getExpenseTraceability(participantId, event, transactions) {
     if (participantsConcerned.length === 0) return;
     
     const share = amount / participantsConcerned.length;
-    
+
+    // Ce participant est-il le payeur ? Même personne si payerId correspond à l'un des identifiants (id, email, userId)
+    // Inclure aussi les autres entrées "doublon" (même email/userId) pour que le PDF affiche les dépenses au bon nom
+    const norm = (x) => (x || '').toString().trim().toLowerCase();
+    const currentParticipant = event.participants?.find(
+      (p) =>
+        norm(p.id) === norm(participantIdStr) ||
+        norm(p.email) === norm(participantIdStr) ||
+        norm(p.userId) === norm(participantIdStr)
+    );
+    const currentIds = currentParticipant
+      ? [currentParticipant.id, currentParticipant.email, currentParticipant.userId].filter(Boolean).map(norm)
+      : [];
+    const samePersonParticipants = event.participants?.filter((p) =>
+      currentIds.some(
+        (c) =>
+          norm(p.id) === c ||
+          norm(p.email) === c ||
+          norm(p.userId) === c
+      )
+    ) || [];
+    const participantIdentifiers = [...new Set(
+      samePersonParticipants.flatMap((p) => [p.id, p.email, p.userId].filter(Boolean).map((x) => norm(x)))
+    )];
+    const payerIsThisParticipant =
+      participantIdentifiers.length > 0 &&
+      !!payerIdStr &&
+      participantIdentifiers.includes(norm(payerIdStr));
+
     // Dépense avancée par ce participant : montant total si pas de pot, sinon seulement la part non couverte par sa cagnotte (ex. 75€ au pot + 129,60€ dépense → 54,60€ avance)
-    if (payerIdStr === participantIdStr) {
+    if (payerIsThisParticipant) {
       if (!paidByPot) {
         depensesAvancees.push({
           id: transaction.id,

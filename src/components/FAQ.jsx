@@ -1,4 +1,4 @@
-import { ArrowLeft, HelpCircle, Wallet2, UserCircle, Clock, Lock, FileText, QrCode, Users, Calendar } from 'lucide-react';
+import { ArrowLeft, HelpCircle, Wallet2, UserCircle, Clock, Lock, FileText, QrCode, Users, Calendar, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -63,6 +63,11 @@ export function FAQ({ onBack }) {
       question: t('faqQ10'),
       answer: t('faqA10'),
       icon: Calendar,
+    },
+    {
+      question: t('faqQ11'),
+      answer: t('faqA11'),
+      icon: Trash2,
     },
   ];
 
